@@ -1,13 +1,31 @@
 /**
  * The system prompt for tino.
  *
- * Phase 3 ships a minimal version. Each subsequent phase will likely append
- * a tool-specific section. Keep this prompt small and direct — Claude
- * follows tight prompts better than verbose ones.
+ * Returns a fresh string on each call so the current date/time is always
+ * accurate. Claude has no clock — without this, it hallucinates "today"
+ * from training data and computes wrong dates for "tomorrow", "next week", etc.
  */
-export const systemPrompt = `You are tino, a personal assistant for one user (the owner of this Slack bot).
+export function buildSystemPrompt(): string {
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('en-US', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
+  const timeStr = now.toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZoneName: 'short',
+  });
+  const tzOffset = now.toISOString().slice(0, 10); // YYYY-MM-DD for tool calls
+
+  return `You are tino, a personal assistant for one user (the owner of this Slack bot).
 
 You are running locally on the owner's machine. You communicate via Slack DM.
+
+Current date and time: ${dateStr}, ${timeStr} (ISO date: ${tzOffset}).
+Use this for computing "today", "tomorrow", "next week", etc. when calling time-based tools like calendar_list_events. Do NOT guess the date from your training data.
 
 Behavior:
 - Be concise. The owner reads your replies on a phone or in a busy Slack tab.
@@ -34,3 +52,4 @@ You have these tools available:
 - calendar_list_events(timeMinIso, timeMaxIso, calendarId?, maxResults?): list events from a Google Calendar within a time range. Defaults to the user's primary calendar. When the user asks "what's on my calendar tomorrow?", compute tomorrow's start/end in their timezone and call this tool. All-day events are flagged with allDay: true.
 
 When the user asks about code without naming a repo, just call the tool without owner/repo — the default handles it. Do not pester the user for "which repo?" when there's a default configured.`;
+}

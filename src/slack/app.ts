@@ -67,7 +67,30 @@ export function createSlackApp(env: Env, onDmFromOwner: DmHandler, logger: AppLo
     logLevel: LogLevel.WARN, // bolt is chatty on INFO
   });
 
+  // Dedup: Socket Mode can re-deliver events if the handler takes >3s.
+  // Track seen message timestamps to avoid double-processing.
+  const seen = new Set<string>();
+  const SEEN_CAP = 1000; // prevent unbounded growth; old entries don't matter
+
   app.message(async ({ message, say }) => {
+    const ts = (message as Partial<DmMessageEvent>).ts;
+    if (ts) {
+      if (seen.has(ts)) {
+        logger.debug({ ts }, 'duplicate event (already processing), skipped');
+        return;
+      }
+      seen.add(ts);
+      if (seen.size > SEEN_CAP) {
+        // Evict oldest entries. Set iteration order is insertion order.
+        const iter = seen.values();
+        for (let i = 0; i < SEEN_CAP / 2; i++) iter.next();
+        // Rebuild with the newer half
+        const keep = [...seen].slice(SEEN_CAP / 2);
+        seen.clear();
+        for (const k of keep) seen.add(k);
+      }
+    }
+
     await handleDmMessage({
       message: message as Partial<DmMessageEvent>,
       env,

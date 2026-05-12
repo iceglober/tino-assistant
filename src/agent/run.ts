@@ -1,7 +1,7 @@
 import { generateText, stepCountIs, type LanguageModel, type ToolSet } from 'ai';
 import type { HistoryStore } from './history.js';
 import type { AppLogger } from '../slack/app.js';
-import { systemPrompt } from './systemPrompt.js';
+import { buildSystemPrompt } from './systemPrompt.js';
 
 export interface RunAgentParams {
   model: LanguageModel;
@@ -34,7 +34,7 @@ export async function runAgent(params: RunAgentParams): Promise<string> {
   const start = Date.now();
   const result = await generateText({
     model,
-    system: systemPrompt,
+    system: buildSystemPrompt(),
     messages: history.get(userId),
     tools: tools ?? {},
     stopWhen: stepCountIs(10),
