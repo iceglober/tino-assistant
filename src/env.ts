@@ -34,6 +34,10 @@ const EnvSchema = z.object({
   GOOGLE_OAUTH_REFRESH_TOKEN: z.string().min(1).optional(),
 
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']).default('info'),
+
+  // Optional: path to the SQLite database file for conversation history.
+  // Default applied at consumption time: './tino.db'.
+  DB_PATH: z.string().min(1).optional(),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

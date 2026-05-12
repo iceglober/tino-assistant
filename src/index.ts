@@ -3,7 +3,7 @@ import pino from 'pino';
 import { loadEnv } from './env.js';
 import { createSlackApp, type DmHandler } from './slack/app.js';
 import { createBedrockModel } from './agent/bedrock.js';
-import { createHistoryStore } from './agent/history.js';
+import { createSqliteHistoryStore } from './persistence/sqlite.js';
 import { runAgent } from './agent/run.js';
 import { buildTools } from './tools/index.js';
 
@@ -16,7 +16,9 @@ const logger = pino({
 
 const env = loadEnv();
 const model = createBedrockModel(env);
-const history = createHistoryStore({ cap: 40 });
+const dbPath = env.DB_PATH ?? './tino.db';
+const history = createSqliteHistoryStore({ dbPath, cap: 40 });
+logger.info({ dbPath }, 'history store: sqlite');
 const tools = buildTools(env, logger);
 
 const handler: DmHandler = async (userId, text) => {

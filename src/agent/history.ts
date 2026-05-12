@@ -42,7 +42,7 @@ export function createHistoryStore({ cap = 40 }: { cap?: number } = {}): History
  * we don't put a system message into the user-keyed store; the system
  * prompt is passed separately to `generateText({ system: ... })`.
  */
-function trim(messages: ModelMessage[], cap: number): ModelMessage[] {
+export function trim(messages: ModelMessage[], cap: number): ModelMessage[] {
   if (messages.length <= cap) return messages;
 
   let start = messages.length - cap;
