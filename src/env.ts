@@ -34,8 +34,24 @@ const EnvSchema = z.object({
 
 export type Env = z.infer<typeof EnvSchema>;
 
+/**
+ * Strip empty strings from the env bag before validation. dotenv parses
+ * `FOO=` as `process.env.FOO = ""`, which is neither undefined nor a real
+ * value — and `z.string().min(1).optional()` still runs `.min(1)` against
+ * empty strings, so they fail "required" validation even though the field
+ * is optional. Treating `""` as "field is absent" matches what a human
+ * editing .env.example meant when they left the placeholder blank.
+ */
+function stripEmpty(bag: NodeJS.ProcessEnv): Record<string, string | undefined> {
+  const out: Record<string, string | undefined> = {};
+  for (const [k, v] of Object.entries(bag)) {
+    if (v !== undefined && v !== '') out[k] = v;
+  }
+  return out;
+}
+
 export function loadEnv(): Env {
-  const result = EnvSchema.safeParse(process.env);
+  const result = EnvSchema.safeParse(stripEmpty(process.env));
   if (!result.success) {
     const issues = result.error.issues.map(i => `  ${i.path.join('.')}: ${i.message}`).join('\n');
     throw new Error(`Environment validation failed:\n${issues}\n\nSee .env.example for required variables.`);
