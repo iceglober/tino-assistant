@@ -5,6 +5,9 @@ import { createOctokit } from './github/client.js';
 import { githubSearchCodeTool } from './github/search.js';
 import { githubGetFileTool } from './github/getFile.js';
 import { isAllowedRepo, parseRepoSpec, type RepoSpec } from './github/allowlist.js';
+import { createCloudWatchLogsClient } from './cloudwatch/client.js';
+import { cloudwatchLogsQueryTool } from './cloudwatch/query.js';
+import { ALLOWED_LOG_GROUPS } from './cloudwatch/allowlist.js';
 
 /**
  * Build the toolset for `runAgent`.
@@ -29,6 +32,14 @@ export function buildTools(env: Env, logger: AppLogger): ToolSet {
     );
   } catch (err) {
     logger.warn({ err: (err as Error).message }, 'github tools disabled');
+  }
+
+  try {
+    const client = createCloudWatchLogsClient(env);
+    tools['cloudwatch_logs_query'] = cloudwatchLogsQueryTool({ client, logger });
+    logger.info({ allowlistSize: ALLOWED_LOG_GROUPS.length }, 'cloudwatch tools enabled');
+  } catch (err) {
+    logger.warn({ err: (err as Error).message }, 'cloudwatch tools disabled');
   }
 
   return tools;

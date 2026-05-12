@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@ai-sdk/amazon-bedrock": "^4.0.105",
+    "@aws-sdk/client-cloudwatch-logs": "^3.1045.0",
     "@aws-sdk/credential-providers": "^3.1045.0",
     "@octokit/rest": "^22.0.1",
     "@slack/bolt": "^4.7.2",

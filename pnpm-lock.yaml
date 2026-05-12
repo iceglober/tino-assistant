@@ -11,6 +11,9 @@ importers:
       '@ai-sdk/amazon-bedrock':
         specifier: ^4.0.105
         version: 4.0.105(zod@4.4.3)
+      '@aws-sdk/client-cloudwatch-logs':
+        specifier: ^3.1045.0
+        version: 3.1045.0
       '@aws-sdk/credential-providers':
         specifier: ^3.1045.0
         version: 3.1045.0
@@ -101,6 +104,10 @@ packages:
 
   '@aws-crypto/util@5.2.0':
     resolution: {integrity: sha512-4RkU9EsI6ZpBve5fseQlGNUWKMa1RLPQ1dnjnQoe07ldfIzcsGb5hC5W0Dm7u423KWzawlrpbjXBrXCEv9zazQ==}
+
+  '@aws-sdk/client-cloudwatch-logs@3.1045.0':
+    resolution: {integrity: sha512-8p8jQuiIteWVYF7NhNHTXv4I7w6ZsDUWa4S6F+j8XIu8x5t+f38RKusQCHN4z8YEAzHSmg/8eIXkagP6N4UNMw==}
+    engines: {node: '>=20.0.0'}
 
   '@aws-sdk/client-cognito-identity@3.1045.0':
     resolution: {integrity: sha512-3OEn8zvtfJoN0jFfjVJ9jF2GVRDL3IjDfk6CAgVTAqjfCVjajiUD0iFAGQ4cOzdcv1LGsZ0b/snJDWalY3OePQ==}
@@ -599,6 +606,18 @@ packages:
 
   '@smithy/eventstream-codec@4.3.1':
     resolution: {integrity: sha512-yS8AiJM3Kf7LR+lZyUilUyjdJGksAqxfSC3C9k3d1OCrAvWjpMlsJ+rW9cIslZJM4AtWh2UAqgZUWTtMeMdtDQ==}
+    engines: {node: '>=18.0.0'}
+
+  '@smithy/eventstream-serde-browser@4.3.1':
+    resolution: {integrity: sha512-X7MyI1fu8M84IPKk49kO4kb27Mqp6un9/0o/MsA1ngZ5OxxWKGUxPS3S/AJ9q1cPVTSGmRcbaGNfGUSsflTJkg==}
+    engines: {node: '>=18.0.0'}
+
+  '@smithy/eventstream-serde-config-resolver@4.4.1':
+    resolution: {integrity: sha512-JZGbSXaBk7JY8VPzsh66ksJ0nTWXbApduFDkA/pEl3aTm2EoAiUZE1Iltp6c+X1bB8kxPQW0mHDfVdYCpWTOzg==}
+    engines: {node: '>=18.0.0'}
+
+  '@smithy/eventstream-serde-node@4.3.1':
+    resolution: {integrity: sha512-6Cn4xTNVxn9PWTHSbvf8zmcDhQW8lrLE1Xq5CJgmX6wEvdjS2S0KuE79Aiznv/jx51jpFJ98OuWyE+Bt+oG1MQ==}
     engines: {node: '>=18.0.0'}
 
   '@smithy/fetch-http-handler@5.4.1':
@@ -1813,6 +1832,53 @@ snapshots:
       '@smithy/util-utf8': 2.3.0
       tslib: 2.8.1
 
+  '@aws-sdk/client-cloudwatch-logs@3.1045.0':
+    dependencies:
+      '@aws-crypto/sha256-browser': 5.2.0
+      '@aws-crypto/sha256-js': 5.2.0
+      '@aws-sdk/core': 3.974.8
+      '@aws-sdk/credential-provider-node': 3.972.39
+      '@aws-sdk/middleware-host-header': 3.972.10
+      '@aws-sdk/middleware-logger': 3.972.10
+      '@aws-sdk/middleware-recursion-detection': 3.972.11
+      '@aws-sdk/middleware-user-agent': 3.972.38
+      '@aws-sdk/region-config-resolver': 3.972.13
+      '@aws-sdk/types': 3.973.8
+      '@aws-sdk/util-endpoints': 3.996.8
+      '@aws-sdk/util-user-agent-browser': 3.972.10
+      '@aws-sdk/util-user-agent-node': 3.973.24
+      '@smithy/config-resolver': 4.5.1
+      '@smithy/core': 3.24.1
+      '@smithy/eventstream-serde-browser': 4.3.1
+      '@smithy/eventstream-serde-config-resolver': 4.4.1
+      '@smithy/eventstream-serde-node': 4.3.1
+      '@smithy/fetch-http-handler': 5.4.1
+      '@smithy/hash-node': 4.3.1
+      '@smithy/invalid-dependency': 4.3.1
+      '@smithy/middleware-content-length': 4.3.1
+      '@smithy/middleware-endpoint': 4.5.1
+      '@smithy/middleware-retry': 4.6.1
+      '@smithy/middleware-serde': 4.3.1
+      '@smithy/middleware-stack': 4.3.1
+      '@smithy/node-config-provider': 4.4.1
+      '@smithy/node-http-handler': 4.7.1
+      '@smithy/protocol-http': 5.4.1
+      '@smithy/smithy-client': 4.13.1
+      '@smithy/types': 4.14.1
+      '@smithy/url-parser': 4.3.1
+      '@smithy/util-base64': 4.4.1
+      '@smithy/util-body-length-browser': 4.3.1
+      '@smithy/util-body-length-node': 4.3.1
+      '@smithy/util-defaults-mode-browser': 4.4.1
+      '@smithy/util-defaults-mode-node': 4.3.1
+      '@smithy/util-endpoints': 3.5.1
+      '@smithy/util-middleware': 4.3.1
+      '@smithy/util-retry': 4.4.1
+      '@smithy/util-utf8': 4.3.1
+      tslib: 2.8.1
+    transitivePeerDependencies:
+      - aws-crt
+
   '@aws-sdk/client-cognito-identity@3.1045.0':
     dependencies:
       '@aws-crypto/sha256-browser': 5.2.0
@@ -2490,6 +2556,21 @@ snapshots:
       tslib: 2.8.1
 
   '@smithy/eventstream-codec@4.3.1':
+    dependencies:
+      '@smithy/core': 3.24.1
+      tslib: 2.8.1
+
+  '@smithy/eventstream-serde-browser@4.3.1':
+    dependencies:
+      '@smithy/core': 3.24.1
+      tslib: 2.8.1
+
+  '@smithy/eventstream-serde-config-resolver@4.4.1':
+    dependencies:
+      '@smithy/core': 3.24.1
+      tslib: 2.8.1
+
+  '@smithy/eventstream-serde-node@4.3.1':
     dependencies:
       '@smithy/core': 3.24.1
       tslib: 2.8.1

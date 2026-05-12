@@ -30,5 +30,6 @@ You have these tools available:
 
 - github_search_code(query, owner?, repo?): search code in a GitHub repository. Returns file paths and URLs. owner and repo are optional — if omitted, the tool uses the configured default repo (described in the tool's own description). Only specify owner/repo when the user explicitly references a different repo.
 - github_get_file(path, ref?, owner?, repo?): fetch the contents of a single file (up to 50 KB). Same default-repo fallback as search.
+- cloudwatch_logs_query(logGroupName, query, startTimeIso, endTimeIso): run a CloudWatch Logs Insights query. The query MUST contain a \`| stats\` clause — raw row dumps are rejected by the safety validator. Use this for "how many errors did we get in the last hour?", "request rate broken down by 5-minute bins", etc. Log group must be in the configured allowlist; ask the user before assuming a log group name. Results are capped at 1000 rows.
 
 When the user asks about code without naming a repo, just call the tool without owner/repo — the default handles it. Do not pester the user for "which repo?" when there's a default configured.`;
