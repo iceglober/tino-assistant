@@ -2,6 +2,9 @@ import 'dotenv/config';
 import pino from 'pino';
 import { loadEnv } from './env.js';
 import { createSlackApp, type DmHandler } from './slack/app.js';
+import { createBedrockModel } from './agent/bedrock.js';
+import { createHistoryStore } from './agent/history.js';
+import { runAgent } from './agent/run.js';
 
 const logger = pino({
   level: process.env['LOG_LEVEL'] ?? 'info',
@@ -11,11 +14,14 @@ const logger = pino({
 });
 
 const env = loadEnv();
+const model = createBedrockModel(env);
+const history = createHistoryStore({ cap: 40 });
 
-// Phase 2: the "agent" is just echo. Phase 3 replaces this with runAgent(...).
-const echo: DmHandler = async (_userId, text) => text;
+const handler: DmHandler = async (userId, text) => {
+  return runAgent({ model, history, logger, userId, text });
+};
 
-const app = createSlackApp(env, echo, logger);
+const app = createSlackApp(env, handler, logger);
 
 const shutdown = async (signal: string) => {
   logger.info({ signal }, 'ausistant stopping');
