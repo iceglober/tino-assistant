@@ -10,6 +10,7 @@ import { cloudwatchLogsQueryTool } from './cloudwatch/query.js';
 import { ALLOWED_LOG_GROUPS } from './cloudwatch/allowlist.js';
 import { createGoogleAuth } from './google/oauth.js';
 import { calendarListEventsTool } from './google/calendar.js';
+import { gmailSearchTool } from './google/gmail.js';
 
 /**
  * Build the toolset for `runAgent`.
@@ -47,9 +48,10 @@ export function buildTools(env: Env, logger: AppLogger): ToolSet {
   try {
     const auth = createGoogleAuth(env);
     tools['calendar_list_events'] = calendarListEventsTool(auth);
-    logger.info('calendar tools enabled');
+    tools['gmail_search'] = gmailSearchTool(auth);
+    logger.info('google tools enabled (calendar + gmail)');
   } catch (err) {
-    logger.warn({ err: (err as Error).message }, 'calendar tools disabled');
+    logger.warn({ err: (err as Error).message }, 'google tools disabled');
   }
 
   return tools;
