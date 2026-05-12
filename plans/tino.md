@@ -1,4 +1,4 @@
-# Ausistant — Personal Claude Slack Agent
+# Tino — Personal Claude Slack Agent
 
 ## Goal
 
@@ -23,7 +23,7 @@ Build a locally-run TypeScript Node process that serves as a single-user persona
 - [ ] **a5 — CloudWatch validator.** The CloudWatch logs tool refuses every adversarial query before the tool is registered. Allowed: single Logs Insights query against an allowlisted log group, containing a `| stats` clause, no forbidden pipes (`parse`, `display`, `fields` as terminal, `head`). `| limit 1000` auto-injected if absent. Verify: `pnpm test -- tests/tools/cloudwatch-validator.test.ts`.
 - [ ] **a6 — Google Calendar.** Agent answers "what's on my calendar tomorrow?" by calling `calendar_list_events`. Uses googleapis with refresh token. Returns normalized `{ summary, start, end, location, attendees }`. Verify: `pnpm test -- tests/tools/calendar.test.ts`.
 - [ ] **a7 — Gmail rewriter.** Gmail tool ONLY ever queries Gmail with `label:assistant-ok` prepended. Rewriter refuses any input containing `-label:`, `NOT label:`, or a `label:` token referencing any label other than `assistant-ok`. Returns metadata only (no body). Verify: `pnpm test -- tests/tools/gmail-rewriter.test.ts`.
-- [ ] **a8 — Polish.** Conversation history persists across restarts in SQLite (`ausistant.db`). Structured logs (pino) record every Bedrock call and tool invocation with `{ traceId, user, toolName, durationMs, status }` — never raw tool output body. CloudWatch tool uses AI SDK's `needsApproval` so Claude surfaces a confirmation in Slack. `/reset` command wipes that user's history. Verify: `pnpm test -- tests/persistence tests/tools/cloudwatch-approval.test.ts`.
+- [ ] **a8 — Polish.** Conversation history persists across restarts in SQLite (`tino.db`). Structured logs (pino) record every Bedrock call and tool invocation with `{ traceId, user, toolName, durationMs, status }` — never raw tool output body. CloudWatch tool uses AI SDK's `needsApproval` so Claude surfaces a confirmation in Slack. `/reset` command wipes that user's history. Verify: `pnpm test -- tests/persistence tests/tools/cloudwatch-approval.test.ts`.
 
 ## File-level changes
 
@@ -38,7 +38,7 @@ All files are new — greenfield repo.
 - **`.nvmrc`** — `22`.
 - **`.gitignore`** — `node_modules/`, `.env`, `.env.local`, `*.db`, `*.db-journal`, `dist/`, `.DS_Store`, `*.log`.
 - **`.env.example`** — Every required var with empty value and comment: `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`, `ALLOWED_SLACK_USER_ID`, `AWS_PROFILE` (optional), `AWS_REGION=us-east-1`, `BEDROCK_MODEL_ID=us.anthropic.claude-sonnet-4-5-20250929-v1:0`, `GITHUB_TOKEN`, `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `GOOGLE_OAUTH_REFRESH_TOKEN`, `LOG_LEVEL=info`.
-- **`src/index.ts`** — Loads `dotenv/config`, builds logger, wires Bolt app (echo handler for now), installs `SIGINT`/`SIGTERM` handlers that call `app.stop()` then exit. Logs "ausistant starting" at INFO.
+- **`src/index.ts`** — Loads `dotenv/config`, builds logger, wires Bolt app (echo handler for now), installs `SIGINT`/`SIGTERM` handlers that call `app.stop()` then exit. Logs "tino starting" at INFO.
 - **`src/env.ts`** — Zod schema that parses `process.env` into typed `Env`. Fails fast if required vars missing.
 - **`README.md`** — Setup: prereqs, env vars, `pnpm install && pnpm dev`, troubleshooting block.
 
@@ -119,7 +119,7 @@ All files are new — greenfield repo.
 ### Phase 6 — Google Calendar (readonly)
 
 **Prerequisites (user, out-of-band):**
-1. console.cloud.google.com → new project "ausistant".
+1. console.cloud.google.com → new project "tino".
 2. APIs & Services → Enable Google Calendar API.
 3. OAuth consent screen → External, test user = your email.
 4. Credentials → OAuth client ID → **Desktop app**. Download JSON. Put `client_id` and `client_secret` in `.env`.
@@ -163,7 +163,7 @@ All files are new — greenfield repo.
 - **`src/slack/reset.ts`** — Second `app.message()` handler matching `/^\/reset$/i` (trimmed). Same DM+allowlist guard. Calls `history.reset(userId)`, replies "History cleared." Register BEFORE the generic handler.
 - **`src/slack/approval.ts`** — When `generateText` returns `tool-approval-request` parts, post: "I want to run `cloudwatch_logs_query` on `<group>` with query: ```<query>```. Reply `approve` or `deny`." Store pending approval keyed by `(userId, messageTs)` in in-memory map. Next DM from user: if `approve`/`deny`, construct `tool-approval-response` and re-run `generateText`. Otherwise: cancel pending approval, treat as new message.
 - **`src/index.ts` (modified)** — Swaps in-memory history for SQLite. Registers `/reset` handler. Wires approval middleware.
-- **Optional `.env`:** `DB_PATH=./ausistant.db`.
+- **Optional `.env`:** `DB_PATH=./tino.db`.
 
 **Phase 8 "done when":** Restart → conversation persists. `/reset` wipes it. CloudWatch query triggers approval DM; `approve` runs it, `deny` makes Claude pivot. Logs are readable JSON with no raw tool output bodies.
 

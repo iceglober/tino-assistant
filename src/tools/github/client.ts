@@ -14,6 +14,6 @@ export function createOctokit(env: Env): Octokit {
 
   return new Octokit({
     auth: env.GITHUB_TOKEN,
-    userAgent: 'ausistant/0.1',
+    userAgent: 'tino/0.1',
   });
 }

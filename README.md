@@ -1,4 +1,4 @@
-# ausistant
+# tino
 
 Personal Claude agent running locally in Slack DM.
 
@@ -6,7 +6,7 @@ Personal Claude agent running locally in Slack DM.
 
 ```sh
 git clone <repo>
-cd ausistant
+cd tino
 nvm use          # picks up .nvmrc → Node 22
 cp .env.example .env
 # fill in .env with your tokens and credentials
@@ -28,4 +28,4 @@ _(Phase 2 will add "bot doesn't respond" debugging steps here.)_
 
 ---
 
-See [plans/ausistant.md](plans/ausistant.md) for the full buildout plan.
+See [plans/tino.md](plans/tino.md) for the full buildout plan.

@@ -26,7 +26,7 @@ const handler: DmHandler = async (userId, text) => {
 const app = createSlackApp(env, handler, logger);
 
 const shutdown = async (signal: string) => {
-  logger.info({ signal }, 'ausistant stopping');
+  logger.info({ signal }, 'tino stopping');
   try {
     await app.stop();
   } catch (err) {
@@ -39,4 +39,4 @@ process.on('SIGINT', () => { void shutdown('SIGINT'); });
 process.on('SIGTERM', () => { void shutdown('SIGTERM'); });
 
 await app.start();
-logger.info({ nodeVersion: process.version, pid: process.pid }, 'ausistant starting (slack connected)');
+logger.info({ nodeVersion: process.version, pid: process.pid }, 'tino starting (slack connected)');

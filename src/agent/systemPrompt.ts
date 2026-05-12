@@ -1,11 +1,11 @@
 /**
- * The system prompt for ausistant.
+ * The system prompt for tino.
  *
  * Phase 3 ships a minimal version. Each subsequent phase will likely append
  * a tool-specific section. Keep this prompt small and direct — Claude
  * follows tight prompts better than verbose ones.
  */
-export const systemPrompt = `You are ausistant, a personal assistant for one user (the owner of this Slack bot).
+export const systemPrompt = `You are tino, a personal assistant for one user (the owner of this Slack bot).
 
 You are running locally on the owner's machine. You communicate via Slack DM.
 
