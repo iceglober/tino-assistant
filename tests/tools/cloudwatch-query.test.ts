@@ -6,9 +6,10 @@
  *
  * Pattern matches tests/tools/github.test.ts (Phase 4).
  *
- * Note: _executeQuery accepts `_allowlistOverride` in deps for testing.
- * This lets us exercise the AWS-call path without populating the production
- * allowlist (which ships empty / fail-closed).
+ * Note: _executeQuery takes the allowlist as an explicit argument so tests
+ * can pass their own allowlist directly. The production binding (in
+ * cloudwatchLogsQueryTool) uses ALLOWED_LOG_GROUPS — there is no
+ * "test-only override" backdoor in the production code path.
  */
 
 import { describe, expect, test, vi } from 'vitest';
@@ -56,9 +57,9 @@ describe('_executeQuery', () => {
         logger,
         pollIntervalMs: 10,
         pollTimeoutMs: 100,
-        _allowlistOverride: [], // empty — every group rejected
       },
       VALID_INPUT,
+      [], // empty allowlist — every group rejected
     );
 
     expect(sendFn).not.toHaveBeenCalled();
@@ -95,9 +96,9 @@ describe('_executeQuery', () => {
         logger,
         pollIntervalMs: 10,
         pollTimeoutMs: 5000,
-        _allowlistOverride: TEST_ALLOWLIST,
       },
       VALID_INPUT,
+      TEST_ALLOWLIST,
     );
 
     expect(sendFn).toHaveBeenCalledTimes(2);
@@ -133,9 +134,9 @@ describe('_executeQuery', () => {
         logger,
         pollIntervalMs: 10,
         pollTimeoutMs: 5000,
-        _allowlistOverride: TEST_ALLOWLIST,
       },
       VALID_INPUT,
+      TEST_ALLOWLIST,
     );
 
     expect(result).toMatchObject({ error: 'query_failed' });
@@ -157,9 +158,9 @@ describe('_executeQuery', () => {
         logger,
         pollIntervalMs: 10,
         pollTimeoutMs: 5000,
-        _allowlistOverride: TEST_ALLOWLIST,
       },
       VALID_INPUT,
+      TEST_ALLOWLIST,
     );
 
     expect(result).toMatchObject({ error: 'access_denied' });
@@ -183,9 +184,9 @@ describe('_executeQuery', () => {
         logger,
         pollIntervalMs: 10,
         pollTimeoutMs: 50, // very short — will time out after ~1 poll
-        _allowlistOverride: TEST_ALLOWLIST,
       },
       VALID_INPUT,
+      TEST_ALLOWLIST,
     );
 
     expect(result).toMatchObject({ error: 'timeout' });

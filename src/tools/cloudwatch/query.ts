@@ -45,25 +45,29 @@ export interface CloudWatchToolDeps {
   pollIntervalMs?: number;
   /** Override poll timeout for testing. Defaults to 30000ms. */
   pollTimeoutMs?: number;
-  /**
-   * Override the allowlist for testing. Defaults to the module-level
-   * ALLOWED_LOG_GROUPS constant. Do NOT use in production code.
-   */
-  _allowlistOverride?: readonly string[];
 }
 
 /**
  * Core query logic, exported for unit testing without constructing the full
  * AI SDK tool wrapper. Pattern matches Phase 4's _executeSearch.
+ *
+ * The allowlist is a required argument rather than a module-level constant
+ * lookup so that:
+ *   1. Tests can pass their own allowlist directly (no production-code
+ *      "test-only override" backdoor that future contributors might
+ *      accidentally populate).
+ *   2. The data flow is explicit: every call site declares which allowlist
+ *      governs that call. The production binding lives in
+ *      `cloudwatchLogsQueryTool` below; tests bind their own.
  */
 export async function _executeQuery(
   deps: CloudWatchToolDeps,
   input: QueryInput,
+  allowlist: readonly string[],
 ): Promise<QueryResult> {
   const { client, logger } = deps;
   const pollIntervalMs = deps.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
   const pollTimeoutMs = deps.pollTimeoutMs ?? DEFAULT_POLL_TIMEOUT_MS;
-  const allowlist = deps._allowlistOverride ?? ALLOWED_LOG_GROUPS;
   const { logGroupName, query, startTimeIso, endTimeIso } = input;
 
   // 1. Validate
@@ -197,6 +201,8 @@ export function cloudwatchLogsQueryTool(deps: CloudWatchToolDeps) {
       'raw row dumps and field extraction are not permitted. Results are capped at 100 rows. ' +
       `Allowed log groups: ${describeLogGroupAllowlist()}.`,
     inputSchema,
-    execute: input => _executeQuery(deps, input),
+    // Production binding: the allowlist comes from the module-level constant.
+    // Edit src/tools/cloudwatch/allowlist.ts to add log groups.
+    execute: input => _executeQuery(deps, input, ALLOWED_LOG_GROUPS),
   });
 }
