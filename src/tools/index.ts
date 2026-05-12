@@ -8,6 +8,8 @@ import { isAllowedRepo, parseRepoSpec, type RepoSpec } from './github/allowlist.
 import { createCloudWatchLogsClient } from './cloudwatch/client.js';
 import { cloudwatchLogsQueryTool } from './cloudwatch/query.js';
 import { ALLOWED_LOG_GROUPS } from './cloudwatch/allowlist.js';
+import { createGoogleAuth } from './google/oauth.js';
+import { calendarListEventsTool } from './google/calendar.js';
 
 /**
  * Build the toolset for `runAgent`.
@@ -40,6 +42,14 @@ export function buildTools(env: Env, logger: AppLogger): ToolSet {
     logger.info({ allowlistSize: ALLOWED_LOG_GROUPS.length }, 'cloudwatch tools enabled');
   } catch (err) {
     logger.warn({ err: (err as Error).message }, 'cloudwatch tools disabled');
+  }
+
+  try {
+    const auth = createGoogleAuth(env);
+    tools['calendar_list_events'] = calendarListEventsTool(auth);
+    logger.info('calendar tools enabled');
+  } catch (err) {
+    logger.warn({ err: (err as Error).message }, 'calendar tools disabled');
   }
 
   return tools;
