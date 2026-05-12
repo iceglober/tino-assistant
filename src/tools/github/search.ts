@@ -1,13 +1,13 @@
 import { tool } from 'ai';
 import { z } from 'zod';
 import type { Octokit } from '@octokit/rest';
-import { isAllowedRepo, describeAllowlist } from './allowlist.js';
+import { isAllowedRepo, describeAllowlist, type RepoSpec } from './allowlist.js';
 
 const PER_PAGE = 10;
 
 const inputSchema = z.object({
-  owner: z.string().min(1).describe('GitHub repo owner (org or user)'),
-  repo: z.string().min(1).describe('GitHub repo name'),
+  owner: z.string().min(1).optional().describe('GitHub repo owner (org or user). Omit to use the configured default.'),
+  repo: z.string().min(1).optional().describe('GitHub repo name. Omit to use the configured default.'),
   query: z.string().min(1).describe('Code search query — same syntax as github.com/search?type=code'),
 });
 
@@ -17,12 +17,37 @@ type SearchResult =
   | { totalCount: number; incompleteResults: boolean; items: Array<{ path: string; repository: string; htmlUrl: string }> }
   | { error: string; message: string };
 
+export interface SearchToolDeps {
+  octokit: Octokit;
+  defaultRepo?: RepoSpec;
+}
+
+/**
+ * Resolve the (owner, repo) pair, falling back to the default if either is
+ * absent. Returns null if the caller passed neither and there's no default —
+ * the tool then surfaces a structured error.
+ */
+function resolveRepo(input: SearchInput, defaultRepo: RepoSpec | undefined): RepoSpec | null {
+  const owner = input.owner ?? defaultRepo?.owner;
+  const repo = input.repo ?? defaultRepo?.repo;
+  if (!owner || !repo) return null;
+  return { owner, repo };
+}
+
 /**
  * Core search logic, exported for unit testing without constructing the full
  * AI SDK tool wrapper.
  */
-export async function _executeSearch(octokit: Octokit, input: SearchInput): Promise<SearchResult> {
-  const { owner, repo, query } = input;
+export async function _executeSearch(deps: SearchToolDeps, input: SearchInput): Promise<SearchResult> {
+  const target = resolveRepo(input, deps.defaultRepo);
+  if (!target) {
+    return {
+      error: 'no_repo_specified',
+      message: `No owner/repo provided and no default configured. Allowed: ${describeAllowlist()}.`,
+    };
+  }
+
+  const { owner, repo } = target;
 
   if (!isAllowedRepo(owner, repo)) {
     return {
@@ -32,8 +57,8 @@ export async function _executeSearch(octokit: Octokit, input: SearchInput): Prom
   }
 
   try {
-    const res = await octokit.search.code({
-      q: `${query} repo:${owner}/${repo}`,
+    const res = await deps.octokit.search.code({
+      q: `${input.query} repo:${owner}/${repo}`,
       per_page: PER_PAGE,
     });
 
@@ -41,10 +66,6 @@ export async function _executeSearch(octokit: Octokit, input: SearchInput): Prom
       path: item.path,
       repository: item.repository.full_name,
       htmlUrl: item.html_url,
-      // Octokit doesn't return text_matches by default; fragment is in
-      // item.text_matches when 'text-match' Accept header is sent. We're
-      // skipping that for simplicity — file path + URL is enough for
-      // Claude to decide whether to fetch the file.
     }));
 
     return {
@@ -53,8 +74,6 @@ export async function _executeSearch(octokit: Octokit, input: SearchInput): Prom
       items,
     };
   } catch (err: unknown) {
-    // GitHub's search API is rate-limited (30/min authenticated). Surface
-    // the rate-limit case structurally so Claude can reason about retry.
     const status = (err as { status?: number })?.status;
     if (status === 403 || status === 429) {
       return { error: 'rate_limited', message: 'GitHub code-search rate limit exceeded; try again in a minute.' };
@@ -66,12 +85,14 @@ export async function _executeSearch(octokit: Octokit, input: SearchInput): Prom
   }
 }
 
-export function githubSearchCodeTool(octokit: Octokit) {
+export function githubSearchCodeTool(deps: SearchToolDeps) {
+  const defaultStr = deps.defaultRepo ? ` Default repo: ${deps.defaultRepo.owner}/${deps.defaultRepo.repo}.` : '';
   return tool({
     description:
-      'Search code in a GitHub repository. Use for "where is X defined?", "what files import Y?", or "show me usages of Z". ' +
-      `Allowed repos: ${describeAllowlist()}.`,
+      'Search code in a GitHub repository. Use for "where is X defined?", "what files import Y?", or "show me usages of Z".' +
+      defaultStr +
+      ` Allowed repos: ${describeAllowlist()}.`,
     inputSchema,
-    execute: (input) => _executeSearch(octokit, input),
+    execute: (input) => _executeSearch(deps, input),
   });
 }

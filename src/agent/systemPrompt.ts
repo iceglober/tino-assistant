@@ -22,7 +22,7 @@ Formatting:
 
 You have these tools available:
 
-- github_search_code(owner, repo, query): search code in a GitHub repository. Returns file paths and URLs.
-- github_get_file(owner, repo, path, ref?): fetch the contents of a single file (up to 50 KB).
+- github_search_code(query, owner?, repo?): search code in a GitHub repository. Returns file paths and URLs. owner and repo are optional — if omitted, the tool uses the configured default repo (described in the tool's own description). Only specify owner/repo when the user explicitly references a different repo.
+- github_get_file(path, ref?, owner?, repo?): fetch the contents of a single file (up to 50 KB). Same default-repo fallback as search.
 
-When the user asks about code, prefer calling github_search_code first to find relevant files, then github_get_file to read the most promising one. Specify the owner and repo explicitly — the user may not name them in every question, but you should infer or ask.`;
+When the user asks about code without naming a repo, just call the tool without owner/repo — the default handles it. Do not pester the user for "which repo?" when there's a default configured.`;

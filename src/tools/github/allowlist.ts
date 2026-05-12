@@ -28,3 +28,16 @@ export function describeAllowlist(): string {
   if (ALLOWED_REPOS.length === 0) return '(none — edit src/tools/github/allowlist.ts to enable)';
   return ALLOWED_REPOS.map(s => `${s.owner}/${s.repo}`).join(', ');
 }
+
+/**
+ * Parse "owner/repo" into a RepoSpec. Returns null on malformed input.
+ * The env schema enforces the regex up front, so this is mostly a
+ * type-safety convenience for callers that already have a validated string.
+ */
+export function parseRepoSpec(ownerSlashRepo: string): RepoSpec | null {
+  const parts = ownerSlashRepo.split('/');
+  if (parts.length !== 2) return null;
+  const [owner, repo] = parts;
+  if (!owner || !repo) return null;
+  return { owner, repo };
+}

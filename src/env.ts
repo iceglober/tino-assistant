@@ -25,6 +25,10 @@ const EnvSchema = z.object({
   AWS_PROFILE: z.string().optional(),
   BEDROCK_MODEL_ID: z.string().min(1).optional(),
   GITHUB_TOKEN: z.string().min(1).optional(),
+  GITHUB_DEFAULT_REPO: z
+    .string()
+    .regex(/^[^/\s]+\/[^/\s]+$/, 'GITHUB_DEFAULT_REPO must be in "owner/repo" format')
+    .optional(),
   GOOGLE_OAUTH_CLIENT_ID: z.string().min(1).optional(),
   GOOGLE_OAUTH_CLIENT_SECRET: z.string().min(1).optional(),
   GOOGLE_OAUTH_REFRESH_TOKEN: z.string().min(1).optional(),
