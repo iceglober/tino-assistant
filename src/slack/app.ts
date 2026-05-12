@@ -1,5 +1,6 @@
 import { App, LogLevel } from '@slack/bolt';
 import type { Env } from '../env.js';
+import { toSlackMrkdwn } from './mrkdwn.js';
 import type { DmMessageEvent } from './types.js';
 
 export type DmHandler = (userId: string, text: string) => Promise<string>;
@@ -46,9 +47,10 @@ export async function handleDmMessage(params: {
     logger.info({ user: m.user, channel: m.channel, textLen: m.text.length }, 'owner DM received');
     const start = Date.now();
     const reply = await onDmFromOwner(m.user, m.text);
-    await say({ text: reply });
+    const formatted = toSlackMrkdwn(reply);
+    await say({ text: formatted });
     logger.info(
-      { user: m.user, channel: m.channel, replyLen: reply.length, durationMs: Date.now() - start },
+      { user: m.user, channel: m.channel, replyLen: formatted.length, durationMs: Date.now() - start },
       'owner DM handled',
     );
   } catch (err) {
