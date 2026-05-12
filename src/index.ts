@@ -1,20 +1,14 @@
 import 'dotenv/config';
-import pino from 'pino';
 import { loadEnv } from './env.js';
+import { createLogger } from './logging/logger.js';
 import { createSlackApp, type DmHandler } from './slack/app.js';
 import { createBedrockModel } from './agent/bedrock.js';
 import { createSqliteHistoryStore } from './persistence/sqlite.js';
 import { runAgent } from './agent/run.js';
 import { buildTools } from './tools/index.js';
 
-const logger = pino({
-  level: process.env['LOG_LEVEL'] ?? 'info',
-  transport: process.env['NODE_ENV'] === 'production'
-    ? undefined
-    : { target: 'pino-pretty', options: { colorize: true } },
-});
-
 const env = loadEnv();
+const logger = createLogger(env);
 const model = createBedrockModel(env);
 const dbPath = env.DB_PATH ?? './tino.db';
 const history = createSqliteHistoryStore({ dbPath, cap: 40 });
@@ -25,7 +19,7 @@ const handler: DmHandler = async (userId, text) => {
   return runAgent({ model, history, logger, tools, userId, text });
 };
 
-const app = createSlackApp(env, handler, logger);
+const app = createSlackApp(env, handler, logger, history);
 
 const shutdown = async (signal: string) => {
   logger.info({ signal }, 'tino stopping');

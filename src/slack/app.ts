@@ -1,7 +1,9 @@
 import { App, LogLevel } from '@slack/bolt';
 import type { Env } from '../env.js';
+import type { HistoryStore } from '../agent/history.js';
 import { toSlackMrkdwn } from './mrkdwn.js';
 import type { DmMessageEvent } from './types.js';
+import { handleResetCommand } from './reset.js';
 
 export type DmHandler = (userId: string, text: string) => Promise<string>;
 
@@ -59,7 +61,7 @@ export async function handleDmMessage(params: {
   }
 }
 
-export function createSlackApp(env: Env, onDmFromOwner: DmHandler, logger: AppLogger): App {
+export function createSlackApp(env: Env, onDmFromOwner: DmHandler, logger: AppLogger, history: HistoryStore): App {
   const app = new App({
     token: env.SLACK_BOT_TOKEN,
     appToken: env.SLACK_APP_TOKEN,
@@ -73,6 +75,16 @@ export function createSlackApp(env: Env, onDmFromOwner: DmHandler, logger: AppLo
   const SEEN_CAP = 1000; // prevent unbounded growth; old entries don't matter
 
   app.message(async ({ message, say }) => {
+    // Check for /reset command first (before dedup — /reset should always work)
+    const isReset = await handleResetCommand({
+      message: message as Partial<DmMessageEvent>,
+      env,
+      history,
+      say,
+      logger,
+    });
+    if (isReset) return;
+
     const ts = (message as Partial<DmMessageEvent>).ts;
     if (ts) {
       if (seen.has(ts)) {
