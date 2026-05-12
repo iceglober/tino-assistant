@@ -43,8 +43,14 @@ export async function handleDmMessage(params: {
   }
 
   try {
+    logger.info({ user: m.user, channel: m.channel, textLen: m.text.length }, 'owner DM received');
+    const start = Date.now();
     const reply = await onDmFromOwner(m.user, m.text);
     await say({ text: reply });
+    logger.info(
+      { user: m.user, channel: m.channel, replyLen: reply.length, durationMs: Date.now() - start },
+      'owner DM handled',
+    );
   } catch (err) {
     logger.error({ err }, 'handler threw');
     await say({ text: 'Something went wrong. Check the logs.' });
