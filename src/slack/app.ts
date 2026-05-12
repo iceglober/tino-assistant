@@ -1,0 +1,73 @@
+import { App, LogLevel } from '@slack/bolt';
+import type { Env } from '../env.js';
+import type { DmMessageEvent } from './types.js';
+
+export type DmHandler = (userId: string, text: string) => Promise<string>;
+
+/** Minimal logger interface — matches the pino subset we actually call. */
+export interface AppLogger {
+  debug: (msgOrObj: unknown, msg?: string) => void;
+  info: (msgOrObj: unknown, msg?: string) => void;
+  warn: (msgOrObj: unknown, msg?: string) => void;
+  error: (msgOrObj: unknown, msg?: string) => void;
+}
+
+export async function handleDmMessage(params: {
+  message: Partial<DmMessageEvent>;
+  env: Pick<Env, 'ALLOWED_SLACK_USER_ID'>;
+  onDmFromOwner: DmHandler;
+  say: (args: { text: string }) => Promise<unknown>;
+  logger: AppLogger;
+}): Promise<void> {
+  const { message: m, env, onDmFromOwner, say, logger } = params;
+
+  if (m.subtype !== undefined) {
+    // bot_message, message_changed, message_deleted, thread_broadcast, etc.
+    logger.debug({ subtype: m.subtype }, 'ignored message with subtype');
+    return;
+  }
+
+  if (m.channel_type !== 'im') {
+    logger.debug({ channelType: m.channel_type, channel: m.channel }, 'ignored non-DM');
+    return;
+  }
+
+  if (m.user !== env.ALLOWED_SLACK_USER_ID) {
+    logger.warn({ user: m.user, channel: m.channel }, 'rejected DM from non-allowlisted user');
+    return;
+  }
+
+  if (typeof m.text !== 'string' || m.text.length === 0) {
+    logger.debug('ignored DM with no text');
+    return;
+  }
+
+  try {
+    const reply = await onDmFromOwner(m.user, m.text);
+    await say({ text: reply });
+  } catch (err) {
+    logger.error({ err }, 'handler threw');
+    await say({ text: 'Something went wrong. Check the logs.' });
+  }
+}
+
+export function createSlackApp(env: Env, onDmFromOwner: DmHandler, logger: AppLogger): App {
+  const app = new App({
+    token: env.SLACK_BOT_TOKEN,
+    appToken: env.SLACK_APP_TOKEN,
+    socketMode: true,
+    logLevel: LogLevel.WARN, // bolt is chatty on INFO
+  });
+
+  app.message(async ({ message, say }) => {
+    await handleDmMessage({
+      message: message as Partial<DmMessageEvent>,
+      env,
+      onDmFromOwner,
+      say,
+      logger,
+    });
+  });
+
+  return app;
+}

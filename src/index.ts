@@ -1,5 +1,7 @@
 import 'dotenv/config';
 import pino from 'pino';
+import { loadEnv } from './env.js';
+import { createSlackApp, type DmHandler } from './slack/app.js';
 
 const logger = pino({
   level: process.env['LOG_LEVEL'] ?? 'info',
@@ -8,15 +10,25 @@ const logger = pino({
     : { target: 'pino-pretty', options: { colorize: true } },
 });
 
-logger.info({ nodeVersion: process.version, pid: process.pid }, 'ausistant starting');
+const env = loadEnv();
 
-const shutdown = (signal: string) => {
+// Phase 2: the "agent" is just echo. Phase 3 replaces this with runAgent(...).
+const echo: DmHandler = async (_userId, text) => text;
+
+const app = createSlackApp(env, echo, logger);
+
+const shutdown = async (signal: string) => {
   logger.info({ signal }, 'ausistant stopping');
+  try {
+    await app.stop();
+  } catch (err) {
+    logger.error({ err }, 'error stopping slack app');
+  }
   process.exit(0);
 };
 
-process.on('SIGINT', () => shutdown('SIGINT'));
-process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => { void shutdown('SIGINT'); });
+process.on('SIGTERM', () => { void shutdown('SIGTERM'); });
 
-// Keep process alive (Phase 2 will replace this with app.start())
-setInterval(() => {}, 1 << 30);
+await app.start();
+logger.info({ nodeVersion: process.version, pid: process.pid }, 'ausistant starting (slack connected)');
