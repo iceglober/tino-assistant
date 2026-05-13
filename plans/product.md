@@ -430,9 +430,26 @@ accessible to all users. shows:
 
 ### authentication
 
-**v2 (MVP):** Google Workspace SSO. the console redirects to Google Sign-In, verifies the `hd` (hosted domain) claim matches the org's domain, checks the user table, sets a session cookie. this is the approach we deferred earlier — now it's needed for multi-user.
+**better-auth** (`better-auth` npm package) handles all authentication. it's framework-agnostic, supports social SSO out of the box, manages sessions, and works with DynamoDB via adapters. since each tino deployment is single-tenant (one org), we don't need the organization plugin.
 
-**v3:** support additional IdPs (AWS Identity Center, Okta, generic OIDC). the console's auth layer is pluggable — swap the IdP without changing the rest of the console.
+setup:
+- better-auth instance mounted on the console's HTTP server (same port 3001, `/api/auth/*` routes)
+- Google social provider for SSO (reuse the existing GCP OAuth Web client — add a Web Application client alongside the existing Desktop client)
+- DynamoDB adapter for user/session storage (same `tino` table, `BAUTH#` key prefix)
+- better-auth's `user` and `session` tables become the user model — no custom `TinoUser` table needed
+- better-auth's account linking handles the Slack ↔ Google identity mapping
+
+the linked identity model from the previous section maps directly to better-auth's `account` table:
+- Google login creates a better-auth user + Google account link
+- on first Slack DM, tino looks up the Slack user's email (via `users.info`), finds the matching better-auth user by email, and links the Slack identity as an additional account
+- future IdPs (Okta, SAML) are just additional social providers in better-auth's config
+
+**why better-auth over custom auth:**
+- session management (cookies, CSRF, expiry) is handled — we don't build it
+- social provider OAuth flows (Google, GitHub, etc.) are built-in — we don't write the callback handlers
+- the `user` table schema is standard and extensible (add `role`, `slackUserId` as custom fields)
+- future: 2FA, passkeys, magic links are all plugins — no custom code
+- it's open-source, TypeScript-native, and actively maintained
 
 ---
 
