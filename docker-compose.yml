@@ -3,9 +3,7 @@ services:
     image: amazon/dynamodb-local
     ports:
       - "8000:8000"
-    volumes:
-      - dynamodb-data:/home/dynamodblocal/data
-    command: ["-jar", "DynamoDBLocal.jar", "-sharedDb", "-dbPath", "/home/dynamodblocal/data"]
-
-volumes:
-  dynamodb-data:
+    command: ["-jar", "DynamoDBLocal.jar", "-sharedDb", "-inMemory"]
+    # -inMemory: data lives in memory only (lost on container restart).
+    # This is fine for local dev — tino recreates the table on startup.
+    # For persistent local data, use the sqlite adapter instead.

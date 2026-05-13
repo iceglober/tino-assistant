@@ -1,30 +1,43 @@
 import { DynamoDBClient, CreateTableCommand, DescribeTableCommand } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
+import { NodeHttpHandler } from '@smithy/node-http-handler';
 import { Table } from 'dynamodb-toolbox';
+import http from 'node:http';
 
 /**
  * Creates a DynamoDB Toolbox Table bound to the given table name.
  *
- * When `endpoint` is provided (e.g., `http://localhost:8000` for DynamoDB
+ * When `endpoint` is provided (e.g., `http://127.0.0.1:8000` for DynamoDB
  * Local), the client connects there instead of AWS. The table is auto-created
- * if it doesn't exist — this makes local dev zero-setup beyond starting the
- * DynamoDB Local container.
+ * if it doesn't exist.
  *
- * In production (no endpoint override), the table must already exist (created
- * by CDK). Auto-creation is skipped.
+ * Uses a custom NodeHttpHandler with an explicit http.Agent that forces IPv4
+ * connections. AWS SDK v3 on Node 24 hangs when connecting to localhost/127.0.0.1
+ * without this — the default agent's connection pooling interacts badly with
+ * Node 24's HTTP internals.
  */
 export async function createDynamoTable(
   tableName: string,
   endpoint?: string,
 ): Promise<TinoTable> {
-  const client = new DynamoDBClient(endpoint ? {
-    endpoint,
-    // DynamoDB Local requires credentials but doesn't validate them.
-    // Provide dummy values so the SDK doesn't hang trying to resolve
-    // real credentials from IMDS/ECS/SSO.
-    credentials: { accessKeyId: 'local', secretAccessKey: 'local' },
-    region: 'us-east-1',
-  } : {});
+  const clientConfig: ConstructorParameters<typeof DynamoDBClient>[0] = {};
+
+  if (endpoint) {
+    clientConfig.endpoint = endpoint;
+    clientConfig.credentials = { accessKeyId: 'local', secretAccessKey: 'local' };
+    clientConfig.region = 'us-east-1';
+
+    // Force a fresh http.Agent with keepAlive disabled to avoid connection
+    // pooling issues on Node 24.
+    const agent = new http.Agent({ keepAlive: false, family: 4 });
+    clientConfig.requestHandler = new NodeHttpHandler({
+      httpAgent: agent,
+      connectionTimeout: 3000,
+      socketTimeout: 3000,
+    });
+  }
+
+  const client = new DynamoDBClient(clientConfig);
   const documentClient = DynamoDBDocumentClient.from(client);
 
   // Auto-create table in local mode
