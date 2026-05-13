@@ -928,6 +928,199 @@ this is not a formal HIPAA audit — it's a self-assessment dashboard that helps
 
 ---
 
+## onboarding: closing the activation gap
+
+### the problem, with evidence
+
+95% of GenAI pilots fail (MIT NANDA, Aug 2025). the failure mode is not the tech — it's the friction between "installed" and "useful." the evidence from self-hosted AI assistants (LibreChat, LobeChat, OpenWebUI, Onyx, AnythingLLM) shows eight failure patterns. tino must address each one.
+
+| failure pattern | evidence | how tino addresses it |
+|-----------------|----------|----------------------|
+| **setup-to-first-useful-task gap is too long** | AnythingLLM #866, #3103; Onyx #7378; LobeChat #3852 — users get install done then hit a wall | `tino init` CLI handles infra. first DM to tino triggers guided capability setup. first useful answer within 5 minutes of first DM. |
+| **Google OAuth verification is a hard blocker** | Skyler shut down due to CASA compliance cost; 36+ day verification waits; $15-75k annual pentest | tino uses Desktop OAuth clients (no verification needed for personal/internal use). the bootstrap CLI creates the OAuth client config and runs the auth flow inline. user never touches the GCP console for OAuth verification. |
+| **MCP runtime fragility** | modelcontextprotocol/servers #40, #64, #76, #2729; AnythingLLM #4017 — GUI apps can't find npx/node | tino doesn't use MCP for core capabilities (native TypeScript tools). MCP is opt-in for external systems (v2.2), and tino manages the MCP server lifecycle (sidecar/on-demand) so the user never runs npx manually. |
+| **silent failure modes destroy trust** | LibreChat #10493 (upload appeared to succeed, model couldn't use it); OpenWebUI #20600 (tool results corrupted) | every tool call returns structured results with explicit success/error. the console shows capability health with last-success timestamp. tino tells the user when something fails, not silently. |
+| **the "now what?" problem** | LibreChat's loudest threads are feature requests, not bugs. users have the tool running but don't know what to ask. | tino's onboarding DM includes 3 example prompts tailored to the user's enabled capabilities. the system prompt includes a "suggested tasks" section. tino proactively suggests actions ("you have a meeting in 2 hours — want me to prep?"). |
+| **security/trust concerns block real data input** | Air Canada chatbot liability; LibreChat #5580 (no tool-call confirmation gate for 16+ months) | tino's security is visible: compliance dashboard, audit logs, capability permissions, per-instance guardrails. the bootstrap CLI verifies BAA chain. every tool call is logged. destructive actions require confirmation. |
+| **acquisition/license-change anxiety** | LibreChat-ClickHouse acquisition → immediate user fear of enshittification | tino is MIT-licensed, self-hosted, no SaaS dependency. the deployer owns the infrastructure, the data, and the code. there is no vendor to acquire. |
+| **compliance-side abandonment** | Skyler, QPost — developers give up on shipping integrations due to OAuth/compliance friction | tino's bootstrap CLI handles compliance verification. HIPAA controls are automatic. the deployer doesn't need to be a compliance expert. |
+
+### the activation funnel
+
+every step in the funnel must be < 5 minutes or the user drops off. the research shows that users who don't reach "first useful answer" within one session never come back.
+
+```
+install (tino init)          → 15 min (one-time, handled by CLI)
+  ↓
+first DM to tino             → 30 sec (just type in Slack)
+  ↓
+tino says "connect your tools" → 10 sec (tino sends the console URL)
+  ↓
+connect first capability     → 3 min (paste a token, click save)
+  ↓
+first useful answer          → 30 sec ("what's on my calendar?" → real answer)
+  ↓
+"holy shit this is useful"   → the hook. user is retained.
+```
+
+total time from first DM to first useful answer: **< 5 minutes**. this is the target. everything in the onboarding flow is designed to hit this target.
+
+### how each step works
+
+**step 1: first DM (tino doesn't know this user yet)**
+
+tino receives a DM from an unknown Slack user. the user is in the org's domain (or allowlist). tino auto-provisions them and sends:
+
+```
+hey! i'm tino, your team's AI assistant. i can search code, read your
+calendar, check CI, and more — but i need you to connect a few accounts
+first.
+
+→ open the console to get set up: <console-url>
+
+(takes about 3 minutes. i'll be here when you're done.)
+```
+
+this message is:
+- short (4 lines)
+- actionable (one link)
+- sets expectations ("3 minutes")
+- warm but not performative (no "I'd be happy to help!")
+
+**step 2: console first-time experience**
+
+the console detects a new user (no personal capabilities configured). instead of showing the full capability list, it shows a guided flow:
+
+```
+welcome to tino.
+
+which of these do you use day-to-day?
+
+  [x] Google Calendar — "what's on my calendar?"
+  [x] Gmail — "any emails from [person]?"
+  [ ] GitHub — "what does our auth middleware do?"
+  [ ] Slack reading — "catch me up on #engineering"
+  [ ] Linear — "what's assigned to me?"
+
+  [Continue →]
+```
+
+the user checks 1-2 boxes. the console shows ONLY those capabilities, with step-by-step setup:
+
+```
+let's connect Google Calendar.
+
+1. you'll sign in with Google (same account as your calendar)
+2. tino will ask for read-only access to your calendar
+3. that's it — tino can answer "what's on my calendar tomorrow?"
+
+  [Connect Google Calendar →]
+```
+
+clicking the button triggers the OAuth flow (better-auth social provider). the user signs in with Google, grants `calendar.readonly` scope, and the refresh token is stored automatically. no manual token copying, no `.env` editing, no terminal commands.
+
+**this is the critical difference from every other self-hosted assistant.** the user never:
+- opens a GCP console
+- creates an OAuth client
+- copies a client ID/secret
+- runs a CLI script to get a refresh token
+- pastes a token into a config file
+
+the org admin did the GCP setup once during `tino init`. the user just clicks "Connect" and signs in with Google. the OAuth flow is handled by better-auth's social provider, which stores the refresh token in DynamoDB (encrypted).
+
+**step 3: first useful answer**
+
+after connecting Google Calendar, the console shows:
+
+```
+✓ Google Calendar connected!
+
+go back to Slack and try asking tino:
+  • "what's on my calendar tomorrow?"
+  • "when's my next meeting with [person]?"
+  • "am i free at 3pm on friday?"
+```
+
+the user goes back to Slack, types one of the suggested prompts, and gets a real answer from their actual calendar. this is the hook.
+
+**step 4: capability stacking (organic, not forced)**
+
+after the first capability works, tino's system prompt includes a subtle nudge:
+
+```
+(i can also search your email and read Slack threads if you connect
+those in the console. just saying.)
+```
+
+this nudge appears once per session, only for capabilities the user hasn't connected yet. it's not a modal, not a banner, not a notification — it's a parenthetical in tino's response. the user adds more capabilities when they hit a wall ("i wish tino could see my email"), not because tino nagged them.
+
+### capability-specific onboarding
+
+each capability has a different friction profile. the onboarding flow handles each one:
+
+**Google Calendar + Gmail (OAuth flow, low friction):**
+- user clicks "Connect" in the console
+- better-auth handles the OAuth flow (redirect to Google, consent screen, callback)
+- refresh token stored automatically
+- user never sees a token or a config file
+- **the org admin's GCP project is pre-configured with the OAuth client** — the user just authenticates
+
+**GitHub (PAT, medium friction):**
+- user clicks "Connect GitHub" in the console
+- console shows: "create a Personal Access Token at github.com/settings/tokens → Classic → repo scope"
+- direct link to the GitHub token creation page (pre-filled with the right scopes if GitHub's URL supports it)
+- user pastes the token, console validates it immediately ("✓ authenticated as @iceglober")
+- **future: GitHub OAuth app** — user clicks "Connect" and signs in with GitHub, no PAT needed. requires the org admin to create a GitHub OAuth app during `tino init`.
+
+**Slack reading (user token, high friction — the hardest one):**
+- requires the user to install the Slack app to their workspace with user scopes
+- the console walks through it step by step with screenshots
+- **future: Slack OAuth flow** — user clicks "Connect Slack" and authorizes via Slack's OAuth, no manual token copying. requires the Slack app to be configured with user-token OAuth (which the org admin sets up during `tino init`).
+
+**Linear (API key or OAuth, medium friction):**
+- user clicks "Connect Linear" in the console
+- console shows: "create an API key at linear.app/settings/api"
+- user pastes the key, console validates it
+- **future: Linear OAuth** — same pattern as Google
+
+**CloudWatch (IAM, org-managed):**
+- this is an org capability, not a personal one
+- the org admin configures it during `tino init`
+- users don't need to do anything — it's already available
+
+### the "suggested tasks" system prompt
+
+after onboarding, tino's system prompt includes a section that generates contextual suggestions based on the user's enabled capabilities:
+
+```
+if the user seems unsure what to ask, suggest 2-3 things based on their
+enabled capabilities:
+
+- if calendar is enabled: "want me to prep you for your next meeting?"
+- if github is enabled: "i can check if CI is green on main"
+- if gmail is enabled: "any emails you want me to find?"
+- if slack is enabled: "want me to catch you up on what happened in
+  #engineering today?"
+- if linear is enabled: "want me to check what's assigned to you?"
+
+only suggest capabilities the user has actually connected. never suggest
+something that requires a capability they haven't set up — that's a dead
+end that erodes trust.
+```
+
+### measuring activation
+
+the console's admin dashboard tracks:
+
+- **time to first useful answer** per user (from first DM to first tool-using response)
+- **capability connection rate** (% of users who connect at least 1 capability within 24 hours of first DM)
+- **7-day retention** (% of users who DM tino at least once in their second week)
+- **capability stacking rate** (average capabilities per user over time)
+
+these metrics are visible to the admin. if time-to-first-useful-answer exceeds 10 minutes for any user, the admin can see where they got stuck (which step in the onboarding flow) and help.
+
+---
+
 ## implementation sequence (revised)
 
 ### v2.0: bootstrap CLI + HIPAA baseline (NEXT)
@@ -985,6 +1178,7 @@ this is not a formal HIPAA audit — it's a self-assessment dashboard that helps
 - nudge loop in the system prompt
 - instruction templates for common patterns
 - weekly usage digest DMs
+- see "onboarding: closing the activation gap" section below
 
 ### v2.7: data isolation (hard enforcement)
 - tag tool results with instance isolation labels
