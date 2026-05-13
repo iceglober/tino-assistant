@@ -79,18 +79,49 @@ same as the single-user journey: first capability → capability stacking → au
 
 ```ts
 interface TinoUser {
-  id: string;                        // Slack user ID (primary key)
-  slackDisplayName: string;
+  id: string;                        // tino-generated UUID (primary key)
+  displayName: string;
   role: 'admin' | 'member';
   createdAt: number;
   lastActiveAt: number;
 }
+
+interface LinkedIdentity {
+  provider: 'slack' | 'google' | 'oidc';  // extensible
+  externalId: string;                       // Slack user ID, Google email, OIDC sub, etc.
+  tinoUserId: string;                       // FK to TinoUser.id
+  linkedAt: number;
+}
 ```
 
-- **admin**: can manage org-wide capabilities, view audit logs, configure shared resources, add/remove users
-- **member**: can use tino, manage their personal capabilities, see their own conversation history
+the user's primary key is a tino-generated UUID, NOT a Slack user ID or email. external identities (Slack, Google SSO, future IdPs) are linked to the tino user via a separate identity table.
 
-users are auto-created on first DM to tino. the deployer's Slack user ID is the initial admin (set during deploy). admins can promote other users via the console.
+this means:
+- the same person logging in via Slack DM and via Google SSO resolves to the same tino user
+- adding a new IdP (Okta, SAML, AWS Identity Center) is just a new `provider` value — no schema change
+- a user can have multiple linked identities (Slack + Google + Okta)
+- if a user's Slack account changes (new workspace, new user ID), their tino identity persists — just relink
+
+**DynamoDB key scheme:**
+
+```
+USER#<tinoUserId>              → TinoUser record
+IDENTITY#slack#<slackUserId>   → { tinoUserId: 'abc-123' }
+IDENTITY#google#<email>        → { tinoUserId: 'abc-123' }
+IDENTITY#oidc#<sub>            → { tinoUserId: 'abc-123' }
+```
+
+Slack DM arrives → look up `IDENTITY#slack#<slackUserId>` → get `tinoUserId` → query `USER#<tinoUserId>#*`.
+Console login via Google → look up `IDENTITY#google#<email>` → get `tinoUserId` → same user, same data.
+
+**provisioning flow:**
+1. new Slack DM from unknown user → check if their Slack email matches a linked Google identity (via Slack's `users.info` API) → if yes, link the Slack identity to the existing tino user → if no, create a new tino user + link the Slack identity
+2. new console login from unknown Google email → check if the email's domain matches the org → if yes, create a new tino user + link the Google identity → if no, reject
+
+the deployer's identity is the initial admin (set during deploy via a seed config). admins can promote other users via the console.
+
+- **admin**: can manage org-wide capabilities, view audit logs, configure shared resources, add/remove users, promote/demote roles
+- **member**: can use tino, manage their personal capabilities, see their own conversation history and usage
 
 ### access control: who can talk to tino?
 
@@ -149,19 +180,20 @@ this is the same design we have today, just extended to multiple users. each use
 
 ### data isolation in DynamoDB
 
-the DynamoDB partition key scheme enforces isolation:
+the DynamoDB partition key scheme enforces isolation. the user ID in all partition keys is the **tino-generated UUID**, not a Slack user ID or email:
 
 ```
-USER#<userId>#HISTORY → conversation history (private)
-USER#<userId>#PREF#<key> → preferences (private)
-USER#<userId>#TASK#<taskId> → scheduled tasks (private)
-USER#<userId>#CAP#<capId> → personal capability config (private)
-ORG#CAP#<capId> → org capability config (shared, admin-only write)
-ORG#USER#<userId> → user profile (shared, admin-only write)
-AUDIT#<timestamp>#<userId> → audit log entry (shared, admin-only read)
+USER#<tinoUserId>#HISTORY           → conversation history (private)
+USER#<tinoUserId>#PREF#<key>        → preferences (private)
+USER#<tinoUserId>#TASK#<taskId>     → scheduled tasks (private)
+USER#<tinoUserId>#CAP#<capId>       → personal capability config (private)
+IDENTITY#<provider>#<externalId>    → linked identity → tinoUserId (lookup)
+ORG#CAP#<capId>                     → org capability config (shared, admin-only write)
+ORG#USER#<tinoUserId>               → user profile (shared, admin-only write)
+AUDIT#<timestamp>#<tinoUserId>      → audit log entry (shared, admin-only read)
 ```
 
-DynamoDB's partition key is the access boundary. a user's agent session only queries `USER#<theirUserId>#*` partitions plus `ORG#*` partitions. there is no code path that queries another user's `USER#*` partition.
+DynamoDB's partition key is the access boundary. a user's agent session only queries `USER#<theirTinoUserId>#*` partitions plus `ORG#*` partitions. there is no code path that queries another user's `USER#*` partition. the identity lookup (`IDENTITY#*`) is read-only and returns only the `tinoUserId` — no user data.
 
 ---
 
