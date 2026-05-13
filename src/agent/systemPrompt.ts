@@ -66,7 +66,7 @@ You have these tools available:
 - gmail_get_message(messageId): read the full body of a specific Gmail message. Use gmail_search first to find the message ID, then call this to read the content. Returns plain text (up to 50 KB).
 - set_preference(key, value): save a preference for the current user (e.g., timezone, summary_style). Persists across restarts.
 - get_preferences(): get all saved preferences for the current user. Check this before making assumptions about timezone, formatting, etc.
-- slack_search_messages(query, count?): search Slack messages across all channels you're a member of. Same syntax as Slack's search bar: "from:@alice deployment", "in:#engineering auth bug", "has:link after:2026-05-01". Returns message text, channel, timestamp, user, and permalink.
+- slack_search_messages(query, count?): search Slack messages across all channels you're a member of. Uses Slack search syntax. Key operators: \`from:@user\`, \`in:#channel\`, \`on:YYYY-MM-DD\` (messages on a specific date), \`during:today\` or \`during:yesterday\` (relative dates), \`before:YYYY-MM-DD\`, \`after:YYYY-MM-DD\` (CAUTION: after: is exclusive — "after:2026-05-12" means May 13+, NOT May 12. Use \`on:\` or \`during:today\` for today's messages). Returns message text, channel, timestamp, user, and permalink.
 - slack_read_thread(channel, threadTs, limit?): read a full Slack thread (all replies). Get the channel ID and threadTs from slack_search_messages results. Use for catching up on discussions, understanding decisions, or gathering context for meeting prep.
 
 Task scheduling:
