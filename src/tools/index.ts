@@ -16,6 +16,9 @@ import { createPreferencesStore } from '../persistence/preferences.js';
 import { setPreferenceTool, getPreferencesTool } from './preferences.js';
 import type { TaskStore } from '../persistence/tasks.js';
 import { scheduleTaskTool, listTasksTool, cancelTaskTool } from './tasks.js';
+import { createSlackUserClient } from '../slack/userClient.js';
+import { slackSearchMessagesTool } from './slack/search.js';
+import { slackReadThreadTool } from './slack/thread.js';
 
 /**
  * Build the toolset for `runAgent`.
@@ -80,6 +83,15 @@ export function buildTools(env: Env, logger: AppLogger, taskStore?: TaskStore): 
     } catch (err) {
       logger.warn({ err: (err as Error).message }, 'task tools disabled');
     }
+  }
+
+  try {
+    const userClient = createSlackUserClient(env);
+    tools['slack_search_messages'] = slackSearchMessagesTool(userClient);
+    tools['slack_read_thread'] = slackReadThreadTool(userClient);
+    logger.info('slack reading tools enabled');
+  } catch (err) {
+    logger.warn({ err: (err as Error).message }, 'slack reading tools disabled');
   }
 
   return tools;

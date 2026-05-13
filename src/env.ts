@@ -33,6 +33,11 @@ const EnvSchema = z.object({
   GOOGLE_OAUTH_CLIENT_SECRET: z.string().min(1).optional(),
   GOOGLE_OAUTH_REFRESH_TOKEN: z.string().min(1).optional(),
 
+  // Optional: Slack user token (xoxp-) for reading channels as the owner.
+  // Required for slack_search_messages and slack_read_thread tools.
+  // Obtain via Slack OAuth with user scopes: search:read, channels:history, groups:history.
+  SLACK_USER_TOKEN: z.string().min(1).optional(),
+
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']).default('info'),
 
   // Optional: path to the SQLite database file for conversation history.

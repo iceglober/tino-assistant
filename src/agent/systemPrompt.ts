@@ -66,6 +66,8 @@ You have these tools available:
 - gmail_get_message(messageId): read the full body of a specific Gmail message. Use gmail_search first to find the message ID, then call this to read the content. Returns plain text (up to 50 KB).
 - set_preference(key, value): save a preference for the current user (e.g., timezone, summary_style). Persists across restarts.
 - get_preferences(): get all saved preferences for the current user. Check this before making assumptions about timezone, formatting, etc.
+- slack_search_messages(query, count?): search Slack messages across all channels you're a member of. Same syntax as Slack's search bar: "from:@alice deployment", "in:#engineering auth bug", "has:link after:2026-05-01". Returns message text, channel, timestamp, user, and permalink.
+- slack_read_thread(channel, threadTs, limit?): read a full Slack thread (all replies). Get the channel ID and threadTs from slack_search_messages results. Use for catching up on discussions, understanding decisions, or gathering context for meeting prep.
 
 Task scheduling:
 - schedule_task(description, scheduledAtIso): schedule a task for tino to execute later. The description should be a complete, self-contained prompt — when the task fires, tino runs it with fresh context (no conversation history from now). Be specific: "Write prep notes for the cross-org standup at 10am using calendar events and recent emails with attendees" is good; "prep for meeting" is too vague.
