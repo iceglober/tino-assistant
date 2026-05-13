@@ -1064,22 +1064,52 @@ each capability has a different friction profile. the onboarding flow handles ea
 - refresh token stored automatically (encrypted in DynamoDB)
 - user never sees a token, a config file, or the GCP console
 
-**how the GCP project gets created (org admin, during `tino init`):**
+**GCP project setup (org admin, during `tino init`):**
 
-the `tino init` CLI automates the entire GCP setup. the org admin signs in with Google once, and the CLI:
-1. creates a GCP project (`tino-deploy-<random>`) via the Resource Manager API
-2. enables Google Calendar API + Gmail API via the Service Usage API
-3. configures the OAuth consent screen (app name: "tino", internal to the org's Workspace domain)
-4. creates a Desktop-type OAuth client via the OAuth2 API
-5. stores the client ID + secret in Secrets Manager
+the `tino init` CLI guides the org admin through creating a GCP project and OAuth client step by step. it opens the right URLs, tells the admin exactly what to click, and validates each step immediately:
 
-the org admin never opens the GCP console. the entire flow is ~60 seconds.
+```
+? Google integration setup:
+
+  step 1: create a GCP project
+    → opening: https://console.cloud.google.com/projectcreate
+    ? paste your project ID: [tino-deploy-abc123]
+    ✓ project found.
+
+  step 2: enable APIs
+    → opening: https://console.cloud.google.com/apis/library?project=tino-deploy-abc123
+    enable these two:
+      • Google Calendar API
+      • Gmail API
+    ? confirm both are enabled: [y]
+    ✓ verified: Calendar API enabled, Gmail API enabled.
+
+  step 3: OAuth consent screen
+    → opening consent screen config URL
+    configure:
+      • user type: Internal (if Google Workspace) or External
+      • app name: tino
+      • scopes: calendar.readonly, gmail.readonly
+    ? confirm consent screen is configured: [y]
+
+  step 4: create OAuth client
+    → opening credentials creation URL
+    • application type: Desktop app
+    • name: tino
+    ? paste client ID: [165296458359-...]
+    ? paste client secret: [GOCSPX-...]
+    ✓ credentials stored in Secrets Manager.
+```
+
+total time: ~5 minutes. the admin does this once. users never touch the GCP console — they just click "Connect" in the tino console and sign in with Google.
 
 **legal posture:**
-- **CASA does NOT apply.** CASA is required only for OAuth apps verified for public distribution. tino's OAuth clients are Desktop-type, per-deployment, unverified. each deployer creates their own client in their own GCP project.
-- **iceglober has zero legal exposure.** iceglober doesn't own the OAuth client (the deployer's GCP project does), doesn't see the tokens (stored in the deployer's infrastructure), and doesn't process the data (runs on the deployer's AWS account). the CLI is automation, not a service — same legal posture as a Terraform module that creates GCP resources.
-- **the "unverified app" warning** appears on the consent screen for non-Workspace users. for Workspace users, the admin marks the app as "internal" during `tino init` → no warning at all for org members. this is the standard pattern for internal tools.
-- **the deployer accepts** Google's Cloud Platform ToS (during sign-in) and is responsible for their own GCP project. tino's docs make this explicit.
+- **CASA does NOT apply.** tino's OAuth clients are Desktop-type, per-deployment, unverified. each deployer creates their own client in their own GCP project.
+- **iceglober has zero legal exposure.** iceglober doesn't own the OAuth client, doesn't see the tokens, doesn't process the data. the CLI is a guided walkthrough, not a service.
+- **the "unverified app" warning** appears on the consent screen for non-Workspace users. for Workspace users, the admin marks the app as "internal" → no warning for org members.
+- **the deployer accepts** Google's Cloud Platform ToS and is responsible for their own GCP project.
+
+**supported platform: Google Workspace only (v2).** Microsoft 365 (Outlook Calendar + Mail) is a future capability type — the capability instance model supports it (same `calendar_list_events` tool interface, different backend). not in scope for v2.
 
 **GitHub (PAT, medium friction):**
 - user clicks "Connect GitHub" in the console
