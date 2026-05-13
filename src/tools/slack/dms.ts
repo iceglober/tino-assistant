@@ -76,7 +76,7 @@ type ReadDmResult =
 export async function _executeListDms(
   client: webApi.WebClient,
   input: ListDmsInput,
-  userCache: UserCache,
+  userCache?: UserCache,
 ): Promise<ListDmsResult> {
   try {
     const sinceEpoch = input.sinceIso ? new Date(input.sinceIso).getTime() / 1000 : undefined;
@@ -110,7 +110,7 @@ export async function _executeListDms(
               const membersRes = await client.conversations.members({ channel: channelId });
               const memberIds = (membersRes.members ?? []) as string[];
               memberNames = await Promise.all(
-                memberIds.map(uid => userCache.resolve(uid).then(u => u.name)),
+                memberIds.map(uid => userCache ? userCache.resolve(uid).then(u => u.name) : Promise.resolve(uid)),
               );
             } catch {
               // best-effort
@@ -125,7 +125,7 @@ export async function _executeListDms(
             const userId = (ch as { user?: string }).user;
             let userName: string | undefined;
             if (userId) {
-              userName = (await userCache.resolve(userId)).name;
+              userName = userCache ? (await userCache.resolve(userId)).name : userId;
             }
             conversations.push({
               channelId,
@@ -165,7 +165,7 @@ export async function _executeListDms(
             const membersRes = await client.conversations.members({ channel: channelId });
             const memberIds = (membersRes.members ?? []) as string[];
             memberNames = await Promise.all(
-              memberIds.map(uid => userCache.resolve(uid).then(u => u.name)),
+              memberIds.map(uid => userCache ? userCache.resolve(uid).then(u => u.name) : Promise.resolve(uid)),
             );
           } catch {
             // best-effort
@@ -180,7 +180,7 @@ export async function _executeListDms(
           const userId = (ch as { user?: string }).user;
           let userName: string | undefined;
           if (userId) {
-            userName = (await userCache.resolve(userId)).name;
+            userName = userCache ? (await userCache.resolve(userId)).name : userId;
           }
           conversations.push({
             channelId,
@@ -224,7 +224,7 @@ export async function _executeListDms(
 export async function _executeReadDm(
   client: webApi.WebClient,
   input: ReadDmInput,
-  userCache: UserCache,
+  userCache?: UserCache,
 ): Promise<ReadDmResult> {
   try {
     const res = await client.conversations.history({
@@ -237,7 +237,7 @@ export async function _executeReadDm(
     const messages: DmMessage[] = await Promise.all(
       rawMessages.map(async m => {
         const userId = (m as { user?: string }).user ?? '';
-        const userName = userId ? (await userCache.resolve(userId)).name : '';
+        const userName = userId ? userCache ? (await userCache.resolve(userId)).name : userId : '';
         return {
           user: userId,
           userName,
@@ -285,7 +285,7 @@ export async function _executeReadDm(
 // Tool exports
 // ---------------------------------------------------------------------------
 
-export function slackListDmsTool(client: webApi.WebClient, userCache: UserCache) {
+export function slackListDmsTool(client: webApi.WebClient, userCache?: UserCache) {
   return tool({
     description:
       'List your recent DM conversations (1:1 and group, including Slack Connect). ' +
@@ -297,7 +297,7 @@ export function slackListDmsTool(client: webApi.WebClient, userCache: UserCache)
   });
 }
 
-export function slackReadDmTool(client: webApi.WebClient, userCache: UserCache) {
+export function slackReadDmTool(client: webApi.WebClient, userCache?: UserCache) {
   return tool({
     description:
       'Read recent messages from a specific DM conversation. ' +

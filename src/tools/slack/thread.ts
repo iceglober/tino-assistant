@@ -39,7 +39,7 @@ export async function _executeSlackReadThread(
       const userId = m.user ?? '';
       let userName = userId;
       if (userCache && userId) {
-        userName = (await userCache.resolve(userId)).name;
+        userName = userCache ? (await userCache.resolve(userId)).name : userId;
       }
       return {
         user: userId,
@@ -73,7 +73,7 @@ export async function _executeSlackReadThread(
   }
 }
 
-export function slackReadThreadTool(client: webApi.WebClient, userCache: UserCache) {
+export function slackReadThreadTool(client: webApi.WebClient, userCache?: UserCache) {
   return tool({
     description:
       'Read a Slack thread (all replies to a message). ' +

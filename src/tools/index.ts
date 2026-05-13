@@ -89,12 +89,20 @@ export async function buildTools(env: Env, logger: AppLogger, taskStore?: TaskSt
 
   try {
     const userClient = createSlackUserClient(env);
-    const userCache = await createUserCache(userClient, logger);
+    let userCache: Awaited<ReturnType<typeof createUserCache>> | undefined;
+    try {
+      userCache = await createUserCache(userClient, logger);
+    } catch (cacheErr) {
+      logger.warn(
+        { err: (cacheErr as Error).message },
+        'slack user cache failed to load — tools will use user IDs instead of display names',
+      );
+    }
     tools['slack_search_messages'] = slackSearchMessagesTool(userClient, userCache);
     tools['slack_read_thread'] = slackReadThreadTool(userClient, userCache);
     tools['slack_list_dms'] = slackListDmsTool(userClient, userCache);
     tools['slack_read_dm'] = slackReadDmTool(userClient, userCache);
-    logger.info('slack reading tools enabled');
+    logger.info({ userCacheLoaded: !!userCache }, 'slack reading tools enabled');
   } catch (err) {
     logger.warn({ err: (err as Error).message }, 'slack reading tools disabled');
   }

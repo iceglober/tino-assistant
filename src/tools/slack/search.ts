@@ -45,7 +45,7 @@ export async function _executeSlackSearch(
       const userId = m.user ?? (m.username ?? '');
       let userName = userId;
       if (userCache && userId) {
-        userName = (await userCache.resolve(userId)).name;
+        userName = userCache ? (await userCache.resolve(userId)).name : userId;
       }
       return {
         channel: {
@@ -77,7 +77,7 @@ export async function _executeSlackSearch(
   }
 }
 
-export function slackSearchMessagesTool(client: webApi.WebClient, userCache: UserCache) {
+export function slackSearchMessagesTool(client: webApi.WebClient, userCache?: UserCache) {
   return tool({
     description:
       'Search Slack messages across all channels the owner is a member of. ' +
