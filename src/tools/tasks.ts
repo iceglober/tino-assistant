@@ -38,10 +38,13 @@ export function scheduleTaskTool(taskStore: TaskStore, userId: string) {
       }
       const scheduledAtEpochSec = Math.floor(ms / 1000);
       const task = taskStore.create(userId, description, scheduledAtEpochSec);
+      const nowSec = Math.floor(Date.now() / 1000);
+      const deltaSec = scheduledAtEpochSec - nowSec;
       return {
         taskId: task.id,
         description: task.description,
         scheduledAt: new Date(task.scheduledAt * 1000).toISOString(),
+        scheduledInMinutes: Math.round(deltaSec / 60),
         status: task.status,
       };
     },

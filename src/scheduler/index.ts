@@ -28,6 +28,10 @@ export function startScheduler(deps: SchedulerDeps): () => void {
     const now = Math.floor(Date.now() / 1000);
     const pending = taskStore.listPending(now);
 
+    if (pending.length === 0) {
+      logger.debug({ now }, 'scheduler tick: no pending tasks');
+    }
+
     for (const task of pending) {
       logger.info({ taskId: task.id, description: task.description }, 'executing scheduled task');
       taskStore.updateStatus(task.id, 'running');
