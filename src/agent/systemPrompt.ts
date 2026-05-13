@@ -4,8 +4,12 @@
  * Returns a fresh string on each call so the current date/time is always
  * accurate. Claude has no clock — without this, it hallucinates "today"
  * from training data and computes wrong dates for "tomorrow", "next week", etc.
+ *
+ * @param registeredToolNames - When provided, the tool list section is
+ *   generated dynamically from the registered tool names. When absent, the
+ *   static hardcoded list is used (backward compat).
  */
-export function buildSystemPrompt(): string {
+export function buildSystemPrompt(registeredToolNames?: string[]): string {
   const now = new Date();
 
   // Full ISO-8601 with local timezone offset — this is what Claude should use
@@ -28,6 +32,11 @@ export function buildSystemPrompt(): string {
     minute: '2-digit',
     timeZoneName: 'short',
   });
+
+  // When registeredToolNames is provided, generate a dynamic tool availability note
+  const dynamicToolNote = registeredToolNames
+    ? `\n\nCurrently registered tools (${registeredToolNames.length} total): ${registeredToolNames.join(', ')}.`
+    : '';
 
   return `You are tino, a personal assistant for one user (the owner of this Slack bot).
 
@@ -122,5 +131,5 @@ Keep the prep concise — 5-10 bullet points max. The user reads this on their p
 Preferences:
 - Use get_preferences at the start of conversations to check for saved user preferences (timezone, formatting style, etc.).
 - When the user says "remember that I prefer X" or "my timezone is Y", call set_preference to save it.
-- Preferences persist across restarts.`;
+- Preferences persist across restarts.${dynamicToolNote}`;
 }

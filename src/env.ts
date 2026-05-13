@@ -1,13 +1,18 @@
 import { z } from 'zod';
 
 /**
- * Environment schema.
+ * Bootstrap-only environment schema.
  *
- * Philosophy: Slack credentials are required — without them, the bot literally
- * cannot start. Everything else is optional, because the agent should degrade
- * gracefully: a missing GITHUB_TOKEN disables the GitHub tools, it does NOT
- * crash the whole process. Each tool validates its own required fields at
- * construction time (see `src/tools/*`).
+ * Philosophy: Only the minimum required to start the process lives here.
+ * - Slack credentials are required — without them, the bot cannot start.
+ * - Persistence config is required to know where to store data.
+ * - Everything else (GitHub token, Linear token, Google OAuth, Slack user
+ *   token) lives in the capability configs stored in the config table.
+ *   Use the web console at localhost:3001 to manage capability credentials.
+ *
+ * On first startup, if the old env vars (GITHUB_TOKEN, LINEAR_DEVELOPER_TOKEN,
+ * etc.) are still set, they are auto-migrated to capability configs and can
+ * then be removed from .env.
  *
  * AWS_REGION is intentionally optional — the AWS SDK's default credential
  * chain resolves region from ~/.aws/config, AWS_DEFAULT_REGION, SSO configs,
@@ -20,23 +25,10 @@ const EnvSchema = z.object({
   SLACK_APP_TOKEN: z.string().min(1),
   ALLOWED_SLACK_USER_ID: z.string().min(1),
 
-  // Optional: each tool/provider validates its own fields at construction time.
+  // Optional: AWS config for Bedrock (model inference).
   AWS_REGION: z.string().min(1).optional(),
   AWS_PROFILE: z.string().optional(),
   BEDROCK_MODEL_ID: z.string().min(1).optional(),
-  GITHUB_TOKEN: z.string().min(1).optional(),
-  GITHUB_DEFAULT_REPO: z
-    .string()
-    .regex(/^[^/\s]+\/[^/\s]+$/, 'GITHUB_DEFAULT_REPO must be in "owner/repo" format')
-    .optional(),
-  GOOGLE_OAUTH_CLIENT_ID: z.string().min(1).optional(),
-  GOOGLE_OAUTH_CLIENT_SECRET: z.string().min(1).optional(),
-  GOOGLE_OAUTH_REFRESH_TOKEN: z.string().min(1).optional(),
-
-  // Optional: Slack user token (xoxp-) for reading channels as the owner.
-  // Required for slack_search_messages and slack_read_thread tools.
-  // Obtain via Slack OAuth with user scopes: search:read, channels:history, groups:history.
-  SLACK_USER_TOKEN: z.string().min(1).optional(),
 
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']).default('info'),
 
@@ -56,9 +48,19 @@ const EnvSchema = z.object({
   // When unset, the SDK connects to AWS (table must already exist via CDK).
   DYNAMODB_ENDPOINT: z.string().url().optional(),
 
-  // Optional: Linear developer token (OAuth app token) for Linear issue tools.
-  // When set, enables linear_search_issues, linear_get_issue, linear_create_issue,
-  // linear_update_issue, linear_add_comment, and linear_list_my_issues.
+  // ── Legacy migration vars (optional) ──────────────────────────────────────
+  // These are read during the one-time migration from env vars to capability
+  // configs. After migration, they can be removed from .env.
+  // They are kept here so loadEnv() doesn't throw on first startup.
+  GITHUB_TOKEN: z.string().min(1).optional(),
+  GITHUB_DEFAULT_REPO: z
+    .string()
+    .regex(/^[^/\s]+\/[^/\s]+$/, 'GITHUB_DEFAULT_REPO must be in "owner/repo" format')
+    .optional(),
+  GOOGLE_OAUTH_CLIENT_ID: z.string().min(1).optional(),
+  GOOGLE_OAUTH_CLIENT_SECRET: z.string().min(1).optional(),
+  GOOGLE_OAUTH_REFRESH_TOKEN: z.string().min(1).optional(),
+  SLACK_USER_TOKEN: z.string().min(1).optional(),
   LINEAR_DEVELOPER_TOKEN: z.string().min(1).optional(),
 });
 

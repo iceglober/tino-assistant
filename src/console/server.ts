@@ -1,17 +1,20 @@
 import http from 'node:http';
 import type { ConfigStore } from '../persistence/config.js';
 import type { AppLogger } from '../slack/app.js';
+import type { CapabilityRegistry } from '../capabilities/types.js';
 import { getConsoleHtml } from './html.js';
 
 /**
- * Minimal HTTP server for the tino config console.
+ * HTTP server for the tino config console.
  *
  * Routes:
- *   GET  /              → HTML config editor page
- *   GET  /api/config    → JSON list of all config entries
- *   PUT  /api/config/:key → set a config value (body: { "value": <any JSON> })
- *   DELETE /api/config/:key → delete a config entry
- *   GET  /api/health    → { ok: true, tools: [...], uptime: <seconds> }
+ *   GET  /                          → HTML config editor page
+ *   GET  /api/config                → JSON list of all config entries
+ *   PUT  /api/config/:key           → set a config value (body: { "value": <any JSON> })
+ *   DELETE /api/config/:key         → delete a config entry
+ *   GET  /api/health                → { ok: true, tools: [...], uptime: <seconds>, capabilities: [...] }
+ *   GET  /api/capabilities          → list all capability configs
+ *   PUT  /api/capabilities/:id      → update a capability config (body: CapabilityConfig)
  *
  * Binds to 127.0.0.1 only — not accessible from outside localhost.
  */
@@ -19,6 +22,7 @@ export function startConsole(
   config: ConfigStore,
   logger: AppLogger,
   tools: Record<string, unknown>,
+  registry?: CapabilityRegistry,
   port = 3001,
 ): http.Server {
   const startTime = Date.now();
@@ -39,10 +43,17 @@ export function startConsole(
 
     // ── GET /api/health ────────────────────────────────────────────────────
     if (method === 'GET' && path === '/api/health') {
+      const capState = registry?.getState() ?? {};
       const body = JSON.stringify({
         ok: true,
         tools: Object.keys(tools),
         uptime: (Date.now() - startTime) / 1000,
+        capabilities: Object.entries(capState).map(([id, s]) => ({
+          id,
+          toolCount: s.toolCount,
+          lastFindWorkScanAt: s.lastFindWorkScanAt,
+          lastError: s.lastError,
+        })),
       });
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(body);
@@ -108,6 +119,54 @@ export function startConsole(
         }
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: true, deleted }));
+      });
+      return;
+    }
+
+    // ── GET /api/capabilities ──────────────────────────────────────────────
+    if (method === 'GET' && path === '/api/capabilities') {
+      void config.list().then(entries => {
+        const caps = entries
+          .filter(e => e.key.startsWith('capability.'))
+          .map(e => {
+            let parsed: unknown = null;
+            try { parsed = JSON.parse(e.value); } catch { /* ignore */ }
+            return { id: e.key.slice('capability.'.length), config: parsed, updatedAt: e.updatedAt };
+          });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(caps));
+      });
+      return;
+    }
+
+    // ── PUT /api/capabilities/:id ──────────────────────────────────────────
+    if (method === 'PUT' && path.startsWith('/api/capabilities/')) {
+      const id = decodeURIComponent(path.slice('/api/capabilities/'.length));
+      if (!id) {
+        res.writeHead(400, { 'Content-Type': 'text/plain' });
+        res.end('Missing capability id');
+        return;
+      }
+      readBody(req, (err, body) => {
+        if (err) {
+          res.writeHead(400, { 'Content-Type': 'text/plain' });
+          res.end('Failed to read request body');
+          return;
+        }
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(body);
+        } catch {
+          res.writeHead(400, { 'Content-Type': 'text/plain' });
+          res.end('Request body must be valid JSON');
+          return;
+        }
+        const key = `capability.${id}`;
+        void config.set(key, parsed).then(() => {
+          logger.info({ capabilityId: id }, 'capability config updated via console');
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: true, id }));
+        });
       });
       return;
     }
