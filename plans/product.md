@@ -2,374 +2,460 @@
 
 ## what tino is
 
-a personal AI assistant that lives in your slack DMs. it connects to your tools (code, calendar, email, slack, project management, customer systems) and uses them to answer questions, do research, prep for meetings, and work on tasks autonomously.
+an open-source AI assistant that connects to your team's tools and works alongside you in slack. it searches code, reads email, preps for meetings, monitors project boards, and works on tasks autonomously — all through DMs.
 
-it runs on your infrastructure (ECS Fargate), uses BAA-backed models (Bedrock), and is configured through a localhost web console. single-user by design — it's YOUR assistant, not a team tool.
+it runs on your AWS infrastructure, uses BAA-backed models on Bedrock, and is configured through a web console. open-source at `iceglober/tino-assistant`, deployed privately per-org.
 
 ---
 
-## the journey: "never heard of tino" → "tino saves me hours"
+## deployment model
+
+tino is open-source software that orgs deploy on their own infrastructure. there is no hosted version, no SaaS, no data leaving the org's AWS account.
+
+```
+iceglober/tino-assistant (public repo, MIT)
+  └── your-org deploys to your-org's AWS account
+        ├── ECS Fargate (compute)
+        ├── DynamoDB (persistence)
+        ├── Secrets Manager (credentials)
+        ├── Bedrock (model inference — BAA-backed)
+        └── your Slack workspace (Socket Mode — no public endpoint)
+```
+
+this means:
+- **data stays in your AWS account.** model calls go to Bedrock in your account. conversation history, tool results, credentials — all in your DynamoDB table and Secrets Manager. nothing leaves your VPC except API calls to external services (Slack, GitHub, Google, Linear, etc.) that the user explicitly configures.
+- **you control the model.** swap Bedrock model IDs in config. use cross-region inference profiles. enforce BAA compliance at the AWS account level.
+- **you control access.** who can talk to tino, what tools tino has, what data tino can see — all configured by your team, not by us.
+
+---
+
+## the journey: "never heard of tino" → "tino saves the team hours"
 
 ### phase 0: discovery (30 seconds)
 
-someone sees tino mentioned. clicks the repo. README shows the butler logo, one line: "personal AI assistant that lives in your Slack DMs." they scan the capability list and think "i want that."
+someone sees tino mentioned. clicks the repo. README shows the butler logo, one line: "AI assistant that connects to your team's tools and works alongside you in Slack." they scan the capability list and think "i want that for my team."
 
-### phase 1: install (15 minutes)
+### phase 1: org deploy (30 minutes)
+
+the CTO (or whoever owns infra) runs:
 
 ```
-git clone → cp .env.example .env → fill in slack tokens → docker compose up -d → pnpm dev
+git clone → cd infra → cdk deploy → scripts/setup-secrets.sh secrets.json
 ```
 
-tino starts with zero capabilities enabled. the console at localhost:3001 shows a guided setup:
+this creates: ECS cluster, DynamoDB table, Secrets Manager entries, IAM roles. tino starts running. the console is accessible via ECS exec port-forward (localhost-only for now) or behind the org's SSO (future).
 
-> *welcome to tino. let's get you set up.*
->
-> *which of these do you use?*
-> - [ ] GitHub — search code, check CI, read files
-> - [ ] Linear — create/manage issues, get assigned work
-> - [ ] Google Calendar — see your schedule
-> - [ ] Gmail — search and read email
-> - [ ] Slack — read channels and DMs (yours, not the bot's)
-> - [ ] CloudWatch — query logs (stats only, safety-validated)
->
-> *pick one to start. you can add more anytime.*
+the deployer configures:
+- Slack app (bot token, app token, Socket Mode)
+- Bedrock model access
+- which capability types are available org-wide
 
-each capability expands to show exactly what credentials are needed, where to get them, and a "test connection" button.
+### phase 2: user onboarding (5 minutes per person)
 
-### phase 2: first conversation (2 minutes)
+each team member DMs tino in slack. tino recognizes them (by Slack user ID) and creates their user profile. the first message triggers onboarding:
 
-the user DMs tino. tino responds — but with only Bedrock configured, it's just a chat bot. the system prompt says:
+> "hey, i'm tino. i'm your team's AI assistant. i can search code, read your calendar, check CI, and more — but i need you to connect your accounts first. visit the console to get set up."
 
-> "hey, i don't have any tools enabled yet so i'm just working from general knowledge. visit localhost:3001 to connect your GitHub, calendar, etc. — that's where i get useful."
+the user visits the console (authenticated via Google Workspace SSO), sees their personal capability setup:
 
-this is the nudge loop. tino is useful enough to talk to, but clearly limited, and it tells you how to become more useful.
+- **shared capabilities** (configured by the org admin): GitHub repos, Linear workspace, CloudWatch log groups — already connected, the user just sees them
+- **personal capabilities** (configured by each user): their Google Calendar, their Gmail, their Slack reading token — each user connects their own
 
-### phase 3: first capability (5 minutes)
+### phase 3: daily use
 
-the user enables GitHub — pastes their PAT, adds a repo. now "what does our auth middleware do?" returns real code with file paths and line numbers. the user feels the value immediately.
+same as the single-user journey: first capability → capability stacking → autonomous work → tino saves hours. but now multiplied across the team.
 
-this is the hook. one capability, one question answered that would have taken 10 minutes of manual searching.
+### phase 4: team value
 
-### phase 4: capability stacking (30 minutes over a week)
-
-each day the user hits a wall:
-- "i wish tino could see my calendar" → enables calendar (5 min)
-- "can tino read that slack thread?" → enables slack reading (5 min)
-- "tino should know about my linear board" → enables linear (5 min)
-
-the value compounds. meeting prep now pulls from calendar + email + slack + code. "prep me for my 3pm" goes from useless to genuinely helpful.
-
-### phase 5: autonomous work (the unlock)
-
-the user assigns tino a linear issue. tino investigates using code search + slack context, posts findings as a comment, moves the issue to "in progress," and DMs a summary.
-
-the user realizes: tino can work while i sleep.
-
-they start:
-- scheduling tasks ("remind me to review the PR in 2 hours")
-- enabling findWork on capabilities (tino polls linear for new assignments)
-- asking tino to schedule its own prep tasks ("if i have a meeting tomorrow, prep me 30 min before")
-
-tino goes from "tool i query" to "colleague who handles things."
-
-### phase 6: tino saves hours
-
-daily routine:
-- 7am: tino's morning briefing — today's calendar, yesterday's unread emails, CI status, linear assignments, slack threads that need attention
-- throughout the day: meeting prep auto-scheduled 30 min before each meeting
-- linear issues investigated autonomously, findings posted as comments
-- "what happened in slack today?" answered in 10 seconds instead of 30 minutes of scrolling
-
-the user's context-switching drops dramatically because tino pre-digests information across all their tools.
-
-### phase 7: external systems (the expansion)
-
-the user connects a customer's Jira board. tino monitors it for issues tagged "integration," summarizes new ones daily, and flags anything urgent — all without the user having to context-switch into the customer's project management tool.
-
-this is where capability instances and guardrails become essential.
+- shared context: "what did the team discuss about the deployment?" — tino searches shared Slack channels (using the asking user's token, so it only sees what they see)
+- shared tools: everyone can ask about CI status, search the same codebase, query the same log groups
+- individual context: each person's calendar, email, and DM history stays private to them
 
 ---
 
-## capability instances
+## multi-user architecture
 
-### the problem
-
-the current model: one capability = one type = one set of credentials = one set of settings. this works when all capabilities are YOUR systems.
-
-it breaks when:
-- you have 3 Jira connections (yours + 2 customers) each with different permissions
-- customer A's data must never appear in customer B's context
-- each connection has custom instructions ("for RevenueWell, focus on issues tagged 'integration'")
-- some connections are read-only, others allow writes
-
-### the model
-
-```
-CapabilityType (e.g., "atlassian-jira")
-  └── CapabilityInstance (e.g., "jira-revenuewell")
-        ├── credentials
-        ├── settings
-        ├── permissions (read/write/delete, allowed actions)
-        ├── instructions (natural language, injected into system prompt)
-        ├── isolation (data tagging + sharing rules)
-        └── findWork config
-```
-
-a capability type defines WHAT tools exist (search issues, create issue, etc.). a capability instance defines HOW a specific connection uses those tools (which credentials, what's allowed, what to focus on).
-
-### capability instance schema
+### user model
 
 ```ts
-interface CapabilityInstance {
-  // identity
-  id: string;                        // 'jira-revenuewell'
-  type: string;                      // 'atlassian-jira'
-  name: string;                      // 'RevenueWell Jira'
-  enabled: boolean;
-
-  // connection
-  credentials: Record<string, string>;
-  settings: Record<string, unknown>;  // board IDs, project keys, filters, etc.
-
-  // guardrails
-  permissions: {
-    read: boolean;                   // can tino read from this system?
-    write: boolean;                  // can tino create/modify?
-    delete: boolean;                 // can tino delete?
-    allowedActions?: string[];       // whitelist of specific tool names
-    // if allowedActions is set, ONLY those tools are exposed
-    // if unset, all tools matching the read/write/delete flags are exposed
-  };
-
-  // agent instructions (per-instance)
-  instructions: string;
-  // natural language, injected into the system prompt when tino is
-  // working with this instance's data. examples:
-  //
-  // "focus on issues tagged 'integration' or 'kayn'. summarize new
-  //  issues daily. never create or modify issues — report findings
-  //  to the owner via slack DM only."
-  //
-  // "this is our internal linear board. full access. when assigned
-  //  an issue, investigate thoroughly using code search and slack
-  //  context before posting findings."
-
-  // data isolation
-  isolation: {
-    label: string;                   // 'revenuewell' — tags all data from this instance
-    canShareWith: string[];          // ['internal'] — which other instance labels can see this data
-    // empty array = data stays within this instance's context only
-    // ['*'] = no isolation (default for internal systems)
-  };
-
-  // autonomous scanning
-  findWork?: {
-    enabled: boolean;
-    intervalMinutes: number;
-    // what to scan for is defined in `instructions` + `settings`
-  };
+interface TinoUser {
+  id: string;                        // Slack user ID (primary key)
+  slackDisplayName: string;
+  role: 'admin' | 'member';
+  createdAt: number;
+  lastActiveAt: number;
 }
 ```
 
-### how permissions work
+- **admin**: can manage org-wide capabilities, view audit logs, configure shared resources, add/remove users
+- **member**: can use tino, manage their personal capabilities, see their own conversation history
 
-when tino calls a tool, the capability registry checks:
+users are auto-created on first DM to tino. the deployer's Slack user ID is the initial admin (set during deploy). admins can promote other users via the console.
 
-1. which instance owns this tool call? (determined by the credentials/connection being used)
-2. does the instance's `permissions` allow this action?
-3. if `allowedActions` is set, is this specific tool in the whitelist?
+### access control: who can talk to tino?
 
-if any check fails, the tool returns a structured error: `{ error: 'permission_denied', message: 'this connection is read-only' }`. tino sees the error and adjusts — it won't try to write again.
+the current single-user `ALLOWED_SLACK_USER_ID` evolves into a user table. two modes:
 
-### how isolation works
+- **allowlist mode** (default): only Slack user IDs in the user table can interact with tino. new users must be added by an admin (or auto-added if their Slack email matches the org's domain).
+- **org-domain mode**: any Slack user whose email matches a configured domain (e.g., `@kayn.ai`) is auto-provisioned on first DM. simpler for small teams.
 
-when tino retrieves data from an instance, the data is tagged with the instance's `isolation.label`. when tino is working in a different context:
-
-- if the other context's `canShareWith` includes this label → data is accessible
-- if not → data is not included in the system prompt or tool results
-
-implementation: the agent loop checks isolation labels before including tool results in the message history. data from isolated instances is stored separately (different conversation context, not mixed into the main history).
-
-for the MVP, isolation is advisory — enforced by the system prompt ("do not reference data from RevenueWell when working on internal issues") rather than by hard data separation. hard separation (separate DynamoDB partitions, filtered tool results) comes later.
-
-### how instructions work
-
-each instance's `instructions` field is injected into the system prompt when tino is working with that instance. the prompt assembly becomes:
-
-```
-[base system prompt]
-[tool descriptions for enabled instances]
-[per-instance instructions for the current context]
-```
-
-"current context" is determined by:
-- which tools tino is calling (if it calls `jira-revenuewell.search_issues`, the RevenueWell instructions are active)
-- which findWork poller triggered the run (if the RevenueWell poller found a new issue, those instructions are active)
-- explicit user direction ("check the RevenueWell board" → RevenueWell instructions active)
-
-### MCP integration
-
-an MCP server (e.g., Atlassian MCP) is a capability type. the MCP server provides the tools. the capability instance wraps it:
-
-```
-CapabilityType: 'atlassian-jira' (backed by Atlassian MCP server)
-  └── Instance: 'jira-revenuewell'
-        ├── credentials: { apiKey: '...' } → passed to MCP server
-        ├── permissions: { read: true, write: false } → filters which MCP tools are exposed
-        ├── instructions: "focus on integration issues..."
-        └── isolation: { label: 'revenuewell', canShareWith: [] }
-```
-
-the AI SDK already supports MCP tool sources. the registry:
-1. connects to the MCP server with the instance's credentials
-2. discovers available tools from the MCP server
-3. filters by `permissions.allowedActions` (or `read`/`write`/`delete` flags)
-4. registers the filtered tools with instance-prefixed names (e.g., `jira-revenuewell.search_issues`)
-5. injects the instance's `instructions` into the system prompt
-
-### native vs MCP capabilities
-
-some capabilities are native (built-in TypeScript tools): GitHub, Linear, Slack, Gmail, Calendar, CloudWatch. these ship with tino and are always available.
-
-some capabilities are MCP-backed: Atlassian Jira, Salesforce, custom internal tools. these require an MCP server to be running and accessible.
-
-the capability instance model handles both — the `type` field determines whether to use native tools or connect to an MCP server. the permissions, instructions, and isolation work the same way regardless.
+the DM handler checks the user table before processing. unknown users get: "i don't recognize you — ask your admin to add you to tino."
 
 ---
 
-## the console (capability management UI)
+## shared vs private resources
 
-### current state
+this is the core design challenge. some things are shared across the team, some are private to each user. the boundary must be clear and enforced.
 
-localhost:3001 serves a single-page config editor with:
-- capability list (enable/disable, credential status, findWork toggle)
-- capability detail (credentials, settings/allowlists, findWork interval)
-- raw config table
-- health section
+### resource classification
 
-### evolution for capability instances
+| resource | scope | who configures | who can access | examples |
+|----------|-------|----------------|----------------|----------|
+| **org capabilities** | shared | admin | all users | GitHub repos, Linear workspace, CloudWatch log groups, customer Jira boards |
+| **personal capabilities** | private | each user | only that user | their Google Calendar, their Gmail, their Slack reading token |
+| **conversation history** | private | automatic | only that user | each user's DM history with tino |
+| **preferences** | private | each user | only that user | timezone, summary style, etc. |
+| **scheduled tasks** | private | each user | only that user | each user's reminders and scheduled work |
+| **org config** | shared | admin | admins only | capability types, model settings, security policies |
+| **audit logs** | shared | automatic | admins only | every tool call, every agent run, every data access |
 
-the console needs to support:
+### how shared capabilities work
 
-**instance management:**
-- add a new instance of a capability type ("add another Jira connection")
-- each instance has its own credentials, settings, permissions, instructions
-- instances are listed under their type, not as a flat list
+an org capability (e.g., GitHub) is configured once by an admin: credentials, repo allowlist, settings. all users can use it. the tools are registered for every user's agent session.
 
-**permissions editor:**
-- toggle read/write/delete per instance
-- optional: whitelist specific tool names (advanced, hidden by default)
-- visual indicator: "read-only" badge on the instance card
+but: the tool calls are attributed to the user who triggered them. if austin asks "what does the auth middleware do?", the GitHub API call uses the org's PAT but the audit log shows `user: austin, tool: github_search_code, query: "auth middleware"`.
 
-**instructions editor:**
-- textarea for natural language instructions
-- preview of what the system prompt will look like with these instructions active
-- templates for common patterns ("read-only monitoring", "full access internal", "customer system — report only")
+### how personal capabilities work
 
-**isolation config:**
-- label assignment (auto-derived from instance name by default)
-- sharing rules (which other instances can see this data)
-- visual: isolation badge on the instance card ("isolated" vs "shared")
+a personal capability (e.g., Gmail) is configured by each user individually. each user provides their own OAuth refresh token. the tools are registered only for that user's agent session.
 
-**connection testing:**
-- "test connection" button that verifies credentials work
-- shows which tools are available from the MCP server (for MCP-backed types)
-- shows which tools are exposed after permission filtering
+austin's Gmail token can only be used in austin's conversations. if cody asks tino about email, tino uses cody's Gmail token (if configured) or says "you haven't connected Gmail yet."
 
-### guided setup (onboarding)
+### the slack reading problem
 
-first-time experience:
-1. welcome screen with the butler logo
-2. "which tools do you use?" checklist
-3. for each selected tool: step-by-step credential setup with "where to get this" links
-4. "test connection" after each credential is entered
-5. "you're set up! DM tino in slack to get started."
+slack is the hardest case because it's both shared and private:
 
-returning experience:
-- console opens to the capability list
-- capabilities with issues (expired token, connection error) are flagged
-- "add capability" button for new connections
+- **shared channels** (#engineering, #support): everyone can see these. tino should be able to search them for any user.
+- **private channels**: only members can see these. tino should only search them when the asking user is a member.
+- **DMs**: strictly private. tino should only read a user's DMs when that user asks.
+
+solution: **each user provides their own Slack user token (`xoxp-`)**. tino uses the asking user's token for all Slack operations. this means:
+- tino sees exactly what the asking user sees — no more, no less
+- private channels are automatically scoped (the token only has access to channels the user is in)
+- DMs are automatically scoped (the token only has access to the user's own DMs)
+- no central "admin Slack token" that can see everything
+
+this is the same design we have today, just extended to multiple users. each user's `xoxp-` token is stored in their personal capability config, encrypted in DynamoDB.
+
+### data isolation in DynamoDB
+
+the DynamoDB partition key scheme enforces isolation:
+
+```
+USER#<userId>#HISTORY → conversation history (private)
+USER#<userId>#PREF#<key> → preferences (private)
+USER#<userId>#TASK#<taskId> → scheduled tasks (private)
+USER#<userId>#CAP#<capId> → personal capability config (private)
+ORG#CAP#<capId> → org capability config (shared, admin-only write)
+ORG#USER#<userId> → user profile (shared, admin-only write)
+AUDIT#<timestamp>#<userId> → audit log entry (shared, admin-only read)
+```
+
+DynamoDB's partition key is the access boundary. a user's agent session only queries `USER#<theirUserId>#*` partitions plus `ORG#*` partitions. there is no code path that queries another user's `USER#*` partition.
 
 ---
 
-## data model evolution
+## security model
 
-### current: flat capabilities in config table
+tino is notorious for security. this section defines the threat model and the controls.
 
+### threat model
+
+| threat | severity | control |
+|--------|----------|---------|
+| unauthorized user talks to tino | high | user table + allowlist/domain check before any processing |
+| user A reads user B's email/calendar/DMs | critical | personal capabilities use per-user tokens; DynamoDB partition isolation |
+| user A reads user B's conversation history | high | partition key isolation; no cross-user query path |
+| credential leak (token in logs, error messages) | high | pino redaction config; never log credential values; Secrets Manager for org creds |
+| model exfiltrates data via tool calls | medium | permission filtering on capability instances; audit logging of every tool call |
+| customer data leaks between contexts | high | capability instance isolation labels; per-instance instructions; audit trail |
+| admin escalation (member promotes themselves) | medium | role stored in DynamoDB with admin-only write; role check on every console API call |
+| tino writes to a read-only customer system | high | permission filtering at tool registration; credential scope as outer boundary |
+| prompt injection via tool results | medium | tool results are data, not instructions; system prompt is authoritative; results are truncated |
+| DynamoDB data at rest | low | encrypted by default (AWS-managed keys); optionally CMK |
+| data in transit | low | all API calls over TLS; Slack Socket Mode over WSS; Bedrock SDK over TLS |
+
+### authentication
+
+**slack DM**: user is authenticated by Slack (the message includes their verified Slack user ID). tino checks the user table. no additional auth needed — Slack is the identity provider for the DM interface.
+
+**web console**: authenticated via Google Workspace SSO (the org's primary IdP). the console checks that the authenticated email matches a user in the user table and that the user has the required role (admin for org config, member for personal config).
+
+**API**: the console's API routes check the session cookie (set by the SSO flow). no API keys, no bearer tokens for the console — session-based auth only.
+
+### authorization
+
+every action checks:
+1. **is this user in the user table?** (authentication)
+2. **does this user have the required role?** (admin vs member)
+3. **is this resource in the user's scope?** (their own data, or shared org data)
+4. **does the capability instance's permissions allow this action?** (read/write/delete)
+
+### audit logging
+
+every tool call is logged:
+
+```ts
+interface AuditEntry {
+  timestamp: number;
+  userId: string;
+  action: string;              // 'tool_call', 'config_change', 'login', 'capability_toggle'
+  toolName?: string;           // 'github_search_code', 'gmail_get_message', etc.
+  capabilityInstanceId?: string;
+  input?: Record<string, unknown>;  // tool input (redacted: no credential values, no message bodies)
+  durationMs?: number;
+  status: 'success' | 'error' | 'denied';
+  errorMessage?: string;
+}
 ```
-capability.github → { enabled, credentials, settings, findWork }
-capability.linear → { ... }
-```
 
-### future: capability instances
+audit entries are written to DynamoDB under the `AUDIT#` partition. admins can view them in the console. entries are retained for 90 days (configurable).
 
-```
-capability-type.atlassian-jira → { name: 'Atlassian Jira', toolSource: 'mcp', mcpServer: '...' }
-capability-instance.jira-revenuewell → { type: 'atlassian-jira', name: 'RevenueWell Jira', credentials: {...}, permissions: {...}, instructions: '...', isolation: {...}, findWork: {...} }
-capability-instance.jira-internal → { type: 'atlassian-jira', name: 'Internal Jira', ... }
-capability-instance.github-main → { type: 'github', name: 'GitHub (kn-eng)', ... }
-```
+what IS logged: tool name, capability instance, input parameters (keys only, not values for sensitive fields), duration, status.
 
-the migration from flat capabilities to instances is straightforward: each existing capability becomes a single instance of its type with default permissions (full access) and no isolation.
+what is NOT logged: credential values, email bodies, message content, file contents. these are redacted at the logging layer (pino redact config).
+
+### credential storage
+
+| credential type | storage | encryption | access |
+|-----------------|---------|------------|--------|
+| org capability tokens (GitHub PAT, Linear token) | Secrets Manager | AWS-managed KMS | ECS task role only |
+| personal capability tokens (Gmail refresh, Slack xoxp-) | DynamoDB (encrypted attribute) | AWS-managed KMS | user's own partition only |
+| Slack bot/app tokens | Secrets Manager | AWS-managed KMS | ECS task role only |
+| Bedrock model access | IAM role (no stored credential) | n/a | ECS task role only |
+
+personal tokens in DynamoDB are encrypted using a per-user encryption key derived from the org's KMS key. this means even if someone reads the raw DynamoDB item, they can't decrypt another user's tokens without the KMS key.
+
+for the MVP: personal tokens are stored as plaintext in DynamoDB (encrypted at rest by DynamoDB's default encryption). per-user envelope encryption is a v3 hardening step.
 
 ---
 
-## guardrail enforcement layers
+## resolved: open questions
 
-defense in depth — multiple layers, any one of which can block an action:
+### instruction conflicts
 
-1. **credential scope** — the API key itself may have limited permissions (e.g., Jira API key with read-only scope). this is the outermost layer and is controlled by the external system, not by tino.
+> if two instances have contradictory instructions, which wins?
 
-2. **permission filtering** — the capability registry filters which tools are exposed to the agent based on `permissions`. if `write: false`, create/update/delete tools are not registered. the agent literally cannot call them.
+**resolution: explicit precedence + conflict detection.**
 
-3. **instructions** — the system prompt tells the agent what to do and what not to do. this is a soft guardrail — the agent may violate it, but it's the primary steering mechanism for nuanced behavior ("focus on integration issues, ignore infrastructure issues").
+instructions are assembled in this order (later overrides earlier):
+1. base system prompt (tino's core behavior)
+2. org-level instructions (set by admin, apply to all users)
+3. capability-type instructions (e.g., "all Jira connections should...")
+4. capability-instance instructions (e.g., "for RevenueWell Jira specifically...")
+5. user-level instructions (personal preferences, set by each user)
 
-4. **isolation** — data from one instance doesn't leak into another instance's context. enforced by the prompt assembly (MVP) or by hard data separation (future).
+when tino is working across contexts (e.g., a task that touches both internal Linear and customer Jira), the instance-specific instructions for EACH active instance are included, prefixed with the instance name:
 
-5. **audit logging** — every tool call is logged with the instance ID, action, and result. the owner can review what tino did with each connection.
+```
+[for jira-revenuewell]: focus on issues tagged 'integration'. read-only — never create or modify.
+[for linear-internal]: full access. investigate thoroughly before posting findings.
+```
 
-layers 1-2 are hard guardrails (the agent cannot bypass them). layers 3-4 are soft guardrails (the agent is instructed to follow them but could theoretically violate them). layer 5 is detection (catches violations after the fact).
+if instructions genuinely conflict (one says "always create issues" and another says "never create issues"), the MORE RESTRICTIVE instruction wins. this is the security-default-deny principle: when in doubt, don't act.
 
-for customer systems, layers 1-2 are the safety net. layer 3 is the steering. layer 5 is the audit trail.
+the console flags potential conflicts at config time: if two instances of the same type have contradictory permission flags (one write-enabled, one read-only), show a warning. not a blocker — the admin may intend this — but a visible signal.
+
+### isolation granularity
+
+> is per-instance isolation enough, or do we need per-field isolation?
+
+**resolution: per-instance for v2, per-field deferred to v3 with a clear trigger.**
+
+per-instance isolation means: data from instance A is either fully visible or fully invisible to instance B. there's no "share titles but not descriptions."
+
+this is sufficient when:
+- customer systems are fully isolated from each other (canShareWith: [])
+- internal systems share freely (canShareWith: ['*'])
+- the boundary is "which system" not "which field within a system"
+
+per-field isolation becomes necessary when:
+- you want to share issue titles across contexts for cross-referencing but keep descriptions private
+- you want to share user names but not email addresses
+- you have compliance requirements that specific fields (PHI, PII) must never leave a context
+
+**trigger for v3:** if an admin configures a capability instance and says "i want to share some fields but not others," that's the signal to build per-field isolation. until then, per-instance is the right granularity.
+
+implementation sketch for v3: each field in a tool result is tagged with a sensitivity level (public, internal, restricted). the isolation engine filters fields based on the requesting context's sharing rules. this requires schema-level metadata on every tool's return type — significant work, but well-defined.
+
+### MCP server lifecycle
+
+> who starts/stops the MCP server?
+
+**resolution: three tiers, user chooses per instance.**
+
+**tier 1: external (user-managed).** the MCP server runs as a separate process, container, or service. tino connects to it via the configured endpoint. the user is responsible for starting, stopping, and updating it. this is the default for production deployments.
+
+**tier 2: sidecar (tino-managed, same host).** tino spawns the MCP server as a child process on startup, using a configured command (e.g., `npx @atlassian/mcp-server`). tino monitors the process and restarts it if it crashes. the MCP server runs on the same host as tino (same ECS task, different process). good for simple setups where the MCP server is lightweight.
+
+**tier 3: on-demand (tino-managed, ephemeral).** tino starts the MCP server only when a tool from that capability is called, and stops it after a configurable idle timeout. minimizes resource usage for rarely-used capabilities. implemented via child process spawn + idle timer.
+
+the capability instance config specifies which tier:
+
+```ts
+mcpServer?: {
+  tier: 'external' | 'sidecar' | 'on-demand';
+  // tier 1: external
+  endpoint?: string;                // 'http://localhost:3002'
+  // tier 2/3: tino-managed
+  command?: string;                 // 'npx @atlassian/mcp-server'
+  args?: string[];
+  env?: Record<string, string>;     // env vars passed to the MCP server (credentials, etc.)
+  idleTimeoutMs?: number;           // tier 3 only: stop after this much idle time
+};
+```
+
+for v2.2 (first MCP integration): implement tier 1 only. tier 2 and 3 are v3.
+
+### credential rotation
+
+> when a token expires, how does tino handle it?
+
+**resolution: detect → notify → auto-refresh where possible.**
+
+**detection:** every tool call that returns an auth error (401, 403, `invalid_grant`, `token_revoked`) triggers the credential-expiry flow. the capability instance is marked as `status: 'auth_error'` in the config.
+
+**notification:** tino DMs the affected user (for personal capabilities) or all admins (for org capabilities):
+
+> "your gmail connection stopped working — the refresh token may have expired. visit the console to reconnect, or run `pnpm tsx scripts/google-auth.ts` to get a new token."
+
+the console shows the capability with a red "auth error" badge and a "reconnect" button.
+
+**auto-refresh (where the protocol supports it):**
+- **OAuth2 refresh tokens** (Google, Atlassian): the OAuth2 client automatically refreshes the access token using the refresh token. if the refresh token itself expires (Google: 6 months of inactivity), tino detects the failure and notifies.
+- **API keys** (GitHub PAT, Linear): no auto-refresh possible. tino detects the 401 and notifies.
+- **Slack tokens**: bot tokens (`xoxb-`) don't expire. user tokens (`xoxp-`) don't expire but can be revoked. tino detects revocation and notifies.
+
+**grace period:** when an auth error is detected, tino retries once after 60 seconds (in case it was a transient error). if the retry also fails, the capability is marked as errored and the notification is sent. tino does not keep retrying — it waits for the user to fix the credential.
+
+**findWork behavior during auth error:** if a capability's findWork poller encounters an auth error, the poller pauses for that instance (stops polling) and resumes only after the credential is updated. this prevents hammering an expired token every 15 minutes.
+
+### cost tracking
+
+> should the console show cost estimates per capability instance?
+
+**resolution: yes. track token usage per user per capability instance. surface in the console and in a weekly digest.**
+
+**what to track:**
+
+```ts
+interface UsageEntry {
+  userId: string;
+  capabilityInstanceId: string;
+  timestamp: number;
+  inputTokens: number;
+  outputTokens: number;
+  modelId: string;
+}
+```
+
+the AI SDK's `result.usage` already provides `{ inputTokens, outputTokens }` per call. write a usage entry to DynamoDB after every `generateText` call, tagged with the user and the capability instance(s) that were active.
+
+**cost estimation:** Bedrock pricing is per-token, per-model. store the price-per-token for each model in config (updated manually — Bedrock pricing changes rarely). multiply usage × price for the estimate.
+
+**console display:**
+- per-user: "austin used 45,000 tokens this week (~$0.12)"
+- per-capability: "GitHub tools: 120,000 tokens this week (~$0.32)"
+- per-instance: "jira-revenuewell findWork: 30,000 tokens this week (~$0.08)"
+- total: "org total: 500,000 tokens this week (~$1.35)"
+
+**weekly digest:** tino DMs each user their weekly usage summary. admins get the org-wide summary.
+
+**budget alerts:** configurable per-user and org-wide token budgets. when 80% of the budget is reached, tino DMs a warning. at 100%, tino stops autonomous work (findWork pollers pause) but still responds to direct DMs. this prevents runaway costs from misconfigured findWork intervals or overly chatty agent loops.
 
 ---
 
-## implementation sequence
+## console evolution for multi-user
 
-### now (v2.1): capability instances + permissions
+### admin console
+
+accessible to users with `role: 'admin'`. shows:
+
+- **users**: list of all tino users, their role, last active, personal capabilities configured
+- **org capabilities**: manage shared capabilities (GitHub, Linear, CloudWatch, customer Jira boards)
+- **security**: audit log viewer, active sessions, credential status across all capabilities
+- **usage**: org-wide token usage, cost estimates, budget alerts
+- **settings**: org-level config (allowed domains, default model, security policies)
+
+### user console
+
+accessible to all users. shows:
+
+- **my capabilities**: personal capabilities (Gmail, Calendar, Slack reading) with setup/edit
+- **shared capabilities**: read-only view of org capabilities (what's available to me)
+- **my usage**: personal token usage and cost estimate
+- **preferences**: timezone, summary style, notification preferences
+
+### authentication
+
+**v2 (MVP):** Google Workspace SSO. the console redirects to Google Sign-In, verifies the `hd` (hosted domain) claim matches the org's domain, checks the user table, sets a session cookie. this is the approach we deferred earlier — now it's needed for multi-user.
+
+**v3:** support additional IdPs (AWS Identity Center, Okta, generic OIDC). the console's auth layer is pluggable — swap the IdP without changing the rest of the console.
+
+---
+
+## implementation sequence (revised)
+
+### v2.1: capability instances + permissions
 - evolve `CapabilityConfig` → `CapabilityInstance`
 - add `permissions`, `instructions`, `isolation` fields
 - update the registry to filter tools by permissions
 - update the console to manage instances
 - migrate existing capabilities to single-instance format
 
-### next (v2.2): MCP integration
-- add MCP server connection support to the capability type system
+### v2.2: MCP integration
+- add MCP server connection support (tier 1: external only)
 - implement tool discovery from MCP servers
 - wire permission filtering on MCP-discovered tools
 - build the Atlassian Jira capability type as the first MCP consumer
 
-### then (v2.3): data isolation
+### v2.3: multi-user
+- user table in DynamoDB
+- per-user conversation history, preferences, tasks (partition key isolation)
+- personal vs org capability distinction
+- per-user Slack token for Slack reading tools
+- allowlist/domain-based access control
+- admin vs member roles
+
+### v2.4: console auth + admin UI
+- Google Workspace SSO for the console
+- admin console (users, org capabilities, audit logs, usage)
+- user console (personal capabilities, preferences, usage)
+- move console from localhost-only to SSO-protected
+
+### v2.5: security hardening
+- audit logging to DynamoDB (every tool call, config change, login)
+- credential encryption (per-user envelope encryption via KMS)
+- budget alerts and usage tracking
+- credential rotation detection + notification
+- security policy enforcement (org-level: which capability types are allowed, max findWork frequency, etc.)
+
+### v2.6: onboarding flow
+- guided setup in the console (first-time experience)
+- "test connection" for each capability
+- nudge loop in the system prompt
+- instruction templates for common patterns
+- weekly usage digest DMs
+
+### v2.7: data isolation (hard enforcement)
 - tag tool results with instance isolation labels
 - filter data in prompt assembly based on sharing rules
 - separate conversation contexts per isolation group
+- audit logging of cross-context data access attempts
 
-### later (v2.4): onboarding flow
-- guided setup in the console
-- "test connection" for each capability
-- nudge loop in the system prompt
-- templates for common instruction patterns
-
----
-
-## open questions
-
-- **instruction conflicts.** if two instances have contradictory instructions ("always create issues" vs "never create issues"), which wins? current answer: the instance-specific instruction for the active context wins. but what if tino is working across contexts?
-
-- **isolation granularity.** is per-instance isolation enough, or do we need per-field isolation? (e.g., "share issue titles from RevenueWell but not descriptions"). current answer: per-instance is enough for MVP; per-field is a future concern.
-
-- **MCP server lifecycle.** who starts/stops the MCP server? does tino manage it, or does the user run it separately? current answer: user runs it separately; tino connects to it. future: tino could manage MCP server processes.
-
-- **credential rotation.** when a token expires, how does tino handle it? current answer: the tool returns an auth error, tino DMs the owner "your RevenueWell Jira token expired — update it in the console." future: auto-refresh for OAuth tokens.
-
-- **cost tracking.** each Bedrock call costs money. when tino is autonomously scanning 5 customer Jira boards every 15 minutes, the cost adds up. should the console show cost estimates per capability instance? current answer: yes, eventually. log token usage per instance and surface it in the health section.
+### v3.0: advanced
+- per-field isolation (sensitivity-tagged tool result schemas)
+- MCP server lifecycle management (tier 2: sidecar, tier 3: on-demand)
+- pluggable IdP support (OIDC, SAML)
+- team-level capabilities (shared between a subset of users, not the whole org)
+- tino-to-tino communication (multiple tino instances sharing context across orgs — far future)
