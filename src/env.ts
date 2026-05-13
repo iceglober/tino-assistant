@@ -50,6 +50,11 @@ const EnvSchema = z.object({
 
   // DynamoDB table name. Required when PERSISTENCE_ADAPTER=dynamodb.
   DYNAMODB_TABLE_NAME: z.string().min(1).optional(),
+
+  // DynamoDB endpoint override. Set to http://localhost:8000 for DynamoDB Local.
+  // When set, the table is auto-created if it doesn't exist (zero-setup local dev).
+  // When unset, the SDK connects to AWS (table must already exist via CDK).
+  DYNAMODB_ENDPOINT: z.string().url().optional(),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

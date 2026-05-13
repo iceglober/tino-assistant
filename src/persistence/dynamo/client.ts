@@ -1,26 +1,61 @@
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { DynamoDBClient, CreateTableCommand, DescribeTableCommand } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 import { Table } from 'dynamodb-toolbox';
 
 /**
  * Creates a DynamoDB Toolbox Table bound to the given table name.
  *
- * Uses the AWS SDK default credential chain (same as Bedrock/CloudWatch).
- * AWS_REGION env var is optional — the SDK resolves it from ~/.aws/config or
- * AWS_DEFAULT_REGION if not set.
+ * When `endpoint` is provided (e.g., `http://localhost:8000` for DynamoDB
+ * Local), the client connects there instead of AWS. The table is auto-created
+ * if it doesn't exist — this makes local dev zero-setup beyond starting the
+ * DynamoDB Local container.
+ *
+ * In production (no endpoint override), the table must already exist (created
+ * by CDK). Auto-creation is skipped.
  */
-export function createDynamoTable(tableName: string): Table<
-  { name: 'pk'; type: 'string' },
-  { name: 'sk'; type: 'string' },
-  {
-    gsi1: {
-      type: 'global';
-      partitionKey: { name: 'gsi1pk'; type: 'string' };
-      sortKey: { name: 'gsi1sk'; type: 'string' };
-    };
+export async function createDynamoTable(
+  tableName: string,
+  endpoint?: string,
+): Promise<TinoTable> {
+  const client = new DynamoDBClient(endpoint ? { endpoint } : {});
+  const documentClient = DynamoDBDocumentClient.from(client);
+
+  // Auto-create table in local mode
+  if (endpoint) {
+    try {
+      await client.send(new DescribeTableCommand({ TableName: tableName }));
+    } catch (err: unknown) {
+      if ((err as { name?: string }).name === 'ResourceNotFoundException') {
+        await client.send(new CreateTableCommand({
+          TableName: tableName,
+          KeySchema: [
+            { AttributeName: 'pk', KeyType: 'HASH' },
+            { AttributeName: 'sk', KeyType: 'RANGE' },
+          ],
+          AttributeDefinitions: [
+            { AttributeName: 'pk', AttributeType: 'S' },
+            { AttributeName: 'sk', AttributeType: 'S' },
+            { AttributeName: 'gsi1pk', AttributeType: 'S' },
+            { AttributeName: 'gsi1sk', AttributeType: 'S' },
+          ],
+          GlobalSecondaryIndexes: [
+            {
+              IndexName: 'gsi1',
+              KeySchema: [
+                { AttributeName: 'gsi1pk', KeyType: 'HASH' },
+                { AttributeName: 'gsi1sk', KeyType: 'RANGE' },
+              ],
+              Projection: { ProjectionType: 'ALL' },
+              ProvisionedThroughput: { ReadCapacityUnits: 5, WriteCapacityUnits: 5 },
+            },
+          ],
+          BillingMode: 'PAY_PER_REQUEST',
+        }));
+      } else {
+        throw err;
+      }
+    }
   }
-> {
-  const documentClient = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
   return new Table({
     name: tableName,
@@ -37,4 +72,14 @@ export function createDynamoTable(tableName: string): Table<
   });
 }
 
-export type TinoTable = ReturnType<typeof createDynamoTable>;
+export type TinoTable = Table<
+  { name: 'pk'; type: 'string' },
+  { name: 'sk'; type: 'string' },
+  {
+    gsi1: {
+      type: 'global';
+      partitionKey: { name: 'gsi1pk'; type: 'string' };
+      sortKey: { name: 'gsi1sk'; type: 'string' };
+    };
+  }
+>;
