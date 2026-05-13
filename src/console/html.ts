@@ -911,7 +911,8 @@ export function getConsoleHtml(): string {
                 </div>
               </div>
               <div>
-                <button class="btn btn-primary btn-save" id="add-btn" onclick="saveEntry()">Save entry</button>
+                <button class="btn btn-primary btn-save" id="add-btn" onclick="saveEntry()"
+                        disabled aria-disabled="true" title="No changes to save">Save entry</button>
               </div>
             </div>
           </div>
@@ -940,6 +941,57 @@ export function getConsoleHtml(): string {
     let configData = [];
     let capData = [];
     let openCapId = null;
+
+    // ── Dirty-state tracking ───────────────────────────────────────────────
+    // Maps sectionId → { inputId: initialValue }
+    const initialValues = {};
+
+    // Call after rendering a section's inputs.
+    // sectionId: unique key (e.g. 'cred-github', 'setting-github', 'fw-github')
+    // saveButtonId: id of the save button to enable/disable
+    // inputs: NodeList or Array of input/textarea elements in the section
+    function trackDirty(sectionId, saveButtonId, inputs) {
+      const btn = document.getElementById(saveButtonId);
+      if (!btn) return;
+
+      // Snapshot initial values
+      const initial = {};
+      inputs.forEach(inp => { initial[inp.id] = inp.value; });
+      initialValues[sectionId] = initial;
+
+      // Start disabled
+      btn.disabled = true;
+      btn.setAttribute('aria-disabled', 'true');
+      btn.title = 'No changes to save';
+
+      // Listen for changes
+      inputs.forEach(inp => {
+        inp.addEventListener('input', () => {
+          const isDirty = [...inputs].some(i => i.value !== initialValues[sectionId][i.id]);
+          btn.disabled = !isDirty;
+          btn.setAttribute('aria-disabled', String(!isDirty));
+          if (isDirty) {
+            btn.removeAttribute('title');
+          } else {
+            btn.title = 'No changes to save';
+          }
+        });
+      });
+    }
+
+    // Call after a successful save to reset the baseline and re-disable the button.
+    function resetDirty(sectionId, saveButtonId, inputs) {
+      const btn = document.getElementById(saveButtonId);
+      if (!btn) return;
+      // Update baseline to current values
+      const initial = {};
+      inputs.forEach(inp => { initial[inp.id] = inp.value; });
+      initialValues[sectionId] = initial;
+      // Disable the button
+      btn.disabled = true;
+      btn.setAttribute('aria-disabled', 'true');
+      btn.title = 'No changes to save';
+    }
 
     // ── Capability metadata ────────────────────────────────────────────────
     const CAP_NAMES = {
@@ -1019,6 +1071,23 @@ export function getConsoleHtml(): string {
     // ── Bootstrap ──────────────────────────────────────────────────────────
     async function loadAll() {
       await Promise.all([loadCapabilities(), loadConfig(), loadHealth()]);
+      // Wire dirty tracking for the raw config "Save entry" button.
+      // Enabled only when both key and value fields have content.
+      const addBtn = document.getElementById('add-btn');
+      const newKeyEl = document.getElementById('new-key');
+      const newValEl = document.getElementById('new-value');
+      function updateAddBtn() {
+        const hasContent = newKeyEl.value.trim().length > 0 && newValEl.value.trim().length > 0;
+        addBtn.disabled = !hasContent;
+        addBtn.setAttribute('aria-disabled', String(!hasContent));
+        if (hasContent) {
+          addBtn.removeAttribute('title');
+        } else {
+          addBtn.title = 'No changes to save';
+        }
+      }
+      newKeyEl.addEventListener('input', updateAddBtn);
+      newValEl.addEventListener('input', updateAddBtn);
     }
 
     // ── Capabilities ───────────────────────────────────────────────────────
@@ -1163,7 +1232,8 @@ export function getConsoleHtml(): string {
 
         credContent += \`<div class="btn-row">
           <button class="btn btn-primary btn-save" id="save-cred-\${id}"
-                  onclick="saveCredentials('\${id}')">Save credentials</button>
+                  onclick="saveCredentials('\${id}')"
+                  disabled aria-disabled="true" title="No changes to save">Save credentials</button>
         </div>\`;
       }
 
@@ -1191,7 +1261,8 @@ export function getConsoleHtml(): string {
         }).join('');
         settingContent += \`<div class="btn-row">
           <button class="btn btn-primary btn-save" id="save-setting-\${id}"
-                  onclick="saveSettings('\${id}')">Save settings</button>
+                  onclick="saveSettings('\${id}')"
+                  disabled aria-disabled="true" title="No changes to save">Save settings</button>
         </div>\`;
       }
 
@@ -1237,10 +1308,43 @@ export function getConsoleHtml(): string {
           </div>
           <div class="btn-row">
             <button class="btn btn-primary btn-save" id="save-fw-\${id}"
-                    onclick="saveFindWork('\${id}')">Save find work</button>
+                    onclick="saveFindWork('\${id}')"
+                    disabled aria-disabled="true" title="No changes to save">Save find work</button>
           </div>
         </div>
       \`;
+    }
+
+    // Call after a cap detail panel is rendered into the DOM to wire up dirty tracking.
+    function initCapDirtyTracking(id) {
+      const credKeys = CAP_CRED_KEYS[id] ?? [];
+      const settingKeys = CAP_SETTING_KEYS[id] ?? [];
+
+      // Credentials section
+      if (credKeys.length > 0) {
+        const credInputs = credKeys
+          .map(k => document.getElementById('cred-' + id + '-' + k))
+          .filter(Boolean);
+        if (credInputs.length > 0) {
+          trackDirty('cred-' + id, 'save-cred-' + id, credInputs);
+        }
+      }
+
+      // Settings section
+      if (settingKeys.length > 0) {
+        const settingInputs = settingKeys
+          .map(k => document.getElementById('setting-' + id + '-' + k))
+          .filter(Boolean);
+        if (settingInputs.length > 0) {
+          trackDirty('setting-' + id, 'save-setting-' + id, settingInputs);
+        }
+      }
+
+      // findWork section — interval input only (toggle saves immediately)
+      const fwIntervalEl = document.getElementById('fw-interval-' + id);
+      if (fwIntervalEl) {
+        trackDirty('fw-' + id, 'save-fw-' + id, [fwIntervalEl]);
+      }
     }
 
     function toggleCapDetail(id) {
@@ -1255,6 +1359,8 @@ export function getConsoleHtml(): string {
         item.classList.add('open');
         item.querySelector('.cap-header').setAttribute('aria-expanded', 'true');
         openCapId = id;
+        // Wire dirty tracking for this cap's detail inputs
+        initCapDirtyTracking(id);
         // Focus management: move focus to first interactive element inside the detail
         // after the expand animation completes (220ms)
         setTimeout(() => {
@@ -1369,7 +1475,11 @@ export function getConsoleHtml(): string {
         // Re-open if it was open
         if (openCapId === id) {
           const item = document.getElementById('cap-item-' + id);
-          if (item) item.classList.add('open');
+          if (item) {
+            item.classList.add('open');
+            // Re-wire dirty tracking after re-render (new DOM nodes)
+            initCapDirtyTracking(id);
+          }
         }
       } catch (e) {
         if (btn) {
@@ -1653,7 +1763,10 @@ export function getConsoleHtml(): string {
 
       btn.textContent = 'Save entry';
       btn.classList.remove('saving');
-      btn.removeAttribute('aria-disabled');
+      // Fields are cleared — button goes back to disabled (nothing to save)
+      btn.disabled = true;
+      btn.setAttribute('aria-disabled', 'true');
+      btn.title = 'No changes to save';
       keyEl.value = '';
       valEl.value = '';
       setFieldValid(keyEl, 'new-key-error');
