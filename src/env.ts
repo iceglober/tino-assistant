@@ -55,6 +55,11 @@ const EnvSchema = z.object({
   // When set, the table is auto-created if it doesn't exist (zero-setup local dev).
   // When unset, the SDK connects to AWS (table must already exist via CDK).
   DYNAMODB_ENDPOINT: z.string().url().optional(),
+
+  // Optional: Linear developer token (OAuth app token) for Linear issue tools.
+  // When set, enables linear_search_issues, linear_get_issue, linear_create_issue,
+  // linear_update_issue, linear_add_comment, and linear_list_my_issues.
+  LINEAR_DEVELOPER_TOKEN: z.string().min(1).optional(),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

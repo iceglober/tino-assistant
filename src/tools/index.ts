@@ -22,6 +22,15 @@ import { createUserCache } from '../slack/userCache.js';
 import { slackSearchMessagesTool } from './slack/search.js';
 import { slackReadThreadTool } from './slack/thread.js';
 import { slackListDmsTool, slackReadDmTool } from './slack/dms.js';
+import { createLinearClient } from './linear/client.js';
+import {
+  linearSearchIssuesTool,
+  linearGetIssueTool,
+  linearCreateIssueTool,
+  linearUpdateIssueTool,
+  linearAddCommentTool,
+  linearListMyIssuesTool,
+} from './linear/issues.js';
 
 /**
  * Build the toolset for `runAgent`.
@@ -116,6 +125,19 @@ export async function buildTools(
     logger.info({ userCacheLoaded: !!userCache }, 'slack reading tools enabled');
   } catch (err) {
     logger.warn({ err: (err as Error).message }, 'slack reading tools disabled');
+  }
+
+  try {
+    const linearClient = createLinearClient(env);
+    tools['linear_search_issues'] = linearSearchIssuesTool(linearClient);
+    tools['linear_get_issue'] = linearGetIssueTool(linearClient);
+    tools['linear_create_issue'] = linearCreateIssueTool(linearClient);
+    tools['linear_update_issue'] = linearUpdateIssueTool(linearClient);
+    tools['linear_add_comment'] = linearAddCommentTool(linearClient);
+    tools['linear_list_my_issues'] = linearListMyIssuesTool(linearClient);
+    logger.info('linear tools enabled');
+  } catch (err) {
+    logger.warn({ err: (err as Error).message }, 'linear tools disabled');
   }
 
   return tools;
