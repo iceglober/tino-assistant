@@ -12,12 +12,16 @@ export interface ResetHandlerParams {
 }
 
 /**
- * Handle the /reset command. Returns true if the message was a /reset command
+ * Handle the "reset" command. Returns true if the message was a reset command
  * (and was handled), false otherwise (caller should continue to the normal
  * agent handler).
  *
  * Guards: same DM + allowlist filter as handleDmMessage. Only matches
- * messages whose trimmed text is exactly "/reset" (case-insensitive).
+ * messages whose trimmed text is exactly "reset" (case-insensitive).
+ *
+ * Why not "/reset": Slack intercepts anything starting with "/" as a slash
+ * command at the client level — the message never reaches Bolt. Using bare
+ * "reset" avoids that entirely.
  */
 export async function handleResetCommand(params: ResetHandlerParams): Promise<boolean> {
   const { message: m, env, history, say, logger } = params;
@@ -28,9 +32,8 @@ export async function handleResetCommand(params: ResetHandlerParams): Promise<bo
   if (m.user !== env.ALLOWED_SLACK_USER_ID) return false;
 
   const text = (m.text ?? '').trim().toLowerCase();
-  if (text !== '/reset') return false;
+  if (text !== 'reset') return false;
 
-  // It's a /reset command from the owner in a DM.
   history.reset(m.user);
   logger.info({ user: m.user }, 'conversation history reset');
   await say({ text: 'History cleared.' });

@@ -23,12 +23,12 @@ const baseMessage: Partial<DmMessageEvent> = {
   channel: 'D123',
   channel_type: 'im',
   user: 'U_OWNER',
-  text: '/reset',
+  text: 'reset',
   ts: '1234567890.000200',
 };
 
 describe('handleResetCommand', () => {
-  test('owner DM with "/reset" → history.reset called, say called with "History cleared.", returns true', async () => {
+  test('owner DM with "reset" → history.reset called, say called with "History cleared.", returns true', async () => {
     const history = makeHistory();
     const say = vi.fn().mockResolvedValue(undefined);
     const logger = makeLogger();
@@ -48,13 +48,13 @@ describe('handleResetCommand', () => {
     expect(say).toHaveBeenCalledWith({ text: 'History cleared.' });
   });
 
-  test('owner DM with "/RESET" (uppercase) → same behavior (case-insensitive)', async () => {
+  test('owner DM with "RESET" (uppercase) → same behavior (case-insensitive)', async () => {
     const history = makeHistory();
     const say = vi.fn().mockResolvedValue(undefined);
     const logger = makeLogger();
 
     const result = await handleResetCommand({
-      message: { ...baseMessage, text: '/RESET' },
+      message: { ...baseMessage, text: 'RESET' },
       env: ownerEnv,
       history,
       say,
@@ -67,13 +67,13 @@ describe('handleResetCommand', () => {
     expect(say).toHaveBeenCalledWith({ text: 'History cleared.' });
   });
 
-  test('owner DM with "  /reset  " (whitespace) → same behavior (trimmed)', async () => {
+  test('owner DM with "  reset  " (whitespace) → same behavior (trimmed)', async () => {
     const history = makeHistory();
     const say = vi.fn().mockResolvedValue(undefined);
     const logger = makeLogger();
 
     const result = await handleResetCommand({
-      message: { ...baseMessage, text: '  /reset  ' },
+      message: { ...baseMessage, text: '  reset  ' },
       env: ownerEnv,
       history,
       say,
@@ -85,13 +85,13 @@ describe('handleResetCommand', () => {
     expect(say).toHaveBeenCalledWith({ text: 'History cleared.' });
   });
 
-  test('owner DM with "/reset please" → returns false, history.reset NOT called', async () => {
+  test('owner DM with "reset please" → returns false, history.reset NOT called', async () => {
     const history = makeHistory();
     const say = vi.fn().mockResolvedValue(undefined);
     const logger = makeLogger();
 
     const result = await handleResetCommand({
-      message: { ...baseMessage, text: '/reset please' },
+      message: { ...baseMessage, text: 'reset please' },
       env: ownerEnv,
       history,
       say,
@@ -103,7 +103,7 @@ describe('handleResetCommand', () => {
     expect(say).not.toHaveBeenCalled();
   });
 
-  test('non-owner DM with "/reset" → returns false, history.reset NOT called', async () => {
+  test('non-owner DM with "reset" → returns false, history.reset NOT called', async () => {
     const history = makeHistory();
     const say = vi.fn().mockResolvedValue(undefined);
     const logger = makeLogger();
@@ -121,7 +121,7 @@ describe('handleResetCommand', () => {
     expect(say).not.toHaveBeenCalled();
   });
 
-  test('owner in channel with "/reset" → returns false (channel_type !== "im")', async () => {
+  test('owner in channel with "reset" → returns false (channel_type !== "im")', async () => {
     const history = makeHistory();
     const say = vi.fn().mockResolvedValue(undefined);
     const logger = makeLogger();
