@@ -14,6 +14,8 @@ import { calendarListEventsTool } from './google/calendar.js';
 import { gmailSearchTool, gmailGetMessageTool } from './google/gmail.js';
 import { createPreferencesStore } from '../persistence/preferences.js';
 import { setPreferenceTool, getPreferencesTool } from './preferences.js';
+import { createTaskStore } from '../persistence/tasks.js';
+import { scheduleTaskTool, listTasksTool, cancelTaskTool } from './tasks.js';
 
 /**
  * Build the toolset for `runAgent`.
@@ -24,6 +26,7 @@ import { setPreferenceTool, getPreferencesTool } from './preferences.js';
  * Phase 4: github_search_code, github_get_file.
  * Phase 5+: cloudwatch_logs_query, calendar_list_events, gmail_search.
  * Quick-wins: gmail_get_message, github_list_workflow_runs, github_get_workflow_run_logs, set_preference, get_preferences.
+ * Phase 9: schedule_task, list_tasks, cancel_task.
  */
 export function buildTools(env: Env, logger: AppLogger): ToolSet {
   const tools: ToolSet = {};
@@ -70,6 +73,18 @@ export function buildTools(env: Env, logger: AppLogger): ToolSet {
     logger.info('preferences tools enabled');
   } catch (err) {
     logger.warn({ err: (err as Error).message }, 'preferences tools disabled');
+  }
+
+  try {
+    const dbPath = env.DB_PATH ?? './tino.db';
+    const userId = env.ALLOWED_SLACK_USER_ID;
+    const taskStore = createTaskStore({ dbPath });
+    tools['schedule_task'] = scheduleTaskTool(taskStore, userId);
+    tools['list_tasks'] = listTasksTool(taskStore, userId);
+    tools['cancel_task'] = cancelTaskTool(taskStore);
+    logger.info('task tools enabled');
+  } catch (err) {
+    logger.warn({ err: (err as Error).message }, 'task tools disabled');
   }
 
   return tools;
