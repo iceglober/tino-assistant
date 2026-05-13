@@ -140,15 +140,15 @@ this is the core design challenge. some things are shared across the team, some 
 
 ### resource classification
 
-| resource | scope | who configures | who can access | examples |
-|----------|-------|----------------|----------------|----------|
-| **org capabilities** | shared | admin | all users | GitHub repos, Linear workspace, CloudWatch log groups, customer Jira boards |
-| **personal capabilities** | private | each user | only that user | their Google Calendar, their Gmail, their Slack reading token |
-| **conversation history** | private | automatic | only that user | each user's DM history with tino |
-| **preferences** | private | each user | only that user | timezone, summary style, etc. |
-| **scheduled tasks** | private | each user | only that user | each user's reminders and scheduled work |
-| **org config** | shared | admin | admins only | capability types, model settings, security policies |
-| **audit logs** | shared | automatic | admins only | every tool call, every agent run, every data access |
+| resource                  | scope   | who configures | who can access | examples                                                                    |
+| ------------------------- | ------- | -------------- | -------------- | --------------------------------------------------------------------------- |
+| **org capabilities**      | shared  | admin          | all users      | GitHub repos, Linear workspace, CloudWatch log groups, customer Jira boards |
+| **personal capabilities** | private | each user      | only that user | their Google Calendar, their Gmail, their Slack reading token               |
+| **conversation history**  | private | automatic      | only that user | each user's DM history with tino                                            |
+| **preferences**           | private | each user      | only that user | timezone, summary style, etc.                                               |
+| **scheduled tasks**       | private | each user      | only that user | each user's reminders and scheduled work                                    |
+| **org config**            | shared  | admin          | admins only    | capability types, model settings, security policies                         |
+| **audit logs**            | shared  | automatic      | admins only    | every tool call, every agent run, every data access                         |
 
 ### how shared capabilities work
 
@@ -203,19 +203,19 @@ tino is notorious for security. this section defines the threat model and the co
 
 ### threat model
 
-| threat | severity | control |
-|--------|----------|---------|
-| unauthorized user talks to tino | high | user table + allowlist/domain check before any processing |
-| user A reads user B's email/calendar/DMs | critical | personal capabilities use per-user tokens; DynamoDB partition isolation |
-| user A reads user B's conversation history | high | partition key isolation; no cross-user query path |
-| credential leak (token in logs, error messages) | high | pino redaction config; never log credential values; Secrets Manager for org creds |
-| model exfiltrates data via tool calls | medium | permission filtering on capability instances; audit logging of every tool call |
-| customer data leaks between contexts | high | capability instance isolation labels; per-instance instructions; audit trail |
-| admin escalation (member promotes themselves) | medium | role stored in DynamoDB with admin-only write; role check on every console API call |
-| tino writes to a read-only customer system | high | permission filtering at tool registration; credential scope as outer boundary |
-| prompt injection via tool results | medium | tool results are data, not instructions; system prompt is authoritative; results are truncated |
-| DynamoDB data at rest | low | encrypted by default (AWS-managed keys); optionally CMK |
-| data in transit | low | all API calls over TLS; Slack Socket Mode over WSS; Bedrock SDK over TLS |
+| threat                                          | severity | control                                                                                        |
+| ----------------------------------------------- | -------- | ---------------------------------------------------------------------------------------------- |
+| unauthorized user talks to tino                 | high     | user table + allowlist/domain check before any processing                                      |
+| user A reads user B's email/calendar/DMs        | critical | personal capabilities use per-user tokens; DynamoDB partition isolation                        |
+| user A reads user B's conversation history      | high     | partition key isolation; no cross-user query path                                              |
+| credential leak (token in logs, error messages) | high     | pino redaction config; never log credential values; Secrets Manager for org creds              |
+| model exfiltrates data via tool calls           | medium   | permission filtering on capability instances; audit logging of every tool call                 |
+| customer data leaks between contexts            | high     | capability instance isolation labels; per-instance instructions; audit trail                   |
+| admin escalation (member promotes themselves)   | medium   | role stored in DynamoDB with admin-only write; role check on every console API call            |
+| tino writes to a read-only customer system      | high     | permission filtering at tool registration; credential scope as outer boundary                  |
+| prompt injection via tool results               | medium   | tool results are data, not instructions; system prompt is authoritative; results are truncated |
+| DynamoDB data at rest                           | low      | encrypted by default (AWS-managed keys); optionally CMK                                        |
+| data in transit                                 | low      | all API calls over TLS; Slack Socket Mode over WSS; Bedrock SDK over TLS                       |
 
 ### authentication
 
@@ -259,12 +259,12 @@ what is NOT logged: credential values, email bodies, message content, file conte
 
 ### credential storage
 
-| credential type | storage | encryption | access |
-|-----------------|---------|------------|--------|
-| org capability tokens (GitHub PAT, Linear token) | Secrets Manager | AWS-managed KMS | ECS task role only |
-| personal capability tokens (Gmail refresh, Slack xoxp-) | DynamoDB (encrypted attribute) | AWS-managed KMS | user's own partition only |
-| Slack bot/app tokens | Secrets Manager | AWS-managed KMS | ECS task role only |
-| Bedrock model access | IAM role (no stored credential) | n/a | ECS task role only |
+| credential type                                         | storage                         | encryption      | access                    |
+| ------------------------------------------------------- | ------------------------------- | --------------- | ------------------------- |
+| org capability tokens (GitHub PAT, Linear token)        | Secrets Manager                 | AWS-managed KMS | ECS task role only        |
+| personal capability tokens (Gmail refresh, Slack xoxp-) | DynamoDB (encrypted attribute)  | AWS-managed KMS | user's own partition only |
+| Slack bot/app tokens                                    | Secrets Manager                 | AWS-managed KMS | ECS task role only        |
+| Bedrock model access                                    | IAM role (no stored credential) | n/a             | ECS task role only        |
 
 personal tokens in DynamoDB are encrypted using a per-user encryption key derived from the org's KMS key. this means even if someone reads the raw DynamoDB item, they can't decrypt another user's tokens without the KMS key.
 
@@ -453,7 +453,367 @@ the linked identity model from the previous section maps directly to better-auth
 
 ---
 
+## compliance: HIPAA from day one
+
+tino is designed for teams that handle PHI (protected health information). HIPAA compliance is not a feature flag or a premium tier — it's the baseline. every tino deployment is HIPAA-compliant by default, or it doesn't deploy.
+
+### what HIPAA requires for tino
+
+| requirement | how tino satisfies it |
+|-------------|----------------------|
+| **BAA chain** | every service touching PHI has a BAA: AWS account, Bedrock, and any configured third-party service. the bootstrap CLI verifies the chain before deploying. |
+| **encryption at rest** | DynamoDB: AWS-managed encryption (default) or CMK. Secrets Manager: AWS-managed encryption. all data encrypted at rest with no opt-out. |
+| **encryption in transit** | TLS everywhere. Bedrock SDK, Slack WSS, Google/GitHub/Linear APIs — all HTTPS. the bootstrap CLI rejects any `http://` endpoint configuration (except localhost for local dev). |
+| **access controls** | multi-user model with DynamoDB partition isolation. per-user data is inaccessible to other users. admin/member roles. capability instance permissions. |
+| **audit trail** | every tool call, config change, login, and data access logged to DynamoDB `AUDIT#` partition. includes: who, what, when, which capability instance, success/failure. never includes PHI content (redacted). |
+| **minimum necessary** | capability permissions enforce least-privilege. read-only where possible. allowlists for accessible resources. tool results truncated. no raw log dumps (CloudWatch validator). |
+| **data retention** | configurable retention periods for conversation history, audit logs, and tool result caches. automatic deletion via DynamoDB TTL. default: 90 days for audit logs, 30 days for conversation history. |
+| **breach notification** | CloudWatch alarms on: unauthorized access attempts, credential failures, unusual tool call patterns. admin notification via Slack DM. |
+
+### what the deployer must do (tino can't enforce these)
+
+- **sign the AWS BAA.** AWS → Artifact → accept the AWS BAA. this covers all AWS services used by tino (ECS, DynamoDB, Secrets Manager, Bedrock, CloudWatch, KMS).
+- **sign the Bedrock model provider BAA.** Anthropic's BAA is accepted through AWS Artifact alongside the AWS BAA when using Bedrock. the bootstrap CLI confirms this.
+- **evaluate third-party services.** Slack, Google, GitHub, Linear, Atlassian — each has its own HIPAA posture. Slack Enterprise Grid has a BAA. Google Workspace has a BAA. GitHub Enterprise has a BAA. the bootstrap CLI asks the deployer to confirm BAA status for each service they enable.
+- **train users.** tino enforces technical controls, but HIPAA also requires workforce training. the deployer is responsible for ensuring users understand what PHI is and how tino handles it.
+
+### what tino enforces automatically
+
+- **no PHI in logs.** pino redaction config strips: `content`, `body`, `snippet`, `messages`, `output`, `authorization`, `cookie`, `refresh_token`, `access_token` from all log output. tool call logs include the tool name and input parameter KEYS but never VALUES for sensitive fields.
+- **no PHI in error messages.** error responses to the user include the error type and guidance but never echo back the data that caused the error.
+- **no PHI in the system prompt.** the system prompt contains instructions, not data. user data flows through the `messages` array (encrypted in DynamoDB) and tool results (ephemeral, not persisted beyond the conversation turn).
+- **credential isolation.** personal tokens (Gmail, Slack) are stored per-user in DynamoDB, encrypted at rest. org tokens (GitHub, Linear) are in Secrets Manager. no token is accessible outside its intended scope.
+- **session expiry.** better-auth sessions expire after a configurable period (default: 24 hours). expired sessions require re-authentication.
+- **DynamoDB TTL.** conversation history and audit log entries have TTL attributes. DynamoDB automatically deletes expired items. no manual cleanup needed.
+
+---
+
+## bootstrap CLI: `tino init`
+
+an interactive CLI that walks a developer through deploying tino for the first time. uses inquirer prompts. the goal: a developer who has never seen tino can go from `git clone` to a running, HIPAA-compliant deployment in under 30 minutes.
+
+### flow
+
+```
+$ pnpm tino init
+
+  ╔══════════════════════════════════════╗
+  ║          tino — deployment setup     ║
+  ╚══════════════════════════════════════╝
+
+```
+
+**step 1: compliance**
+
+```
+? Which compliance frameworks must you adhere to?
+  ❯ HIPAA
+    (more coming soon)
+
+  ✓ HIPAA selected. tino will enforce:
+    • encryption at rest (KMS)
+    • encryption in transit (TLS-only)
+    • audit logging (every data access)
+    • data retention policies (configurable TTL)
+    • PHI redaction in logs
+    • BAA verification for all services
+```
+
+**step 2: cloud provider**
+
+```
+? Which cloud provider will you deploy to?
+  ❯ AWS
+    GCP (coming soon)
+    Render (one-click — coming soon)
+    Vercel (one-click — coming soon)
+
+  ✓ AWS selected.
+```
+
+**step 3: BAA verification (AWS)**
+
+```
+? Checking AWS BAA status...
+
+  Attempting to verify via AWS Artifact API...
+  [if API check succeeds]:
+    ✓ AWS BAA is active on account 997948076145.
+
+  [if API check fails or is inconclusive]:
+    ⚠ Could not automatically verify AWS BAA status.
+    ? Have you accepted the AWS Business Associate Addendum (BAA)?
+      You can check at: AWS Console → Artifact → Agreements
+      ❯ Yes, BAA is signed
+        No, I haven't signed it yet
+        I'm not sure
+
+    [if "No" or "I'm not sure"]:
+      ⚠ WARNING: Deploying tino without an AWS BAA may violate HIPAA.
+        The BAA covers all AWS services tino uses (ECS, DynamoDB,
+        Secrets Manager, Bedrock, CloudWatch, KMS).
+
+        Sign it at: https://console.aws.amazon.com/artifact/
+
+      ? Do you want to proceed anyway? (not recommended)
+        ❯ No, I'll sign the BAA first (exits)
+          Yes, proceed without BAA (at my own risk)
+```
+
+**step 4: AI provider**
+
+```
+? Which AI provider will you use?
+  ❯ Amazon Bedrock (Claude — BAA available via AWS Artifact)
+    (more coming soon)
+
+  ✓ Amazon Bedrock selected.
+
+  ℹ HIPAA note: Anthropic's BAA for Bedrock is included in the AWS BAA
+    you accepted in the previous step. No separate Anthropic BAA is needed
+    when using Claude through Bedrock.
+
+? Which model?
+  ❯ Claude Sonnet 4.6 (global.anthropic.claude-sonnet-4-6) — recommended
+    Claude Sonnet 4.5 (us.anthropic.claude-sonnet-4-5-20250929-v1:0)
+    Custom model ID (enter manually)
+
+  Checking Bedrock model access...
+  ✓ global.anthropic.claude-sonnet-4-6 is ACTIVE on your account.
+```
+
+**step 5: infrastructure**
+
+```
+? Do you have an existing IaC project?
+  ❯ No, create a new CDK project (recommended)
+    Yes, I'll integrate tino's CDK stack into my existing project
+    Yes, I use Terraform (generates Terraform config)
+    Yes, I use Pulumi (generates Pulumi config)
+
+  [if "No"]:
+  ✓ CDK project will be created at ./infra/
+
+? AWS region for deployment?
+  ❯ us-east-1 (recommended — broadest Bedrock model availability)
+    us-west-2
+    eu-west-1
+    Custom region
+
+? VPC configuration?
+  ❯ Use default VPC (simplest)
+    Create a new VPC (more isolated)
+    Use existing VPC (enter VPC ID)
+```
+
+**step 6: Slack app**
+
+```
+? Have you created a Slack app for tino?
+  ❯ Yes, I have the tokens
+    No, walk me through it
+
+  [if "No"]:
+  ℹ Let's create your Slack app:
+    1. Go to https://api.slack.com/apps → Create New App → From scratch
+    2. Name: "tino", Workspace: your workspace
+    3. Enable Socket Mode → generate App-Level Token (xapp-)
+    4. OAuth & Permissions → Bot scopes: im:history, im:read, im:write, chat:write
+    5. Event Subscriptions → subscribe to: message.im
+    6. Install to workspace → copy Bot Token (xoxb-)
+
+  ? Paste your Bot Token (xoxb-...):
+  ? Paste your App Token (xapp-...):
+  ✓ Tokens validated.
+
+  ? Your Slack User ID (the initial admin):
+    (Tip: Slack → your profile → ⋯ → Copy member ID)
+  ✓ Admin user set: U05S91V7LJF
+```
+
+**step 7: capabilities (optional, can be done later via console)**
+
+```
+? Which capabilities do you want to enable now? (you can add more later)
+  ❯ ◉ GitHub (search code, check CI)
+    ◯ Linear (issue tracking)
+    ◯ Google Calendar
+    ◯ Gmail
+    ◯ Slack reading (read channels/DMs)
+    ◯ CloudWatch Logs
+    ◯ Skip — I'll configure these in the console
+
+  [for each selected capability]:
+  ? GitHub Personal Access Token (ghp_...):
+  ✓ Token validated. Authenticated as: iceglober
+
+  ? Default GitHub repo (owner/repo):
+  ✓ kn-eng/kn-eng — accessible.
+
+  ⚠ HIPAA note for GitHub: GitHub Enterprise Cloud offers a BAA.
+    GitHub Free/Pro/Team do NOT have a BAA.
+    ? Does your GitHub plan include a BAA?
+      ❯ Yes
+        No
+        I'm not sure
+
+    [if "No" or "not sure"]:
+    ⚠ WARNING: GitHub without a BAA means code search results flowing
+      through tino are not covered by a BAA. If your repos contain PHI
+      (e.g., in comments, commit messages, or code), this may be a
+      HIPAA violation.
+
+    ? Proceed with GitHub enabled? (you can disable it later)
+      ❯ Yes, my repos don't contain PHI
+        No, disable GitHub for now
+```
+
+**step 8: deploy**
+
+```
+  ╔══════════════════════════════════════════════════╗
+  ║  Ready to deploy tino                           ║
+  ║                                                 ║
+  ║  Compliance:  HIPAA                             ║
+  ║  Provider:    AWS (us-east-1)                   ║
+  ║  BAA:         ✓ AWS BAA verified                ║
+  ║  Model:       Claude Sonnet 4.6 (Bedrock)      ║
+  ║  IaC:         CDK (new project)                 ║
+  ║  Capabilities: GitHub                           ║
+  ║                                                 ║
+  ║  This will create:                              ║
+  ║    • ECS Fargate cluster + service              ║
+  ║    • DynamoDB table (encrypted, TTL enabled)    ║
+  ║    • Secrets Manager entries                    ║
+  ║    • KMS key (for credential encryption)        ║
+  ║    • CloudWatch log group + alarms              ║
+  ║    • IAM roles (least-privilege)                ║
+  ╚══════════════════════════════════════════════════╝
+
+? Deploy now?
+  ❯ Yes, deploy
+    No, save config and deploy later (writes tino.deploy.json)
+
+  [if "Yes"]:
+  ⏳ Running CDK deploy...
+  ✓ Infrastructure created.
+
+  ⏳ Setting secrets in Secrets Manager...
+  ✓ Secrets stored.
+
+  ⏳ Building and pushing Docker image...
+  ✓ Image pushed to ECR.
+
+  ⏳ Starting ECS service...
+  ✓ tino is running!
+
+  ╔══════════════════════════════════════════════════╗
+  ║  ✓ tino is deployed and HIPAA-compliant         ║
+  ║                                                 ║
+  ║  DM tino in Slack to get started.               ║
+  ║  Console: run `tino console` for port-forward   ║
+  ║  Logs: aws logs tail /ecs/tino --follow         ║
+  ╚══════════════════════════════════════════════════╝
+```
+
+### implementation
+
+the bootstrap CLI lives at `scripts/init.ts`, run via `pnpm tino init` (package.json script). uses `@inquirer/prompts` for the interactive flow.
+
+the CLI:
+1. collects all answers into a `DeployConfig` object
+2. writes `tino.deploy.json` (the deployment config, gitignored)
+3. generates/updates the CDK stack based on the config
+4. runs `cdk deploy` if the user chose to deploy immediately
+5. runs `scripts/setup-secrets.sh` with the collected credentials
+6. runs `scripts/deploy.sh` to build and push the Docker image
+
+the `tino.deploy.json` file is the source of truth for the deployment. re-running `pnpm tino init` reads the existing config and offers to update it.
+
+```ts
+interface DeployConfig {
+  compliance: {
+    frameworks: ['hipaa'];
+    baaStatus: {
+      aws: 'verified' | 'manual-confirmed' | 'skipped';
+      bedrock: 'verified' | 'manual-confirmed' | 'skipped';
+      // per-capability BAA status
+      github?: 'confirmed' | 'no-baa' | 'unknown';
+      slack?: 'confirmed' | 'no-baa' | 'unknown';
+      google?: 'confirmed' | 'no-baa' | 'unknown';
+      linear?: 'confirmed' | 'no-baa' | 'unknown';
+    };
+  };
+  provider: 'aws';
+  region: string;
+  model: {
+    provider: 'bedrock';
+    modelId: string;
+  };
+  iac: 'cdk' | 'terraform' | 'pulumi' | 'existing';
+  vpc: 'default' | 'new' | { vpcId: string };
+  slack: {
+    botToken: string;    // stored in Secrets Manager, not in this file
+    appToken: string;    // stored in Secrets Manager
+    adminUserId: string;
+  };
+  capabilities: {
+    [id: string]: {
+      enabled: boolean;
+      baaStatus: 'confirmed' | 'no-baa' | 'unknown';
+      // credentials stored in Secrets Manager, not here
+    };
+  };
+  hipaa: {
+    kmsKeyAlias: string;           // 'alias/tino' — for credential encryption
+    auditRetentionDays: number;    // default: 90
+    historyRetentionDays: number;  // default: 30
+    enforceEncryption: true;       // always true for HIPAA
+    enforceTls: true;              // always true for HIPAA
+    enforceAuditLogging: true;     // always true for HIPAA
+  };
+}
+```
+
+### CDK stack changes for HIPAA
+
+the existing CDK stack (`infra/lib/tino-stack.ts`) gains HIPAA-specific resources when `compliance.frameworks` includes `'hipaa'`:
+
+- **KMS key** (`alias/tino`): customer-managed key for encrypting DynamoDB, Secrets Manager, and CloudWatch Logs. the key policy restricts access to the ECS task role and admin users.
+- **DynamoDB table**: `encryption: TableEncryption.CUSTOMER_MANAGED` with the KMS key. `timeToLiveAttribute: 'ttl'` enabled for automatic data retention.
+- **Secrets Manager**: all secrets encrypted with the KMS key (not the default AWS-managed key).
+- **CloudWatch Logs**: log group encrypted with the KMS key. retention set to `auditRetentionDays`.
+- **CloudWatch Alarms**: alarm on `UnauthorizedAccess` metric filter (pattern: `"access_denied" OR "auth_error" OR "permission_denied"`). SNS topic for admin notification.
+- **VPC**: if creating a new VPC, no public subnets (Fargate uses NAT gateway for outbound). if using default VPC, warn that public subnets exist but Fargate task has no inbound access (Socket Mode = outbound only).
+- **IAM**: task role follows least-privilege. separate policies for each AWS service. no `*` resource ARNs — scoped to the specific DynamoDB table, KMS key, Secrets Manager prefix, and CloudWatch log group.
+
+### HIPAA compliance report
+
+the console includes a "compliance" section (admin-only) that shows:
+
+- BAA status for each service (from `tino.deploy.json`)
+- encryption status (KMS key, DynamoDB encryption, Secrets Manager encryption)
+- audit log status (enabled, retention period, last entry timestamp)
+- data retention status (TTL enabled, retention periods)
+- access control status (user count, admin count, last login per user)
+- any warnings (e.g., capability enabled without BAA confirmation)
+
+this is not a formal HIPAA audit — it's a self-assessment dashboard that helps the admin verify the technical controls are in place.
+
+---
+
 ## implementation sequence (revised)
+
+### v2.0: bootstrap CLI + HIPAA baseline (NEXT)
+- `pnpm tino init` interactive CLI using `@inquirer/prompts`
+- BAA verification flow (AWS Artifact API check + manual confirmation fallback)
+- per-capability BAA status tracking
+- CDK stack HIPAA hardening: CMK encryption, DynamoDB TTL, CloudWatch alarms, least-privilege IAM
+- `tino.deploy.json` config file (gitignored, source of truth for deployment)
+- audit logging to DynamoDB (every tool call, config change, login)
+- pino PHI redaction enforcement (already partially in place — formalize and test)
+- data retention via DynamoDB TTL (configurable per data type)
+- compliance dashboard in the console (admin-only)
 
 ### v2.1: capability instances + permissions
 - evolve `CapabilityConfig` → `CapabilityInstance`
@@ -469,7 +829,8 @@ the linked identity model from the previous section maps directly to better-auth
 - build the Atlassian Jira capability type as the first MCP consumer
 
 ### v2.3: multi-user
-- user table in DynamoDB
+- better-auth integration (Google SSO, session management, account linking)
+- user table in DynamoDB (tino-generated UUID as PK, linked identities)
 - per-user conversation history, preferences, tasks (partition key isolation)
 - personal vs org capability distinction
 - per-user Slack token for Slack reading tools
@@ -477,13 +838,13 @@ the linked identity model from the previous section maps directly to better-auth
 - admin vs member roles
 
 ### v2.4: console auth + admin UI
+- better-auth mounted on console HTTP server
 - Google Workspace SSO for the console
-- admin console (users, org capabilities, audit logs, usage)
+- admin console (users, org capabilities, audit logs, usage, compliance dashboard)
 - user console (personal capabilities, preferences, usage)
 - move console from localhost-only to SSO-protected
 
 ### v2.5: security hardening
-- audit logging to DynamoDB (every tool call, config change, login)
 - credential encryption (per-user envelope encryption via KMS)
 - budget alerts and usage tracking
 - credential rotation detection + notification
@@ -508,3 +869,5 @@ the linked identity model from the previous section maps directly to better-auth
 - pluggable IdP support (OIDC, SAML)
 - team-level capabilities (shared between a subset of users, not the whole org)
 - tino-to-tino communication (multiple tino instances sharing context across orgs — far future)
+- Terraform and Pulumi IaC generators (in addition to CDK)
+- one-click deployment targets (Render, Vercel — pending BAA availability)
