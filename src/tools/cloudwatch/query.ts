@@ -7,7 +7,7 @@ import {
   type GetQueryResultsCommandOutput,
 } from '@aws-sdk/client-cloudwatch-logs';
 import type { AppLogger } from '../../slack/app.js';
-import { ALLOWED_LOG_GROUPS, describeLogGroupAllowlist } from './allowlist.js';
+import { describeLogGroupAllowlist } from './allowlist.js';
 import { validateLogsInsightsQuery } from './validator.js';
 
 const DEFAULT_POLL_INTERVAL_MS = 1000;
@@ -41,6 +41,8 @@ type QueryResult =
 export interface CloudWatchToolDeps {
   client: CloudWatchLogsClient;
   logger: AppLogger;
+  /** The allowlist of permitted log groups. Passed at construction time from ConfigStore. */
+  allowedLogGroups: readonly string[];
   /** Override poll interval for testing. Defaults to 1000ms. */
   pollIntervalMs?: number;
   /** Override poll timeout for testing. Defaults to 30000ms. */
@@ -199,10 +201,9 @@ export function cloudwatchLogsQueryTool(deps: CloudWatchToolDeps) {
       'Run a CloudWatch Logs Insights query against an allowlisted log group. ' +
       'The query MUST contain a `| stats` clause (e.g. `stats count() by bin(5m)`); ' +
       'raw row dumps and field extraction are not permitted. Results are capped at 100 rows. ' +
-      `Allowed log groups: ${describeLogGroupAllowlist()}.`,
+      `Allowed log groups: ${describeLogGroupAllowlist(deps.allowedLogGroups)}.`,
     inputSchema,
-    // Production binding: the allowlist comes from the module-level constant.
-    // Edit src/tools/cloudwatch/allowlist.ts to add log groups.
-    execute: input => _executeQuery(deps, input, ALLOWED_LOG_GROUPS),
+    // Production binding: the allowlist comes from deps (resolved from ConfigStore at construction time).
+    execute: input => _executeQuery(deps, input, deps.allowedLogGroups),
   });
 }

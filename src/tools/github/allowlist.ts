@@ -1,38 +1,68 @@
 /**
- * Repos the GitHub tools are permitted to read.
+ * GitHub repo allowlist helpers.
  *
- * Adding a new repo is a deliberate code change — there is no env-var or
- * runtime override. This makes "what does the agent have access to?" a
- * git-blame-able question, not a config-spelunking question.
+ * The allowlist is no longer a module-level constant — it is read from the
+ * ConfigStore at tool-construction time and passed into each function.
+ * This makes the allowlist runtime-configurable via the web console.
  *
- * Pattern matches `src/tools/cloudwatch/allowlist.ts` (Phase 5).
+ * Pattern matches src/tools/cloudwatch/validator.ts (allowlist as parameter).
  */
+import type { ConfigStore } from '../../persistence/config.js';
+
 export interface RepoSpec {
   readonly owner: string;
   readonly repo: string;
 }
 
-export const ALLOWED_REPOS: readonly RepoSpec[] = [
-  { owner: 'kn-eng', repo: 'kn-eng' },
-];
+/**
+ * Read the allowed repos from the config store.
+ * Config key: "github.repos" — value is a JSON array of "owner/repo" strings.
+ * Falls back to an empty array if not configured.
+ */
+export function getAllowedRepos(config: ConfigStore): RepoSpec[] {
+  const raw = config.getTyped<string[]>('github.repos', []);
+  return raw.flatMap(s => {
+    const parsed = parseRepoSpec(s);
+    return parsed ? [parsed] : [];
+  });
+}
 
-/** True iff (owner, repo) is in the allowlist. Case-insensitive on both fields. */
-export function isAllowedRepo(owner: string, repo: string): boolean {
+/**
+ * Read the default repo from the config store.
+ * Config key: "github.default_repo" — value is a JSON string "owner/repo".
+ * Returns undefined if not configured or malformed.
+ */
+export function getDefaultRepo(config: ConfigStore): RepoSpec | undefined {
+  const val = config.getTyped<string | null>('github.default_repo', null);
+  if (!val) return undefined;
+  return parseRepoSpec(val) ?? undefined;
+}
+
+/**
+ * True iff (owner, repo) is in the allowlist. Case-insensitive on both fields.
+ * The allowlist is passed as a parameter — no module-level constant lookup.
+ */
+export function isAllowedRepo(
+  owner: string,
+  repo: string,
+  allowedRepos: readonly RepoSpec[],
+): boolean {
   const o = owner.toLowerCase();
   const r = repo.toLowerCase();
-  return ALLOWED_REPOS.some(spec => spec.owner.toLowerCase() === o && spec.repo.toLowerCase() === r);
+  return allowedRepos.some(
+    spec => spec.owner.toLowerCase() === o && spec.repo.toLowerCase() === r,
+  );
 }
 
 /** Human-readable list for error messages. */
-export function describeAllowlist(): string {
-  if (ALLOWED_REPOS.length === 0) return '(none — edit src/tools/github/allowlist.ts to enable)';
-  return ALLOWED_REPOS.map(s => `${s.owner}/${s.repo}`).join(', ');
+export function describeAllowlist(allowedRepos: readonly RepoSpec[]): string {
+  if (allowedRepos.length === 0)
+    return '(none — add via the config console at http://localhost:3001)';
+  return allowedRepos.map(s => `${s.owner}/${s.repo}`).join(', ');
 }
 
 /**
  * Parse "owner/repo" into a RepoSpec. Returns null on malformed input.
- * The env schema enforces the regex up front, so this is mostly a
- * type-safety convenience for callers that already have a validated string.
  */
 export function parseRepoSpec(ownerSlashRepo: string): RepoSpec | null {
   const parts = ownerSlashRepo.split('/');

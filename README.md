@@ -22,6 +22,18 @@ pnpm dev
 | `pnpm test` | Run vitest test suite once |
 | `pnpm typecheck` | TypeScript type-check (no emit) |
 
+## Config console
+
+When tino is running, a minimal web console is available at **http://localhost:3001** (localhost only — not exposed externally).
+
+Use it to:
+- Add GitHub repos to the allowlist (`github.repos`)
+- Set the default GitHub repo (`github.default_repo`)
+- Add CloudWatch log groups (`cloudwatch.log_groups`)
+- View all runtime config and health status
+
+Config changes take effect on the next tool call — no restart needed.
+
 ## Deployment (ECS Fargate)
 
 ### Prerequisites
@@ -40,17 +52,23 @@ cd infra && pnpm install
 pnpm run deploy
 cd ..
 
-# 3. Set secrets in SSM Parameter Store (one command per secret)
+# 3. Set secrets in SSM Parameter Store
+#    Option A: bulk setup from a JSON file (recommended)
+cp secrets.example.json secrets.json
+# fill in secrets.json with your actual values
+chmod +x scripts/setup-secrets.sh
+./scripts/setup-secrets.sh secrets.json
+
+#    Option B: one command per secret
 aws ssm put-parameter --name /tino/SLACK_BOT_TOKEN        --value "xoxb-..."  --type SecureString
 aws ssm put-parameter --name /tino/SLACK_APP_TOKEN        --value "xapp-..."  --type SecureString
 aws ssm put-parameter --name /tino/SLACK_USER_TOKEN       --value "xoxp-..."  --type SecureString
 aws ssm put-parameter --name /tino/ALLOWED_SLACK_USER_ID  --value "U..."      --type SecureString
 aws ssm put-parameter --name /tino/GITHUB_TOKEN           --value "ghp_..."   --type SecureString
-aws ssm put-parameter --name /tino/GITHUB_DEFAULT_REPO    --value "owner/repo" --type SecureString
 aws ssm put-parameter --name /tino/GOOGLE_OAUTH_CLIENT_ID     --value "..."   --type SecureString
 aws ssm put-parameter --name /tino/GOOGLE_OAUTH_CLIENT_SECRET --value "..."   --type SecureString
 aws ssm put-parameter --name /tino/GOOGLE_OAUTH_REFRESH_TOKEN --value "..."   --type SecureString
-aws ssm put-parameter --name /tino/BEDROCK_MODEL_ID       --value "us.anthropic.claude-sonnet-4-5-20251101-v1:0" --type SecureString
+aws ssm put-parameter --name /tino/BEDROCK_MODEL_ID       --value "global.anthropic.claude-sonnet-4-6" --type SecureString
 
 # 4. Build and push the container image, then force a new ECS deployment
 pnpm run deploy:app

@@ -31,6 +31,7 @@ const makeOctokit = (overrides: {
   }) as unknown as Octokit;
 
 const allowedRepo = { owner: 'kn-eng', repo: 'kn-eng' };
+const ALLOWED_REPOS = [allowedRepo] as const;
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -101,7 +102,7 @@ describe('_executeListWorkflowRuns', () => {
     const octokit = makeOctokit({ listWorkflowRunsForRepo: listFn });
 
     const result = await _executeListWorkflowRuns(
-      { octokit, defaultRepo: allowedRepo },
+      { octokit, defaultRepo: allowedRepo, allowedRepos: ALLOWED_REPOS },
       { perPage: 10 },
     );
 
@@ -127,7 +128,7 @@ describe('_executeListWorkflowRuns', () => {
     const octokit = makeOctokit({ listWorkflowRunsForRepo: listFn });
 
     const result = await _executeListWorkflowRuns(
-      { octokit },
+      { octokit, allowedRepos: ALLOWED_REPOS },
       { owner: 'evil-corp', repo: 'secrets', perPage: 10 },
     );
 
@@ -143,7 +144,7 @@ describe('_executeListWorkflowRuns', () => {
     const octokit = makeOctokit({ listWorkflowRunsForRepo: listFn });
 
     const result = await _executeListWorkflowRuns(
-      { octokit, defaultRepo: allowedRepo },
+      { octokit, defaultRepo: allowedRepo, allowedRepos: ALLOWED_REPOS },
       { perPage: 5 },
     );
 
@@ -176,7 +177,7 @@ describe('_executeGetWorkflowRunLogs', () => {
     });
 
     const result = await _executeGetWorkflowRunLogs(
-      { octokit, defaultRepo: allowedRepo },
+      { octokit, defaultRepo: allowedRepo, allowedRepos: ALLOWED_REPOS },
       { runId: 1234 },
     );
 
@@ -210,7 +211,7 @@ describe('_executeGetWorkflowRunLogs', () => {
     });
 
     const result = await _executeGetWorkflowRunLogs(
-      { octokit, defaultRepo: allowedRepo },
+      { octokit, defaultRepo: allowedRepo, allowedRepos: ALLOWED_REPOS },
       { runId: 5678 },
     );
 
@@ -228,7 +229,7 @@ describe('_executeGetWorkflowRunLogs', () => {
     const octokit = makeOctokit({ listJobsForWorkflowRun: listJobsFn });
 
     const result = await _executeGetWorkflowRunLogs(
-      { octokit },
+      { octokit, allowedRepos: ALLOWED_REPOS },
       { owner: 'evil-corp', repo: 'secrets', runId: 999 },
     );
 

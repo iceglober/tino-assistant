@@ -1,28 +1,27 @@
 /**
- * CloudWatch log groups the tool is permitted to query.
+ * CloudWatch log group allowlist helpers.
  *
- * Adding a log group is a deliberate code change — there is no env-var or
- * runtime override. This makes "what can the agent query?" a git-blame-able
- * question, not a config-spelunking question.
+ * The allowlist is no longer a module-level constant — it is read from the
+ * ConfigStore at tool-construction time and passed into each function.
+ * This makes the allowlist runtime-configurable via the web console.
  *
- * Pattern matches `src/tools/github/allowlist.ts` (Phase 4).
- *
- * SHIP STATE: empty. Tool fails-closed on every query until this list is
- * populated. Edit this file, redeploy/restart, only then is the tool useful.
+ * Pattern matches src/tools/cloudwatch/validator.ts (allowlist as parameter).
  */
-export const ALLOWED_LOG_GROUPS: readonly string[] = [
-  // TODO: populate before enabling tool — see plans/tino.md Phase 5
-];
+import type { ConfigStore } from '../../persistence/config.js';
 
-/** True iff the given log group is in the allowlist. Exact match (case-sensitive — log group names are case-sensitive in AWS). */
-export function isAllowedLogGroup(name: string): boolean {
-  return ALLOWED_LOG_GROUPS.includes(name);
+/**
+ * Read the allowed log groups from the config store.
+ * Config key: "cloudwatch.log_groups" — value is a JSON array of strings.
+ * Falls back to an empty array if not configured (fail-closed).
+ */
+export function getAllowedLogGroups(config: ConfigStore): readonly string[] {
+  return config.getTyped<string[]>('cloudwatch.log_groups', []);
 }
 
 /** Human-readable list for error messages. */
-export function describeLogGroupAllowlist(): string {
-  if (ALLOWED_LOG_GROUPS.length === 0) {
-    return '(none — edit src/tools/cloudwatch/allowlist.ts to enable)';
+export function describeLogGroupAllowlist(allowedLogGroups: readonly string[]): string {
+  if (allowedLogGroups.length === 0) {
+    return '(none — add via the config console at http://localhost:3001)';
   }
-  return ALLOWED_LOG_GROUPS.join(', ');
+  return allowedLogGroups.join(', ');
 }

@@ -1,14 +1,15 @@
 import type { ToolSet } from 'ai';
 import type { Env } from '../env.js';
 import type { AppLogger } from '../slack/app.js';
+import type { ConfigStore } from '../persistence/config.js';
 import { createOctokit } from './github/client.js';
 import { githubSearchCodeTool } from './github/search.js';
 import { githubGetFileTool } from './github/getFile.js';
 import { githubListWorkflowRunsTool, githubGetWorkflowRunLogsTool } from './github/workflows.js';
-import { isAllowedRepo, parseRepoSpec, type RepoSpec } from './github/allowlist.js';
+import { getAllowedRepos, getDefaultRepo, parseRepoSpec, type RepoSpec } from './github/allowlist.js';
 import { createCloudWatchLogsClient } from './cloudwatch/client.js';
 import { cloudwatchLogsQueryTool } from './cloudwatch/query.js';
-import { ALLOWED_LOG_GROUPS } from './cloudwatch/allowlist.js';
+import { getAllowedLogGroups } from './cloudwatch/allowlist.js';
 import { createGoogleAuth } from './google/oauth.js';
 import { calendarListEventsTool } from './google/calendar.js';
 import { gmailSearchTool, gmailGetMessageTool } from './google/gmail.js';
@@ -28,18 +29,27 @@ import { slackListDmsTool, slackReadDmTool } from './slack/dms.js';
  * Each tool category is constructed in a try/catch so that a missing
  * credential disables only that category — the bot keeps running.
  */
-export async function buildTools(env: Env, logger: AppLogger, taskStore?: TaskStore): Promise<ToolSet> {
+export async function buildTools(
+  env: Env,
+  logger: AppLogger,
+  taskStore?: TaskStore,
+  configStore?: ConfigStore,
+): Promise<ToolSet> {
   const tools: ToolSet = {};
 
   try {
     const octokit = createOctokit(env);
-    const defaultRepo = resolveDefaultRepo(env, logger);
-    tools['github_search_code'] = githubSearchCodeTool({ octokit, defaultRepo });
-    tools['github_get_file'] = githubGetFileTool({ octokit, defaultRepo });
-    tools['github_list_workflow_runs'] = githubListWorkflowRunsTool({ octokit, defaultRepo });
-    tools['github_get_workflow_run_logs'] = githubGetWorkflowRunLogsTool({ octokit, defaultRepo });
+    const allowedRepos = configStore ? getAllowedRepos(configStore) : [];
+    const defaultRepo = resolveDefaultRepo(env, logger, configStore);
+    tools['github_search_code'] = githubSearchCodeTool({ octokit, defaultRepo, allowedRepos });
+    tools['github_get_file'] = githubGetFileTool({ octokit, defaultRepo, allowedRepos });
+    tools['github_list_workflow_runs'] = githubListWorkflowRunsTool({ octokit, defaultRepo, allowedRepos });
+    tools['github_get_workflow_run_logs'] = githubGetWorkflowRunLogsTool({ octokit, defaultRepo, allowedRepos });
     logger.info(
-      { defaultRepo: defaultRepo ? `${defaultRepo.owner}/${defaultRepo.repo}` : null },
+      {
+        defaultRepo: defaultRepo ? `${defaultRepo.owner}/${defaultRepo.repo}` : null,
+        allowedReposCount: allowedRepos.length,
+      },
       'github tools enabled',
     );
   } catch (err) {
@@ -48,8 +58,9 @@ export async function buildTools(env: Env, logger: AppLogger, taskStore?: TaskSt
 
   try {
     const client = createCloudWatchLogsClient(env);
-    tools['cloudwatch_logs_query'] = cloudwatchLogsQueryTool({ client, logger });
-    logger.info({ allowlistSize: ALLOWED_LOG_GROUPS.length }, 'cloudwatch tools enabled');
+    const allowedLogGroups = configStore ? getAllowedLogGroups(configStore) : [];
+    tools['cloudwatch_logs_query'] = cloudwatchLogsQueryTool({ client, logger, allowedLogGroups });
+    logger.info({ allowlistSize: allowedLogGroups.length }, 'cloudwatch tools enabled');
   } catch (err) {
     logger.warn({ err: (err as Error).message }, 'cloudwatch tools disabled');
   }
@@ -110,15 +121,22 @@ export async function buildTools(env: Env, logger: AppLogger, taskStore?: TaskSt
   return tools;
 }
 
-export function resolveDefaultRepo(env: Env, logger: AppLogger): RepoSpec | undefined {
+export function resolveDefaultRepo(
+  env: Env,
+  logger: AppLogger,
+  configStore?: ConfigStore,
+): RepoSpec | undefined {
+  // 1. Try config store first
+  if (configStore) {
+    const fromConfig = getDefaultRepo(configStore);
+    if (fromConfig) return fromConfig;
+  }
+
+  // 2. Fall back to env var (backward compat for local dev without config)
   if (!env.GITHUB_DEFAULT_REPO) return undefined;
   const parsed = parseRepoSpec(env.GITHUB_DEFAULT_REPO);
   if (!parsed) {
     logger.warn({ value: env.GITHUB_DEFAULT_REPO }, 'GITHUB_DEFAULT_REPO is not in owner/repo format — ignored');
-    return undefined;
-  }
-  if (!isAllowedRepo(parsed.owner, parsed.repo)) {
-    logger.warn({ repo: env.GITHUB_DEFAULT_REPO }, 'GITHUB_DEFAULT_REPO is not in the allowlist — ignored');
     return undefined;
   }
   return parsed;

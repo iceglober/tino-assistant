@@ -82,6 +82,7 @@ type ListRunsResult =
 export interface WorkflowToolDeps {
   octokit: Octokit;
   defaultRepo?: RepoSpec;
+  allowedRepos: readonly RepoSpec[];
 }
 
 export async function _executeListWorkflowRuns(
@@ -92,16 +93,16 @@ export async function _executeListWorkflowRuns(
   if (!target) {
     return {
       error: 'no_repo_specified',
-      message: `No owner/repo provided and no default configured. Allowed: ${describeAllowlist()}.`,
+      message: `No owner/repo provided and no default configured. Allowed: ${describeAllowlist(deps.allowedRepos)}.`,
     };
   }
 
   const { owner, repo } = target;
 
-  if (!isAllowedRepo(owner, repo)) {
+  if (!isAllowedRepo(owner, repo, deps.allowedRepos)) {
     return {
       error: 'repo_not_allowlisted',
-      message: `${owner}/${repo} is not in the allowlist. Allowed: ${describeAllowlist()}.`,
+      message: `${owner}/${repo} is not in the allowlist. Allowed: ${describeAllowlist(deps.allowedRepos)}.`,
     };
   }
 
@@ -147,7 +148,7 @@ export function githubListWorkflowRunsTool(deps: WorkflowToolDeps) {
     description:
       'List recent GitHub Actions workflow runs for a repository. ' +
       'Use for "what is the CI status?", "did the last build pass?", "show me failed runs on main". ' +
-      `Returns run ID, name, status, conclusion, branch, and URL.${defaultStr} Allowed repos: ${describeAllowlist()}.`,
+      `Returns run ID, name, status, conclusion, branch, and URL.${defaultStr} Allowed repos: ${describeAllowlist(deps.allowedRepos)}.`,
     inputSchema: listRunsInputSchema,
     execute: input => _executeListWorkflowRuns(deps, input),
   });
@@ -213,16 +214,16 @@ export async function _executeGetWorkflowRunLogs(
   if (!target) {
     return {
       error: 'no_repo_specified',
-      message: `No owner/repo provided and no default configured. Allowed: ${describeAllowlist()}.`,
+      message: `No owner/repo provided and no default configured. Allowed: ${describeAllowlist(deps.allowedRepos)}.`,
     };
   }
 
   const { owner, repo } = target;
 
-  if (!isAllowedRepo(owner, repo)) {
+  if (!isAllowedRepo(owner, repo, deps.allowedRepos)) {
     return {
       error: 'repo_not_allowlisted',
-      message: `${owner}/${repo} is not in the allowlist. Allowed: ${describeAllowlist()}.`,
+      message: `${owner}/${repo} is not in the allowlist. Allowed: ${describeAllowlist(deps.allowedRepos)}.`,
     };
   }
 
@@ -300,7 +301,7 @@ export function githubGetWorkflowRunLogsTool(deps: WorkflowToolDeps) {
       'Get jobs and failed-step annotations for a GitHub Actions workflow run. ' +
       'Use after github_list_workflow_runs to diagnose a failed build. ' +
       'Returns each job with its steps and any error annotations (file path, line, message). ' +
-      `Provide the runId from github_list_workflow_runs.${defaultStr} Allowed repos: ${describeAllowlist()}.`,
+      `Provide the runId from github_list_workflow_runs.${defaultStr} Allowed repos: ${describeAllowlist(deps.allowedRepos)}.`,
     inputSchema: getRunLogsInputSchema,
     execute: input => _executeGetWorkflowRunLogs(deps, input),
   });

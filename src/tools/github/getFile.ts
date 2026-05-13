@@ -21,6 +21,7 @@ type GetFileResult =
 export interface GetFileToolDeps {
   octokit: Octokit;
   defaultRepo?: RepoSpec;
+  allowedRepos: readonly RepoSpec[];
 }
 
 function resolveRepo(input: GetFileInput, defaultRepo: RepoSpec | undefined): RepoSpec | null {
@@ -39,17 +40,17 @@ export async function _executeGetFile(deps: GetFileToolDeps, input: GetFileInput
   if (!target) {
     return {
       error: 'no_repo_specified',
-      message: `No owner/repo provided and no default configured. Allowed: ${describeAllowlist()}.`,
+      message: `No owner/repo provided and no default configured. Allowed: ${describeAllowlist(deps.allowedRepos)}.`,
     };
   }
 
   const { owner, repo } = target;
   const { path, ref } = input;
 
-  if (!isAllowedRepo(owner, repo)) {
+  if (!isAllowedRepo(owner, repo, deps.allowedRepos)) {
     return {
       error: 'repo_not_allowlisted',
-      message: `${owner}/${repo} is not in the allowlist. Allowed: ${describeAllowlist()}.`,
+      message: `${owner}/${repo} is not in the allowlist. Allowed: ${describeAllowlist(deps.allowedRepos)}.`,
     };
   }
 
@@ -101,7 +102,7 @@ export function githubGetFileTool(deps: GetFileToolDeps) {
   return tool({
     description:
       'Read the contents of a single file from a GitHub repository. Returns up to 50 KB; if the file is larger, ' +
-      `the response includes truncated: true.${defaultStr} Allowed repos: ${describeAllowlist()}.`,
+      `the response includes truncated: true.${defaultStr} Allowed repos: ${describeAllowlist(deps.allowedRepos)}.`,
     inputSchema,
     execute: (input) => _executeGetFile(deps, input),
   });

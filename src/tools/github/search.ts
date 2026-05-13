@@ -20,6 +20,7 @@ type SearchResult =
 export interface SearchToolDeps {
   octokit: Octokit;
   defaultRepo?: RepoSpec;
+  allowedRepos: readonly RepoSpec[];
 }
 
 /**
@@ -43,16 +44,16 @@ export async function _executeSearch(deps: SearchToolDeps, input: SearchInput): 
   if (!target) {
     return {
       error: 'no_repo_specified',
-      message: `No owner/repo provided and no default configured. Allowed: ${describeAllowlist()}.`,
+      message: `No owner/repo provided and no default configured. Allowed: ${describeAllowlist(deps.allowedRepos)}.`,
     };
   }
 
   const { owner, repo } = target;
 
-  if (!isAllowedRepo(owner, repo)) {
+  if (!isAllowedRepo(owner, repo, deps.allowedRepos)) {
     return {
       error: 'repo_not_allowlisted',
-      message: `${owner}/${repo} is not in the allowlist. Allowed: ${describeAllowlist()}.`,
+      message: `${owner}/${repo} is not in the allowlist. Allowed: ${describeAllowlist(deps.allowedRepos)}.`,
     };
   }
 
@@ -91,7 +92,7 @@ export function githubSearchCodeTool(deps: SearchToolDeps) {
     description:
       'Search code in a GitHub repository. Use for "where is X defined?", "what files import Y?", or "show me usages of Z".' +
       defaultStr +
-      ` Allowed repos: ${describeAllowlist()}.`,
+      ` Allowed repos: ${describeAllowlist(deps.allowedRepos)}.`,
     inputSchema,
     execute: (input) => _executeSearch(deps, input),
   });

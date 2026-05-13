@@ -25,6 +25,9 @@ const makeOctokit = (overrides: Partial<{
   },
 } as unknown as Octokit);
 
+// The allowlist used by all tests that expect kn-eng/kn-eng to be accepted.
+const ALLOWED_REPOS = [{ owner: 'kn-eng', repo: 'kn-eng' }] as const;
+
 // ---------------------------------------------------------------------------
 // github_search_code tests
 // ---------------------------------------------------------------------------
@@ -43,7 +46,7 @@ describe('github_search_code', () => {
     });
     const octokit = makeOctokit({ search: { code: codeFn } });
 
-    const result = await _executeSearch({ octokit }, { owner: 'kn-eng', repo: 'kn-eng', query: 'auth middleware' });
+    const result = await _executeSearch({ octokit, allowedRepos: ALLOWED_REPOS }, { owner: 'kn-eng', repo: 'kn-eng', query: 'auth middleware' });
 
     expect(codeFn).toHaveBeenCalledOnce();
     expect(codeFn).toHaveBeenCalledWith({ q: 'auth middleware repo:kn-eng/kn-eng', per_page: 10 });
@@ -62,7 +65,7 @@ describe('github_search_code', () => {
     const codeFn = vi.fn();
     const octokit = makeOctokit({ search: { code: codeFn } });
 
-    const result = await _executeSearch({ octokit }, { owner: 'evil-corp', repo: 'secrets', query: 'password' });
+    const result = await _executeSearch({ octokit, allowedRepos: ALLOWED_REPOS }, { owner: 'evil-corp', repo: 'secrets', query: 'password' });
 
     expect(codeFn).not.toHaveBeenCalled();
     expect(result).toMatchObject({ error: 'repo_not_allowlisted' });
@@ -74,7 +77,7 @@ describe('github_search_code', () => {
     });
     const octokit = makeOctokit({ search: { code: codeFn } });
 
-    const result = await _executeSearch({ octokit }, { owner: 'KN-ENG', repo: 'kn-eng', query: 'test' });
+    const result = await _executeSearch({ octokit, allowedRepos: ALLOWED_REPOS }, { owner: 'KN-ENG', repo: 'kn-eng', query: 'test' });
 
     expect(codeFn).toHaveBeenCalledOnce();
     expect(result).not.toMatchObject({ error: expect.anything() });
@@ -85,7 +88,7 @@ describe('github_search_code', () => {
     const codeFn = vi.fn().mockRejectedValue(rateLimitErr);
     const octokit = makeOctokit({ search: { code: codeFn } });
 
-    const result = await _executeSearch({ octokit }, { owner: 'kn-eng', repo: 'kn-eng', query: 'test' });
+    const result = await _executeSearch({ octokit, allowedRepos: ALLOWED_REPOS }, { owner: 'kn-eng', repo: 'kn-eng', query: 'test' });
 
     expect(result).toMatchObject({ error: 'rate_limited' });
   });
@@ -95,7 +98,7 @@ describe('github_search_code', () => {
     const codeFn = vi.fn().mockRejectedValue(invalidErr);
     const octokit = makeOctokit({ search: { code: codeFn } });
 
-    const result = await _executeSearch({ octokit }, { owner: 'kn-eng', repo: 'kn-eng', query: 'x' });
+    const result = await _executeSearch({ octokit, allowedRepos: ALLOWED_REPOS }, { owner: 'kn-eng', repo: 'kn-eng', query: 'x' });
 
     expect(result).toMatchObject({ error: 'invalid_query' });
   });
@@ -121,7 +124,7 @@ describe('github_get_file', () => {
     });
     const octokit = makeOctokit({ repos: { getContent: getContentFn } });
 
-    const result = await _executeGetFile({ octokit }, { owner: 'kn-eng', repo: 'kn-eng', path: 'src/hello.ts' });
+    const result = await _executeGetFile({ octokit, allowedRepos: ALLOWED_REPOS }, { owner: 'kn-eng', repo: 'kn-eng', path: 'src/hello.ts' });
 
     expect(getContentFn).toHaveBeenCalledOnce();
     expect(result).toMatchObject({
@@ -136,7 +139,7 @@ describe('github_get_file', () => {
     const getContentFn = vi.fn();
     const octokit = makeOctokit({ repos: { getContent: getContentFn } });
 
-    const result = await _executeGetFile({ octokit }, { owner: 'evil-corp', repo: 'secrets', path: 'passwords.txt' });
+    const result = await _executeGetFile({ octokit, allowedRepos: ALLOWED_REPOS }, { owner: 'evil-corp', repo: 'secrets', path: 'passwords.txt' });
 
     expect(getContentFn).not.toHaveBeenCalled();
     expect(result).toMatchObject({ error: 'repo_not_allowlisted' });
@@ -157,7 +160,7 @@ describe('github_get_file', () => {
     });
     const octokit = makeOctokit({ repos: { getContent: getContentFn } });
 
-    const result = await _executeGetFile({ octokit }, { owner: 'kn-eng', repo: 'kn-eng', path: 'big.txt' });
+    const result = await _executeGetFile({ octokit, allowedRepos: ALLOWED_REPOS }, { owner: 'kn-eng', repo: 'kn-eng', path: 'big.txt' });
 
     expect(result).toMatchObject({ truncated: true });
     if ('content' in result) {
@@ -180,7 +183,7 @@ describe('github_get_file', () => {
     });
     const octokit = makeOctokit({ repos: { getContent: getContentFn } });
 
-    const result = await _executeGetFile({ octokit }, { owner: 'kn-eng', repo: 'kn-eng', path: 'small.txt' });
+    const result = await _executeGetFile({ octokit, allowedRepos: ALLOWED_REPOS }, { owner: 'kn-eng', repo: 'kn-eng', path: 'small.txt' });
 
     expect(result).toMatchObject({ truncated: false, content: small });
   });
@@ -194,7 +197,7 @@ describe('github_get_file', () => {
     });
     const octokit = makeOctokit({ repos: { getContent: getContentFn } });
 
-    const result = await _executeGetFile({ octokit }, { owner: 'kn-eng', repo: 'kn-eng', path: 'src' });
+    const result = await _executeGetFile({ octokit, allowedRepos: ALLOWED_REPOS }, { owner: 'kn-eng', repo: 'kn-eng', path: 'src' });
 
     expect(result).toMatchObject({ error: 'is_directory' });
   });
@@ -204,7 +207,7 @@ describe('github_get_file', () => {
     const getContentFn = vi.fn().mockRejectedValue(notFoundErr);
     const octokit = makeOctokit({ repos: { getContent: getContentFn } });
 
-    const result = await _executeGetFile({ octokit }, { owner: 'kn-eng', repo: 'kn-eng', path: 'nonexistent.ts' });
+    const result = await _executeGetFile({ octokit, allowedRepos: ALLOWED_REPOS }, { owner: 'kn-eng', repo: 'kn-eng', path: 'nonexistent.ts' });
 
     expect(result).toMatchObject({ error: 'not_found' });
   });
@@ -221,7 +224,7 @@ describe('default-repo fallback', () => {
     const codeFn = vi.fn().mockResolvedValue({ data: { total_count: 0, incomplete_results: false, items: [] } });
     const octokit = makeOctokit({ search: { code: codeFn } });
 
-    const result = await _executeSearch({ octokit, defaultRepo }, { query: 'foo' });
+    const result = await _executeSearch({ octokit, defaultRepo, allowedRepos: ALLOWED_REPOS }, { query: 'foo' });
 
     expect(codeFn).toHaveBeenCalledOnce();
     expect(codeFn).toHaveBeenCalledWith({ q: 'foo repo:kn-eng/kn-eng', per_page: 10 });
@@ -236,7 +239,7 @@ describe('default-repo fallback', () => {
     // explicitly — the test verifies the q-string is built from the explicit
     // input, not pulled from `defaultRepo` (which we'd see if we'd swapped them).
     await _executeSearch(
-      { octokit, defaultRepo: { owner: 'kn-eng', repo: 'kn-eng' } },
+      { octokit, defaultRepo: { owner: 'kn-eng', repo: 'kn-eng' }, allowedRepos: ALLOWED_REPOS },
       { owner: 'kn-eng', repo: 'kn-eng', query: 'bar' },
     );
 
@@ -247,7 +250,7 @@ describe('default-repo fallback', () => {
     const codeFn = vi.fn();
     const octokit = makeOctokit({ search: { code: codeFn } });
 
-    const result = await _executeSearch({ octokit }, { query: 'foo' });
+    const result = await _executeSearch({ octokit, allowedRepos: ALLOWED_REPOS }, { query: 'foo' });
 
     expect(codeFn).not.toHaveBeenCalled();
     expect(result).toMatchObject({ error: 'no_repo_specified' });
@@ -261,7 +264,7 @@ describe('default-repo fallback', () => {
     });
     const octokit = makeOctokit({ repos: { getContent: getContentFn } });
 
-    const result = await _executeGetFile({ octokit, defaultRepo }, { path: 'a.ts' });
+    const result = await _executeGetFile({ octokit, defaultRepo, allowedRepos: ALLOWED_REPOS }, { path: 'a.ts' });
 
     expect(getContentFn).toHaveBeenCalledOnce();
     expect(getContentFn).toHaveBeenCalledWith({ owner: 'kn-eng', repo: 'kn-eng', path: 'a.ts', ref: undefined });
@@ -272,7 +275,7 @@ describe('default-repo fallback', () => {
     const getContentFn = vi.fn();
     const octokit = makeOctokit({ repos: { getContent: getContentFn } });
 
-    const result = await _executeGetFile({ octokit }, { path: 'a.ts' });
+    const result = await _executeGetFile({ octokit, allowedRepos: ALLOWED_REPOS }, { path: 'a.ts' });
 
     expect(getContentFn).not.toHaveBeenCalled();
     expect(result).toMatchObject({ error: 'no_repo_specified' });
@@ -286,7 +289,7 @@ describe('default-repo fallback', () => {
     const codeFn = vi.fn().mockResolvedValue({ data: { total_count: 0, incomplete_results: false, items: [] } });
     const octokit = makeOctokit({ search: { code: codeFn } });
 
-    await _executeSearch({ octokit, defaultRepo }, { owner: 'kn-eng', query: 'foo' });
+    await _executeSearch({ octokit, defaultRepo, allowedRepos: ALLOWED_REPOS }, { owner: 'kn-eng', query: 'foo' });
 
     expect(codeFn).toHaveBeenCalledWith({ q: 'foo repo:kn-eng/kn-eng', per_page: 10 });
   });
