@@ -12,6 +12,8 @@ import { ALLOWED_LOG_GROUPS } from './cloudwatch/allowlist.js';
 import { createGoogleAuth } from './google/oauth.js';
 import { calendarListEventsTool } from './google/calendar.js';
 import { gmailSearchTool, gmailGetMessageTool } from './google/gmail.js';
+import { createPreferencesStore } from '../persistence/preferences.js';
+import { setPreferenceTool, getPreferencesTool } from './preferences.js';
 
 /**
  * Build the toolset for `runAgent`.
@@ -21,6 +23,7 @@ import { gmailSearchTool, gmailGetMessageTool } from './google/gmail.js';
  *
  * Phase 4: github_search_code, github_get_file.
  * Phase 5+: cloudwatch_logs_query, calendar_list_events, gmail_search.
+ * Quick-wins: gmail_get_message, github_list_workflow_runs, github_get_workflow_run_logs, set_preference, get_preferences.
  */
 export function buildTools(env: Env, logger: AppLogger): ToolSet {
   const tools: ToolSet = {};
@@ -56,6 +59,17 @@ export function buildTools(env: Env, logger: AppLogger): ToolSet {
     logger.info('google tools enabled (calendar + gmail)');
   } catch (err) {
     logger.warn({ err: (err as Error).message }, 'google tools disabled');
+  }
+
+  try {
+    const dbPath = env.DB_PATH ?? './tino.db';
+    const userId = env.ALLOWED_SLACK_USER_ID;
+    const prefStore = createPreferencesStore({ dbPath });
+    tools['set_preference'] = setPreferenceTool(prefStore, userId);
+    tools['get_preferences'] = getPreferencesTool(prefStore, userId);
+    logger.info('preferences tools enabled');
+  } catch (err) {
+    logger.warn({ err: (err as Error).message }, 'preferences tools disabled');
   }
 
   return tools;
