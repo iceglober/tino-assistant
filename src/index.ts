@@ -55,13 +55,19 @@ const stopScheduler = startScheduler({
     // Tasks are independent: the description must be self-contained.
     // Fresh history avoids stale-context bugs from hours/days-old conversations.
     const taskHistory = createHistoryStore({ cap: 40 });
+    const taskPrompt = [
+      'You are executing a scheduled task. Your response will be posted directly to the owner\'s Slack DM — you do not need a tool to send it.',
+      'Do not explain that you are a bot or that you cannot send messages. Just produce the content the task asks for.',
+      '',
+      `Task: ${task.description}`,
+    ].join('\n');
     return runAgent({
       model,
       history: taskHistory,
       logger,
       tools,
       userId: task.userId,
-      text: task.description,
+      text: taskPrompt,
     });
   },
   postResult: postDm,
