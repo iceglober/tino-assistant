@@ -17,7 +17,14 @@ export async function createDynamoTable(
   tableName: string,
   endpoint?: string,
 ): Promise<TinoTable> {
-  const client = new DynamoDBClient(endpoint ? { endpoint } : {});
+  const client = new DynamoDBClient(endpoint ? {
+    endpoint,
+    // DynamoDB Local requires credentials but doesn't validate them.
+    // Provide dummy values so the SDK doesn't hang trying to resolve
+    // real credentials from IMDS/ECS/SSO.
+    credentials: { accessKeyId: 'local', secretAccessKey: 'local' },
+    region: 'us-east-1',
+  } : {});
   const documentClient = DynamoDBDocumentClient.from(client);
 
   // Auto-create table in local mode
