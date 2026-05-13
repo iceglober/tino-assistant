@@ -19,6 +19,7 @@ import { scheduleTaskTool, listTasksTool, cancelTaskTool } from './tasks.js';
 import { createSlackUserClient } from '../slack/userClient.js';
 import { slackSearchMessagesTool } from './slack/search.js';
 import { slackReadThreadTool } from './slack/thread.js';
+import { slackListDmsTool, slackReadDmTool } from './slack/dms.js';
 
 /**
  * Build the toolset for `runAgent`.
@@ -89,6 +90,8 @@ export function buildTools(env: Env, logger: AppLogger, taskStore?: TaskStore): 
     const userClient = createSlackUserClient(env);
     tools['slack_search_messages'] = slackSearchMessagesTool(userClient);
     tools['slack_read_thread'] = slackReadThreadTool(userClient);
+    tools['slack_list_dms'] = slackListDmsTool(userClient);
+    tools['slack_read_dm'] = slackReadDmTool(userClient);
     logger.info('slack reading tools enabled');
   } catch (err) {
     logger.warn({ err: (err as Error).message }, 'slack reading tools disabled');
