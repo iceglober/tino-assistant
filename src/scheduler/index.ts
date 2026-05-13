@@ -6,7 +6,7 @@ export interface SchedulerDeps {
   logger: AppLogger;
   runTask: (task: Task) => Promise<string>; // returns the agent's response text
   postResult: (text: string) => Promise<void>; // posts to the owner's DM
-  intervalMs?: number; // default 60_000
+  intervalMs?: number; // default 15_000 (15s — responsive enough for short reminders)
 }
 
 /**
@@ -22,7 +22,7 @@ export interface SchedulerDeps {
  *    e. On error: updateStatus(id, 'failed', error.message), postResult with error
  */
 export function startScheduler(deps: SchedulerDeps): () => void {
-  const { taskStore, logger, runTask, postResult, intervalMs = 60_000 } = deps;
+  const { taskStore, logger, runTask, postResult, intervalMs = 15_000 } = deps;
 
   const tick = async () => {
     const now = Math.floor(Date.now() / 1000);
