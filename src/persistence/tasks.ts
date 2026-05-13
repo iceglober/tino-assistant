@@ -22,12 +22,12 @@ export interface Task {
 }
 
 export interface TaskStore {
-  create(userId: string, description: string, scheduledAtEpochSec: number): Task;
-  getById(id: string): Task | null;
-  listByUser(userId: string, status?: string): Task[];
-  listPending(nowEpochSec: number): Task[]; // scheduled_at <= now AND status = 'pending'
-  updateStatus(id: string, status: Task['status'], result?: string): void;
-  cancel(id: string): boolean; // returns false if task not found or not pending
+  create(userId: string, description: string, scheduledAtEpochSec: number): Promise<Task>;
+  getById(id: string): Promise<Task | null>;
+  listByUser(userId: string, status?: string): Promise<Task[]>;
+  listPending(nowEpochSec: number): Promise<Task[]>; // scheduled_at <= now AND status = 'pending'
+  updateStatus(id: string, status: Task['status'], result?: string): Promise<void>;
+  cancel(id: string): Promise<boolean>; // returns false if task not found or not pending
 }
 
 // Row shape returned by better-sqlite3 (snake_case columns)
@@ -111,11 +111,11 @@ export function createTaskStore({ dbPath }: { dbPath: string }): TaskStore {
   );
 
   return {
-    create(userId: string, description: string, scheduledAtEpochSec: number): Task {
+    create(userId: string, description: string, scheduledAtEpochSec: number): Promise<Task> {
       const id = crypto.randomUUID();
       const now = Math.floor(Date.now() / 1000);
       stmtInsert.run(id, userId, description, scheduledAtEpochSec, now, now);
-      return {
+      return Promise.resolve({
         id,
         userId,
         description,
@@ -124,34 +124,35 @@ export function createTaskStore({ dbPath }: { dbPath: string }): TaskStore {
         result: null,
         createdAt: now,
         updatedAt: now,
-      };
+      });
     },
 
-    getById(id: string): Task | null {
+    getById(id: string): Promise<Task | null> {
       const row = stmtGetById.get(id);
-      return row ? rowToTask(row) : null;
+      return Promise.resolve(row ? rowToTask(row) : null);
     },
 
-    listByUser(userId: string, status?: string): Task[] {
+    listByUser(userId: string, status?: string): Promise<Task[]> {
       if (status !== undefined) {
-        return stmtListByUserAndStatus.all(userId, status).map(rowToTask);
+        return Promise.resolve(stmtListByUserAndStatus.all(userId, status).map(rowToTask));
       }
-      return stmtListByUser.all(userId).map(rowToTask);
+      return Promise.resolve(stmtListByUser.all(userId).map(rowToTask));
     },
 
-    listPending(nowEpochSec: number): Task[] {
-      return stmtListPending.all(nowEpochSec).map(rowToTask);
+    listPending(nowEpochSec: number): Promise<Task[]> {
+      return Promise.resolve(stmtListPending.all(nowEpochSec).map(rowToTask));
     },
 
-    updateStatus(id: string, status: Task['status'], result?: string): void {
+    updateStatus(id: string, status: Task['status'], result?: string): Promise<void> {
       const now = Math.floor(Date.now() / 1000);
       stmtUpdateStatus.run(status, result ?? null, now, id);
+      return Promise.resolve();
     },
 
-    cancel(id: string): boolean {
+    cancel(id: string): Promise<boolean> {
       const now = Math.floor(Date.now() / 1000);
       const info = stmtCancel.run(now, id);
-      return info.changes > 0;
+      return Promise.resolve(info.changes > 0);
     },
   };
 }

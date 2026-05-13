@@ -1,27 +1,29 @@
 import type { ModelMessage } from 'ai';
 
 export interface HistoryStore {
-  get(userId: string): ModelMessage[];
-  append(userId: string, msgs: ModelMessage[]): void;
-  reset(userId: string): void;
+  get(userId: string): Promise<ModelMessage[]>;
+  append(userId: string, msgs: ModelMessage[]): Promise<void>;
+  reset(userId: string): Promise<void>;
 }
 
 export function createHistoryStore({ cap = 40 }: { cap?: number } = {}): HistoryStore {
   const store = new Map<string, ModelMessage[]>();
 
   return {
-    get(userId: string): ModelMessage[] {
-      return store.get(userId) ?? [];
+    get(userId: string): Promise<ModelMessage[]> {
+      return Promise.resolve(store.get(userId) ?? []);
     },
 
-    append(userId: string, msgs: ModelMessage[]): void {
+    append(userId: string, msgs: ModelMessage[]): Promise<void> {
       const existing = store.get(userId) ?? [];
       const combined = [...existing, ...msgs];
       store.set(userId, trim(combined, cap));
+      return Promise.resolve();
     },
 
-    reset(userId: string): void {
+    reset(userId: string): Promise<void> {
       store.delete(userId);
+      return Promise.resolve();
     },
   };
 }

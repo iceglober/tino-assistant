@@ -37,7 +37,7 @@ export function scheduleTaskTool(taskStore: TaskStore, userId: string) {
         return { error: 'invalid_date', message: `Could not parse scheduledAtIso: ${scheduledAtIso}` };
       }
       const scheduledAtEpochSec = Math.floor(ms / 1000);
-      const task = taskStore.create(userId, description, scheduledAtEpochSec);
+      const task = await taskStore.create(userId, description, scheduledAtEpochSec);
       const nowSec = Math.floor(Date.now() / 1000);
       const deltaSec = scheduledAtEpochSec - nowSec;
       return {
@@ -70,7 +70,7 @@ export function listTasksTool(taskStore: TaskStore, userId: string) {
       'Use status filter to narrow results: "pending" shows upcoming tasks, "completed" shows finished ones.',
     inputSchema: listInputSchema,
     execute: async ({ status }) => {
-      const tasks = taskStore.listByUser(userId, status);
+      const tasks = await taskStore.listByUser(userId, status);
       return {
         tasks: tasks.map(t => ({
           taskId: t.id,
@@ -103,7 +103,7 @@ export function cancelTaskTool(taskStore: TaskStore) {
       'Only pending tasks can be cancelled — completed, failed, or already-cancelled tasks cannot be changed.',
     inputSchema: cancelInputSchema,
     execute: async ({ taskId }) => {
-      const cancelled = taskStore.cancel(taskId);
+      const cancelled = await taskStore.cancel(taskId);
       if (!cancelled) {
         return { error: 'not_found_or_not_pending' };
       }

@@ -29,19 +29,19 @@ export interface RunAgentParams {
 export async function runAgent(params: RunAgentParams): Promise<string> {
   const { model, history, logger, tools, userId, text } = params;
 
-  history.append(userId, [{ role: 'user', content: text }]);
+  await history.append(userId, [{ role: 'user', content: text }]);
 
   const start = Date.now();
   const result = await generateText({
     model,
     system: buildSystemPrompt(),
-    messages: history.get(userId),
+    messages: await history.get(userId),
     tools: tools ?? {},
     stopWhen: stepCountIs(10),
   });
   const durationMs = Date.now() - start;
 
-  history.append(userId, result.response.messages);
+  await history.append(userId, result.response.messages);
 
   logger.info(
     {

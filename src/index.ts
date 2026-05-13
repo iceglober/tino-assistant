@@ -3,24 +3,18 @@ import { loadEnv } from './env.js';
 import { createLogger } from './logging/logger.js';
 import { createSlackApp, type DmHandler } from './slack/app.js';
 import { createBedrockModel } from './agent/bedrock.js';
-import { createSqliteHistoryStore } from './persistence/sqlite.js';
 import { createHistoryStore } from './agent/history.js';
 import { runAgent } from './agent/run.js';
 import { buildTools } from './tools/index.js';
-import { createTaskStore } from './persistence/tasks.js';
-import { createConfigStore } from './persistence/config.js';
 import { startScheduler } from './scheduler/index.js';
 import { createProactiveDm } from './slack/proactive.js';
 import { startConsole } from './console/server.js';
+import { createPersistence } from './persistence/factory.js';
 
 const env = loadEnv();
 const logger = createLogger(env);
 const model = createBedrockModel(env);
-const dbPath = env.DB_PATH ?? './tino.db';
-const history = createSqliteHistoryStore({ dbPath, cap: 40 });
-const taskStore = createTaskStore({ dbPath });
-const configStore = createConfigStore({ dbPath });
-logger.info({ dbPath }, 'persistence: sqlite');
+const { history, tasks: taskStore, config: configStore } = await createPersistence(env, logger);
 const tools = await buildTools(env, logger, taskStore, configStore);
 
 // 9g: Log tool-definition token count estimate at startup.

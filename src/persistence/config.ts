@@ -14,15 +14,15 @@ import Database from 'better-sqlite3';
  */
 export interface ConfigStore {
   /** Returns the raw JSON string for the key, or null if not set. */
-  get(key: string): string | null;
+  get(key: string): Promise<string | null>;
   /** Returns JSON.parse(value) if the key exists, otherwise returns fallback. */
-  getTyped<T>(key: string, fallback: T): T;
+  getTyped<T>(key: string, fallback: T): Promise<T>;
   /** JSON.stringify(value) and store under key. */
-  set(key: string, value: unknown): void;
+  set(key: string, value: unknown): Promise<void>;
   /** Returns all entries sorted by key. */
-  list(): Array<{ key: string; value: string; updatedAt: number }>;
+  list(): Promise<Array<{ key: string; value: string; updatedAt: number }>>;
   /** Deletes the entry. Returns true if it existed, false if not. */
-  delete(key: string): boolean;
+  delete(key: string): Promise<boolean>;
 }
 
 interface ConfigRow {
@@ -63,36 +63,37 @@ export function createConfigStore({ dbPath }: { dbPath: string }): ConfigStore {
   );
 
   return {
-    get(key: string): string | null {
+    get(key: string): Promise<string | null> {
       const row = stmtGet.get(key);
-      return row?.value ?? null;
+      return Promise.resolve(row?.value ?? null);
     },
 
-    getTyped<T>(key: string, fallback: T): T {
+    getTyped<T>(key: string, fallback: T): Promise<T> {
       const raw = stmtGet.get(key);
-      if (!raw) return fallback;
+      if (!raw) return Promise.resolve(fallback);
       try {
-        return JSON.parse(raw.value) as T;
+        return Promise.resolve(JSON.parse(raw.value) as T);
       } catch {
-        return fallback;
+        return Promise.resolve(fallback);
       }
     },
 
-    set(key: string, value: unknown): void {
+    set(key: string, value: unknown): Promise<void> {
       stmtUpsert.run(key, JSON.stringify(value), Date.now());
+      return Promise.resolve();
     },
 
-    list(): Array<{ key: string; value: string; updatedAt: number }> {
-      return stmtList.all().map(row => ({
+    list(): Promise<Array<{ key: string; value: string; updatedAt: number }>> {
+      return Promise.resolve(stmtList.all().map(row => ({
         key: row.key,
         value: row.value,
         updatedAt: row.updated_at,
-      }));
+      })));
     },
 
-    delete(key: string): boolean {
+    delete(key: string): Promise<boolean> {
       const info = stmtDelete.run(key);
-      return info.changes > 0;
+      return Promise.resolve(info.changes > 0);
     },
   };
 }

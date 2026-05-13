@@ -29,7 +29,7 @@ export function setPreferenceTool(store: PreferencesStore, userId: string) {
       'Examples: key="timezone" value="America/Chicago", key="summary_style" value="bullet points".',
     inputSchema: setInputSchema,
     execute: async ({ key, value }) => {
-      store.set(userId, key, value);
+      await store.set(userId, key, value);
       return { saved: true, key, value };
     },
   });
@@ -49,7 +49,7 @@ export function getPreferencesTool(store: PreferencesStore, userId: string) {
       'Returns an array of { key, value } pairs.',
     inputSchema: getInputSchema,
     execute: async () => {
-      const prefs = store.list(userId);
+      const prefs = await store.list(userId);
       return { preferences: prefs, count: prefs.length };
     },
   });

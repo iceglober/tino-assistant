@@ -19,8 +19,8 @@ export interface RepoSpec {
  * Config key: "github.repos" — value is a JSON array of "owner/repo" strings.
  * Falls back to an empty array if not configured.
  */
-export function getAllowedRepos(config: ConfigStore): RepoSpec[] {
-  const raw = config.getTyped<string[]>('github.repos', []);
+export async function getAllowedRepos(config: ConfigStore): Promise<RepoSpec[]> {
+  const raw = await config.getTyped<string[]>('github.repos', []);
   return raw.flatMap(s => {
     const parsed = parseRepoSpec(s);
     return parsed ? [parsed] : [];
@@ -32,8 +32,8 @@ export function getAllowedRepos(config: ConfigStore): RepoSpec[] {
  * Config key: "github.default_repo" — value is a JSON string "owner/repo".
  * Returns undefined if not configured or malformed.
  */
-export function getDefaultRepo(config: ConfigStore): RepoSpec | undefined {
-  const val = config.getTyped<string | null>('github.default_repo', null);
+export async function getDefaultRepo(config: ConfigStore): Promise<RepoSpec | undefined> {
+  const val = await config.getTyped<string | null>('github.default_repo', null);
   if (!val) return undefined;
   return parseRepoSpec(val) ?? undefined;
 }

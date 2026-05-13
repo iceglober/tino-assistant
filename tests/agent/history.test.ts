@@ -49,12 +49,12 @@ const toolResultMsg = (toolCallId: string): ModelMessage => ({
 });
 
 describe('createHistoryStore', () => {
-  it('empty store returns empty array', () => {
+  it('empty store returns empty array', async () => {
     const store = createHistoryStore();
-    expect(store.get('U1')).toEqual([]);
+    expect(await store.get('U1')).toEqual([]);
   });
 
-  it('single append, no trim — returns all messages in order', () => {
+  it('single append, no trim — returns all messages in order', async () => {
     const store = createHistoryStore({ cap: 40 });
     const msgs: ModelMessage[] = [
       userMsg('a'),
@@ -63,23 +63,23 @@ describe('createHistoryStore', () => {
       assistantMsg('d'),
       userMsg('e'),
     ];
-    store.append('U1', msgs);
-    expect(store.get('U1')).toEqual(msgs);
+    await store.append('U1', msgs);
+    expect(await store.get('U1')).toEqual(msgs);
   });
 
-  it('multiple users are isolated', () => {
+  it('multiple users are isolated', async () => {
     const store = createHistoryStore({ cap: 40 });
-    store.append('U1', [userMsg('hello from U1')]);
-    store.append('U2', [userMsg('hello from U2')]);
+    await store.append('U1', [userMsg('hello from U1')]);
+    await store.append('U2', [userMsg('hello from U2')]);
 
-    expect(store.get('U1')).toHaveLength(1);
-    expect(store.get('U1')[0]).toMatchObject({ role: 'user', content: 'hello from U1' });
+    expect(await store.get('U1')).toHaveLength(1);
+    expect((await store.get('U1'))[0]).toMatchObject({ role: 'user', content: 'hello from U1' });
 
-    expect(store.get('U2')).toHaveLength(1);
-    expect(store.get('U2')[0]).toMatchObject({ role: 'user', content: 'hello from U2' });
+    expect(await store.get('U2')).toHaveLength(1);
+    expect((await store.get('U2'))[0]).toMatchObject({ role: 'user', content: 'hello from U2' });
   });
 
-  it('cap trimming preserves order and keeps the newest messages', () => {
+  it('cap trimming preserves order and keeps the newest messages', async () => {
     const store = createHistoryStore({ cap: 5 });
     // Append 8 alternating user/assistant messages
     const msgs: ModelMessage[] = [
@@ -92,14 +92,14 @@ describe('createHistoryStore', () => {
       userMsg('7'),
       assistantMsg('8'),
     ];
-    store.append('U1', msgs);
-    const result = store.get('U1');
+    await store.append('U1', msgs);
+    const result = await store.get('U1');
     // Should keep the last 5 in original order
     expect(result).toHaveLength(5);
     expect(result).toEqual(msgs.slice(3)); // indices 3–7
   });
 
-  it('cap trimming skips orphan tool messages at the trim boundary', () => {
+  it('cap trimming skips orphan tool messages at the trim boundary', async () => {
     const store = createHistoryStore({ cap: 5 });
 
     // Build 6 messages:
@@ -123,8 +123,8 @@ describe('createHistoryStore', () => {
       userMsg('another question'),           // [5]
     ];
 
-    store.append('U1', msgs);
-    const result = store.get('U1');
+    await store.append('U1', msgs);
+    const result = await store.get('U1');
 
     // Must not start with a tool role
     expect(result[0]?.role).not.toBe('tool');
@@ -133,15 +133,15 @@ describe('createHistoryStore', () => {
     expect(result).toEqual(msgs.slice(2));
   });
 
-  it('reset wipes one user and leaves the other intact', () => {
+  it('reset wipes one user and leaves the other intact', async () => {
     const store = createHistoryStore({ cap: 40 });
-    store.append('U1', [userMsg('u1 msg')]);
-    store.append('U2', [userMsg('u2 msg')]);
+    await store.append('U1', [userMsg('u1 msg')]);
+    await store.append('U2', [userMsg('u2 msg')]);
 
-    store.reset('U1');
+    await store.reset('U1');
 
-    expect(store.get('U1')).toEqual([]);
-    expect(store.get('U2')).toHaveLength(1);
-    expect(store.get('U2')[0]).toMatchObject({ role: 'user', content: 'u2 msg' });
+    expect(await store.get('U1')).toEqual([]);
+    expect(await store.get('U2')).toHaveLength(1);
+    expect((await store.get('U2'))[0]).toMatchObject({ role: 'user', content: 'u2 msg' });
   });
 });

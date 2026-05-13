@@ -26,7 +26,7 @@ export function startScheduler(deps: SchedulerDeps): () => void {
 
   const tick = async () => {
     const now = Math.floor(Date.now() / 1000);
-    const pending = taskStore.listPending(now);
+    const pending = await taskStore.listPending(now);
 
     if (pending.length === 0) {
       logger.debug({ now }, 'scheduler tick: no pending tasks');
@@ -34,16 +34,16 @@ export function startScheduler(deps: SchedulerDeps): () => void {
 
     for (const task of pending) {
       logger.info({ taskId: task.id, description: task.description }, 'executing scheduled task');
-      taskStore.updateStatus(task.id, 'running');
+      await taskStore.updateStatus(task.id, 'running');
 
       try {
         const result = await runTask(task);
-        taskStore.updateStatus(task.id, 'completed', result);
+        await taskStore.updateStatus(task.id, 'completed', result);
         await postResult(`📋 *Scheduled task completed:*\n\n_${task.description}_\n\n${result}`);
         logger.info({ taskId: task.id }, 'scheduled task completed');
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        taskStore.updateStatus(task.id, 'failed', msg);
+        await taskStore.updateStatus(task.id, 'failed', msg);
         await postResult(`⚠️ *Scheduled task failed:*\n\n_${task.description}_\n\nError: ${msg}`);
         logger.error({ taskId: task.id, err: msg }, 'scheduled task failed');
       }

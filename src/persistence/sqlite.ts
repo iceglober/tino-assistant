@@ -46,21 +46,22 @@ export function createSqliteHistoryStore({
   );
 
   return {
-    get(userId: string): ModelMessage[] {
+    get(userId: string): Promise<ModelMessage[]> {
       const row = stmtGet.get(userId);
-      if (!row) return [];
-      return JSON.parse(row.messages_json) as ModelMessage[];
+      if (!row) return Promise.resolve([]);
+      return Promise.resolve(JSON.parse(row.messages_json) as ModelMessage[]);
     },
 
-    append(userId: string, msgs: ModelMessage[]): void {
-      const existing = this.get(userId);
+    async append(userId: string, msgs: ModelMessage[]): Promise<void> {
+      const existing = await this.get(userId);
       const combined = [...existing, ...msgs];
       const trimmed = trim(combined, cap);
       stmtUpsert.run(userId, JSON.stringify(trimmed), Date.now());
     },
 
-    reset(userId: string): void {
+    reset(userId: string): Promise<void> {
       stmtDelete.run(userId);
+      return Promise.resolve();
     },
   };
 }

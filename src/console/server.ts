@@ -51,9 +51,10 @@ export function startConsole(
 
     // ── GET /api/config ────────────────────────────────────────────────────
     if (method === 'GET' && path === '/api/config') {
-      const entries = config.list();
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(entries));
+      void config.list().then(entries => {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(entries));
+      });
       return;
     }
 
@@ -84,10 +85,11 @@ export function startConsole(
           res.end('Request body must have a "value" field');
           return;
         }
-        config.set(key, parsed.value);
-        logger.info({ key }, 'config updated via console');
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ ok: true, key }));
+        void config.set(key, parsed.value).then(() => {
+          logger.info({ key }, 'config updated via console');
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: true, key }));
+        });
       });
       return;
     }
@@ -100,12 +102,13 @@ export function startConsole(
         res.end('Missing key');
         return;
       }
-      const deleted = config.delete(key);
-      if (deleted) {
-        logger.info({ key }, 'config entry deleted via console');
-      }
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok: true, deleted }));
+      void config.delete(key).then(deleted => {
+        if (deleted) {
+          logger.info({ key }, 'config entry deleted via console');
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, deleted }));
+      });
       return;
     }
 

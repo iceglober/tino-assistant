@@ -33,50 +33,50 @@ afterEach(() => {
 
 describe('createConfigStore', () => {
   // 1. get on empty store → null
-  it('returns null for a key that has never been set', () => {
+  it('returns null for a key that has never been set', async () => {
     const store = createConfigStore({ dbPath: tempDbPath() });
-    expect(store.get('github.repos')).toBeNull();
+    expect(await store.get('github.repos')).toBeNull();
   });
 
   // 2. set then get → returns value
-  it('returns the raw JSON string after set', () => {
+  it('returns the raw JSON string after set', async () => {
     const store = createConfigStore({ dbPath: tempDbPath() });
-    store.set('github.repos', ['kn-eng/kn-eng']);
-    const raw = store.get('github.repos');
+    await store.set('github.repos', ['kn-eng/kn-eng']);
+    const raw = await store.get('github.repos');
     expect(raw).toBe(JSON.stringify(['kn-eng/kn-eng']));
   });
 
   // 3. getTyped with fallback → returns parsed JSON
-  it('getTyped returns parsed JSON value when key exists', () => {
+  it('getTyped returns parsed JSON value when key exists', async () => {
     const store = createConfigStore({ dbPath: tempDbPath() });
-    store.set('github.repos', ['kn-eng/kn-eng', 'kn-eng/other']);
-    const repos = store.getTyped<string[]>('github.repos', []);
+    await store.set('github.repos', ['kn-eng/kn-eng', 'kn-eng/other']);
+    const repos = await store.getTyped<string[]>('github.repos', []);
     expect(repos).toEqual(['kn-eng/kn-eng', 'kn-eng/other']);
   });
 
   // 4. getTyped on missing key → returns fallback
-  it('getTyped returns fallback when key is missing', () => {
+  it('getTyped returns fallback when key is missing', async () => {
     const store = createConfigStore({ dbPath: tempDbPath() });
-    const repos = store.getTyped<string[]>('github.repos', ['default/repo']);
+    const repos = await store.getTyped<string[]>('github.repos', ['default/repo']);
     expect(repos).toEqual(['default/repo']);
   });
 
   // 5. set overwrites existing
-  it('set overwrites an existing key', () => {
+  it('set overwrites an existing key', async () => {
     const store = createConfigStore({ dbPath: tempDbPath() });
-    store.set('cloudwatch.region', 'us-east-1');
-    store.set('cloudwatch.region', 'us-west-2');
-    expect(store.get('cloudwatch.region')).toBe(JSON.stringify('us-west-2'));
+    await store.set('cloudwatch.region', 'us-east-1');
+    await store.set('cloudwatch.region', 'us-west-2');
+    expect(await store.get('cloudwatch.region')).toBe(JSON.stringify('us-west-2'));
   });
 
   // 6. list returns all entries sorted by key
-  it('list returns all entries sorted by key', () => {
+  it('list returns all entries sorted by key', async () => {
     const store = createConfigStore({ dbPath: tempDbPath() });
-    store.set('github.repos', ['kn-eng/kn-eng']);
-    store.set('cloudwatch.region', 'us-east-1');
-    store.set('github.default_repo', 'kn-eng/kn-eng');
+    await store.set('github.repos', ['kn-eng/kn-eng']);
+    await store.set('cloudwatch.region', 'us-east-1');
+    await store.set('github.default_repo', 'kn-eng/kn-eng');
 
-    const entries = store.list();
+    const entries = await store.list();
     expect(entries).toHaveLength(3);
     expect(entries[0]?.key).toBe('cloudwatch.region');
     expect(entries[1]?.key).toBe('github.default_repo');
@@ -84,18 +84,18 @@ describe('createConfigStore', () => {
   });
 
   // 7. delete removes entry, returns true
-  it('delete removes the entry and returns true', () => {
+  it('delete removes the entry and returns true', async () => {
     const store = createConfigStore({ dbPath: tempDbPath() });
-    store.set('github.repos', ['kn-eng/kn-eng']);
-    const removed = store.delete('github.repos');
+    await store.set('github.repos', ['kn-eng/kn-eng']);
+    const removed = await store.delete('github.repos');
     expect(removed).toBe(true);
-    expect(store.get('github.repos')).toBeNull();
+    expect(await store.get('github.repos')).toBeNull();
   });
 
   // 8. delete on missing key → returns false
-  it('delete on a missing key returns false', () => {
+  it('delete on a missing key returns false', async () => {
     const store = createConfigStore({ dbPath: tempDbPath() });
-    const removed = store.delete('nonexistent.key');
+    const removed = await store.delete('nonexistent.key');
     expect(removed).toBe(false);
   });
 });

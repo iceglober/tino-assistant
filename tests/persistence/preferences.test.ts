@@ -33,34 +33,34 @@ afterEach(() => {
 
 describe('createPreferencesStore', () => {
   // 1. get on empty store → null
-  it('returns null for a key that has never been set', () => {
+  it('returns null for a key that has never been set', async () => {
     const store = createPreferencesStore({ dbPath: tempDbPath() });
-    expect(store.get('U1', 'timezone')).toBeNull();
+    expect(await store.get('U1', 'timezone')).toBeNull();
   });
 
   // 2. set then get → returns value
-  it('returns the value after set', () => {
+  it('returns the value after set', async () => {
     const store = createPreferencesStore({ dbPath: tempDbPath() });
-    store.set('U1', 'timezone', 'America/Chicago');
-    expect(store.get('U1', 'timezone')).toBe('America/Chicago');
+    await store.set('U1', 'timezone', 'America/Chicago');
+    expect(await store.get('U1', 'timezone')).toBe('America/Chicago');
   });
 
   // 3. set overwrites existing key
-  it('overwrites an existing key on second set', () => {
+  it('overwrites an existing key on second set', async () => {
     const store = createPreferencesStore({ dbPath: tempDbPath() });
-    store.set('U1', 'timezone', 'America/Chicago');
-    store.set('U1', 'timezone', 'America/New_York');
-    expect(store.get('U1', 'timezone')).toBe('America/New_York');
+    await store.set('U1', 'timezone', 'America/Chicago');
+    await store.set('U1', 'timezone', 'America/New_York');
+    expect(await store.get('U1', 'timezone')).toBe('America/New_York');
   });
 
   // 4. list returns all for user, sorted by key
-  it('list returns all preferences sorted by key', () => {
+  it('list returns all preferences sorted by key', async () => {
     const store = createPreferencesStore({ dbPath: tempDbPath() });
-    store.set('U1', 'timezone', 'UTC');
-    store.set('U1', 'summary_style', 'bullet points');
-    store.set('U1', 'default_branch', 'main');
+    await store.set('U1', 'timezone', 'UTC');
+    await store.set('U1', 'summary_style', 'bullet points');
+    await store.set('U1', 'default_branch', 'main');
 
-    const prefs = store.list('U1');
+    const prefs = await store.list('U1');
     expect(prefs).toHaveLength(3);
     // Sorted by key alphabetically
     expect(prefs[0]).toEqual({ key: 'default_branch', value: 'main' });
@@ -69,28 +69,28 @@ describe('createPreferencesStore', () => {
   });
 
   // 5. delete removes key, others remain
-  it('delete removes the specified key but leaves others', () => {
+  it('delete removes the specified key but leaves others', async () => {
     const store = createPreferencesStore({ dbPath: tempDbPath() });
-    store.set('U1', 'timezone', 'UTC');
-    store.set('U1', 'summary_style', 'prose');
+    await store.set('U1', 'timezone', 'UTC');
+    await store.set('U1', 'summary_style', 'prose');
 
-    store.delete('U1', 'timezone');
+    await store.delete('U1', 'timezone');
 
-    expect(store.get('U1', 'timezone')).toBeNull();
-    expect(store.get('U1', 'summary_style')).toBe('prose');
-    expect(store.list('U1')).toHaveLength(1);
+    expect(await store.get('U1', 'timezone')).toBeNull();
+    expect(await store.get('U1', 'summary_style')).toBe('prose');
+    expect(await store.list('U1')).toHaveLength(1);
   });
 
   // 6. different users are isolated
-  it('preferences for different users are isolated', () => {
+  it('preferences for different users are isolated', async () => {
     const store = createPreferencesStore({ dbPath: tempDbPath() });
-    store.set('U1', 'timezone', 'America/Chicago');
-    store.set('U2', 'timezone', 'Europe/London');
+    await store.set('U1', 'timezone', 'America/Chicago');
+    await store.set('U2', 'timezone', 'Europe/London');
 
-    expect(store.get('U1', 'timezone')).toBe('America/Chicago');
-    expect(store.get('U2', 'timezone')).toBe('Europe/London');
+    expect(await store.get('U1', 'timezone')).toBe('America/Chicago');
+    expect(await store.get('U2', 'timezone')).toBe('Europe/London');
 
-    expect(store.list('U1')).toHaveLength(1);
-    expect(store.list('U2')).toHaveLength(1);
+    expect(await store.list('U1')).toHaveLength(1);
+    expect(await store.list('U2')).toHaveLength(1);
   });
 });

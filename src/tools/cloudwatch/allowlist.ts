@@ -14,7 +14,7 @@ import type { ConfigStore } from '../../persistence/config.js';
  * Config key: "cloudwatch.log_groups" — value is a JSON array of strings.
  * Falls back to an empty array if not configured (fail-closed).
  */
-export function getAllowedLogGroups(config: ConfigStore): readonly string[] {
+export async function getAllowedLogGroups(config: ConfigStore): Promise<readonly string[]> {
   return config.getTyped<string[]>('cloudwatch.log_groups', []);
 }
 

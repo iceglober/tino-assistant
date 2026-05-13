@@ -39,8 +39,8 @@ export async function buildTools(
 
   try {
     const octokit = createOctokit(env);
-    const allowedRepos = configStore ? getAllowedRepos(configStore) : [];
-    const defaultRepo = resolveDefaultRepo(env, logger, configStore);
+    const allowedRepos = configStore ? await getAllowedRepos(configStore) : [];
+    const defaultRepo = await resolveDefaultRepo(env, logger, configStore);
     tools['github_search_code'] = githubSearchCodeTool({ octokit, defaultRepo, allowedRepos });
     tools['github_get_file'] = githubGetFileTool({ octokit, defaultRepo, allowedRepos });
     tools['github_list_workflow_runs'] = githubListWorkflowRunsTool({ octokit, defaultRepo, allowedRepos });
@@ -58,7 +58,7 @@ export async function buildTools(
 
   try {
     const client = createCloudWatchLogsClient(env);
-    const allowedLogGroups = configStore ? getAllowedLogGroups(configStore) : [];
+    const allowedLogGroups = configStore ? await getAllowedLogGroups(configStore) : [];
     tools['cloudwatch_logs_query'] = cloudwatchLogsQueryTool({ client, logger, allowedLogGroups });
     logger.info({ allowlistSize: allowedLogGroups.length }, 'cloudwatch tools enabled');
   } catch (err) {
@@ -121,14 +121,14 @@ export async function buildTools(
   return tools;
 }
 
-export function resolveDefaultRepo(
+export async function resolveDefaultRepo(
   env: Env,
   logger: AppLogger,
   configStore?: ConfigStore,
-): RepoSpec | undefined {
+): Promise<RepoSpec | undefined> {
   // 1. Try config store first
   if (configStore) {
-    const fromConfig = getDefaultRepo(configStore);
+    const fromConfig = await getDefaultRepo(configStore);
     if (fromConfig) return fromConfig;
   }
 

@@ -43,6 +43,13 @@ const EnvSchema = z.object({
   // Optional: path to the SQLite database file for conversation history.
   // Default applied at consumption time: './tino.db'.
   DB_PATH: z.string().min(1).optional(),
+
+  // Persistence adapter selection. Default: 'sqlite' (local dev).
+  // Set to 'dynamodb' in production (requires DYNAMODB_TABLE_NAME).
+  PERSISTENCE_ADAPTER: z.enum(['sqlite', 'dynamodb']).optional(),
+
+  // DynamoDB table name. Required when PERSISTENCE_ADAPTER=dynamodb.
+  DYNAMODB_TABLE_NAME: z.string().min(1).optional(),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

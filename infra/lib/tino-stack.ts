@@ -1,8 +1,8 @@
 import * as cdk from 'aws-cdk-lib';
+import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as ecr from 'aws-cdk-lib/aws-ecr';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
-import * as efs from 'aws-cdk-lib/aws-efs';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
@@ -39,26 +39,23 @@ export class TinoStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
 
-    // ── EFS File System ──────────────────────────────────────────────────────
-    // Stores tino.db across task restarts and deploys.
-    const fileSystem = new efs.FileSystem(this, 'TinoEfs', {
-      vpc,
+    // ── DynamoDB Table ───────────────────────────────────────────────────────
+    // Single-table design. RETAIN on delete to protect production data.
+    // PAY_PER_REQUEST billing — tino is low-traffic, no need to provision.
+    const table = new dynamodb.Table(this, 'TinoTable', {
+      tableName: 'tino',
+      partitionKey: { name: 'pk', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'sk', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
-      encrypted: true,
     });
 
-    const accessPoint = new efs.AccessPoint(this, 'TinoEfsAccessPoint', {
-      fileSystem,
-      path: '/data',
-      createAcl: {
-        ownerGid: '1000',
-        ownerUid: '1000',
-        permissions: '755',
-      },
-      posixUser: {
-        gid: '1000',
-        uid: '1000',
-      },
+    // GSI1: partition by task status, sort by scheduledAt (zero-padded string)
+    // Enables listPending: gsi1pk=TASK_STATUS#pending AND gsi1sk <= <now>
+    table.addGlobalSecondaryIndex({
+      indexName: 'gsi1',
+      partitionKey: { name: 'gsi1pk', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'gsi1sk', type: dynamodb.AttributeType.STRING },
     });
 
     // ── CloudWatch Log Group ─────────────────────────────────────────────────
@@ -95,6 +92,24 @@ export class TinoStack extends cdk.Stack {
           'logs:FilterLogEvents',
         ],
         resources: ['*'],
+      }),
+    );
+
+    // DynamoDB: full CRUD on the tino table and its GSI
+    taskRole.addToPolicy(
+      new iam.PolicyStatement({
+        actions: [
+          'dynamodb:GetItem',
+          'dynamodb:PutItem',
+          'dynamodb:UpdateItem',
+          'dynamodb:DeleteItem',
+          'dynamodb:Query',
+          'dynamodb:Scan',
+        ],
+        resources: [
+          table.tableArn,
+          `${table.tableArn}/index/*`,
+        ],
       }),
     );
 
@@ -138,23 +153,7 @@ export class TinoStack extends cdk.Stack {
       memoryLimitMiB: 512,
       taskRole,
       executionRole,
-      volumes: [
-        {
-          name: 'tino-data',
-          efsVolumeConfiguration: {
-            fileSystemId: fileSystem.fileSystemId,
-            transitEncryption: 'ENABLED',
-            authorizationConfig: {
-              accessPointId: accessPoint.accessPointId,
-              iam: 'ENABLED',
-            },
-          },
-        },
-      ],
     });
-
-    // Grant the task role EFS access
-    fileSystem.grantRootAccess(taskRole);
 
     // Build the secrets map from SSM parameter names
     const containerSecrets: Record<string, ecs.Secret> = {};
@@ -168,12 +167,13 @@ export class TinoStack extends cdk.Stack {
       );
     }
 
-    const container = taskDefinition.addContainer('tino', {
+    taskDefinition.addContainer('tino', {
       image: ecs.ContainerImage.fromEcrRepository(ecrRepo, 'latest'),
       environment: {
         NODE_ENV: 'production',
-        DB_PATH: '/data/tino.db',
         LOG_LEVEL: 'info',
+        PERSISTENCE_ADAPTER: 'dynamodb',
+        DYNAMODB_TABLE_NAME: table.tableName,
       },
       secrets: containerSecrets,
       logging: ecs.LogDrivers.awsLogs({
@@ -181,12 +181,6 @@ export class TinoStack extends cdk.Stack {
         logGroup,
       }),
       essential: true,
-    });
-
-    container.addMountPoints({
-      containerPath: '/data',
-      sourceVolume: 'tino-data',
-      readOnly: false,
     });
 
     // ── ECS Service ──────────────────────────────────────────────────────────
@@ -198,12 +192,10 @@ export class TinoStack extends cdk.Stack {
       taskDefinition,
       desiredCount: 1,
       assignPublicIp: true,
-      // Allow EFS traffic from the service security group
-      securityGroups: [],
     });
 
-    // Allow the service to reach EFS
-    fileSystem.connections.allowDefaultPortFrom(service.connections);
+    // Suppress unused variable warning — service is referenced for outputs
+    void service;
 
     // ── CloudFormation Outputs ───────────────────────────────────────────────
     // Used by scripts/deploy.sh to find the cluster/service/repo without
@@ -226,6 +218,11 @@ export class TinoStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'LogGroupName', {
       value: logGroup.logGroupName,
       description: 'CloudWatch log group for tino container logs',
+    });
+
+    new cdk.CfnOutput(this, 'DynamoTableName', {
+      value: table.tableName,
+      description: 'DynamoDB table name for tino persistence',
     });
   }
 }

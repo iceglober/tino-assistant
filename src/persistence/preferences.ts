@@ -10,10 +10,10 @@ import Database from 'better-sqlite3';
  * No migrations — blow the file away if schema changes.
  */
 export interface PreferencesStore {
-  get(userId: string, key: string): string | null;
-  set(userId: string, key: string, value: string): void;
-  list(userId: string): Array<{ key: string; value: string }>;
-  delete(userId: string, key: string): void;
+  get(userId: string, key: string): Promise<string | null>;
+  set(userId: string, key: string, value: string): Promise<void>;
+  list(userId: string): Promise<Array<{ key: string; value: string }>>;
+  delete(userId: string, key: string): Promise<void>;
 }
 
 export function createPreferencesStore({ dbPath }: { dbPath: string }): PreferencesStore {
@@ -50,21 +50,23 @@ export function createPreferencesStore({ dbPath }: { dbPath: string }): Preferen
   );
 
   return {
-    get(userId: string, key: string): string | null {
+    get(userId: string, key: string): Promise<string | null> {
       const row = stmtGet.get(userId, key);
-      return row?.value ?? null;
+      return Promise.resolve(row?.value ?? null);
     },
 
-    set(userId: string, key: string, value: string): void {
+    set(userId: string, key: string, value: string): Promise<void> {
       stmtUpsert.run(userId, key, value, Date.now());
+      return Promise.resolve();
     },
 
-    list(userId: string): Array<{ key: string; value: string }> {
-      return stmtList.all(userId);
+    list(userId: string): Promise<Array<{ key: string; value: string }>> {
+      return Promise.resolve(stmtList.all(userId));
     },
 
-    delete(userId: string, key: string): void {
+    delete(userId: string, key: string): Promise<void> {
       stmtDelete.run(userId, key);
+      return Promise.resolve();
     },
   };
 }
