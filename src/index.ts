@@ -18,7 +18,7 @@ const dbPath = env.DB_PATH ?? './tino.db';
 const history = createSqliteHistoryStore({ dbPath, cap: 40 });
 const taskStore = createTaskStore({ dbPath });
 logger.info({ dbPath }, 'persistence: sqlite');
-const tools = buildTools(env, logger, taskStore);
+const tools = await buildTools(env, logger, taskStore);
 
 // 9g: Log tool-definition token count estimate at startup.
 // Rough estimate: count characters in all tool descriptions + schema JSON,

@@ -17,9 +17,11 @@ import { setPreferenceTool, getPreferencesTool } from './preferences.js';
 import type { TaskStore } from '../persistence/tasks.js';
 import { scheduleTaskTool, listTasksTool, cancelTaskTool } from './tasks.js';
 import { createSlackUserClient } from '../slack/userClient.js';
+import { createUserCache } from '../slack/userCache.js';
 import { slackSearchMessagesTool } from './slack/search.js';
 import { slackReadThreadTool } from './slack/thread.js';
 import { slackListDmsTool, slackReadDmTool } from './slack/dms.js';
+import { slackListUsersTool } from './slack/users.js';
 
 /**
  * Build the toolset for `runAgent`.
@@ -27,7 +29,7 @@ import { slackListDmsTool, slackReadDmTool } from './slack/dms.js';
  * Each tool category is constructed in a try/catch so that a missing
  * credential disables only that category — the bot keeps running.
  */
-export function buildTools(env: Env, logger: AppLogger, taskStore?: TaskStore): ToolSet {
+export async function buildTools(env: Env, logger: AppLogger, taskStore?: TaskStore): Promise<ToolSet> {
   const tools: ToolSet = {};
 
   try {
@@ -88,10 +90,12 @@ export function buildTools(env: Env, logger: AppLogger, taskStore?: TaskStore): 
 
   try {
     const userClient = createSlackUserClient(env);
-    tools['slack_search_messages'] = slackSearchMessagesTool(userClient);
-    tools['slack_read_thread'] = slackReadThreadTool(userClient);
-    tools['slack_list_dms'] = slackListDmsTool(userClient);
-    tools['slack_read_dm'] = slackReadDmTool(userClient);
+    const userCache = await createUserCache(userClient, logger);
+    tools['slack_search_messages'] = slackSearchMessagesTool(userClient, userCache);
+    tools['slack_read_thread'] = slackReadThreadTool(userClient, userCache);
+    tools['slack_list_dms'] = slackListDmsTool(userClient, userCache);
+    tools['slack_read_dm'] = slackReadDmTool(userClient, userCache);
+    tools['slack_list_users'] = slackListUsersTool(userCache);
     logger.info('slack reading tools enabled');
   } catch (err) {
     logger.warn({ err: (err as Error).message }, 'slack reading tools disabled');
@@ -100,34 +104,16 @@ export function buildTools(env: Env, logger: AppLogger, taskStore?: TaskStore): 
   return tools;
 }
 
-/**
- * Resolve GITHUB_DEFAULT_REPO into a typed RepoSpec, or undefined if unset.
- *
- * Fail-fast contract: if the env var is set but doesn't reference an
- * allowlisted repo, throw — this is almost certainly a typo (e.g.
- * GITHUB_DEFAULT_REPO=kn-eng/wrong-name) and silently falling back to
- * "no default" would mask the bug. The exception bubbles to buildTools'
- * try/catch, which disables the entire github toolset and logs the error
- * — visible at startup, not at the first tool call.
- */
-function resolveDefaultRepo(env: Env, logger: AppLogger): RepoSpec | undefined {
+export function resolveDefaultRepo(env: Env, logger: AppLogger): RepoSpec | undefined {
   if (!env.GITHUB_DEFAULT_REPO) return undefined;
-
   const parsed = parseRepoSpec(env.GITHUB_DEFAULT_REPO);
   if (!parsed) {
-    // The env schema's regex should catch this, but defense-in-depth.
-    throw new Error(
-      `GITHUB_DEFAULT_REPO=${env.GITHUB_DEFAULT_REPO} is not in "owner/repo" format`,
-    );
+    logger.warn({ value: env.GITHUB_DEFAULT_REPO }, 'GITHUB_DEFAULT_REPO is not in owner/repo format — ignored');
+    return undefined;
   }
-
   if (!isAllowedRepo(parsed.owner, parsed.repo)) {
-    throw new Error(
-      `GITHUB_DEFAULT_REPO=${env.GITHUB_DEFAULT_REPO} is not in the allowlist. ` +
-        `Add it to src/tools/github/allowlist.ts first.`,
-    );
+    logger.warn({ repo: env.GITHUB_DEFAULT_REPO }, 'GITHUB_DEFAULT_REPO is not in the allowlist — ignored');
+    return undefined;
   }
-
-  logger.debug({ defaultRepo: `${parsed.owner}/${parsed.repo}` }, 'github default repo resolved');
   return parsed;
 }

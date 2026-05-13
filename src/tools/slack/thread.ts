@@ -1,6 +1,7 @@
 import { tool } from 'ai';
 import { z } from 'zod';
 import { webApi } from '@slack/bolt';
+import type { UserCache } from '../../slack/userCache.js';
 
 const inputSchema = z.object({
   channel: z.string().min(1).describe('Channel ID (e.g., "C01ABC123" — get this from slack_search_messages results)'),
@@ -12,6 +13,7 @@ type ThreadInput = z.infer<typeof inputSchema>;
 
 interface ThreadMessage {
   user: string;
+  userName: string;
   text: string;
   ts: string;
 }
@@ -23,6 +25,7 @@ type ThreadResult =
 export async function _executeSlackReadThread(
   client: webApi.WebClient,
   input: ThreadInput,
+  userCache?: UserCache,
 ): Promise<ThreadResult> {
   try {
     const res = await client.conversations.replies({
@@ -32,10 +35,18 @@ export async function _executeSlackReadThread(
       inclusive: true, // include the parent message
     });
 
-    const messages = (res.messages ?? []).map(m => ({
-      user: m.user ?? '',
-      text: m.text ?? '',
-      ts: m.ts ?? '',
+    const messages = await Promise.all((res.messages ?? []).map(async m => {
+      const userId = m.user ?? '';
+      let userName = userId;
+      if (userCache && userId) {
+        userName = (await userCache.resolve(userId)).name;
+      }
+      return {
+        user: userId,
+        userName,
+        text: m.text ?? '',
+        ts: m.ts ?? '',
+      };
     }));
 
     return {
@@ -62,13 +73,13 @@ export async function _executeSlackReadThread(
   }
 }
 
-export function slackReadThreadTool(client: webApi.WebClient) {
+export function slackReadThreadTool(client: webApi.WebClient, userCache: UserCache) {
   return tool({
     description:
       'Read a Slack thread (all replies to a message). ' +
       'Requires the channel ID and the parent message timestamp (both available from slack_search_messages results). ' +
       'Use for "catch me up on this thread", "what was the conclusion of the discussion about X?", etc.',
     inputSchema,
-    execute: input => _executeSlackReadThread(client, input),
+    execute: input => _executeSlackReadThread(client, input, userCache),
   });
 }

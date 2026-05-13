@@ -1,6 +1,7 @@
 import { tool } from 'ai';
 import { z } from 'zod';
 import { webApi } from '@slack/bolt';
+import type { UserCache } from '../../slack/userCache.js';
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -14,6 +15,14 @@ const listDmsInputSchema = z.object({
     .max(50)
     .default(20)
     .describe('Max conversations to return (1–50, default 20)'),
+  sinceIso: z
+    .string()
+    .optional()
+    .describe(
+      'ISO-8601 timestamp. When provided, paginate through ALL conversations and return only those ' +
+      'with activity at or after this time. Use this to find "who did I DM today?". ' +
+      'When omitted, returns the most recent `limit` conversations.',
+    ),
 });
 
 const readDmInputSchema = z.object({
@@ -61,90 +70,126 @@ type ReadDmResult =
   | { error: string; message: string };
 
 // ---------------------------------------------------------------------------
-// User name resolution (shared cache across both tools in a single call)
-// ---------------------------------------------------------------------------
-
-async function resolveUserName(
-  client: webApi.WebClient,
-  userId: string,
-  cache: Map<string, string>,
-): Promise<string> {
-  if (cache.has(userId)) return cache.get(userId)!;
-  try {
-    const res = await client.users.info({ user: userId });
-    const name =
-      (res.user as { profile?: { display_name?: string; real_name?: string } } | undefined)
-        ?.profile?.display_name ||
-      (res.user as { profile?: { display_name?: string; real_name?: string } } | undefined)
-        ?.profile?.real_name ||
-      userId;
-    cache.set(userId, name);
-    return name;
-  } catch {
-    cache.set(userId, userId);
-    return userId;
-  }
-}
-
-// ---------------------------------------------------------------------------
 // _executeListDms
 // ---------------------------------------------------------------------------
 
 export async function _executeListDms(
   client: webApi.WebClient,
   input: ListDmsInput,
+  userCache: UserCache,
 ): Promise<ListDmsResult> {
   try {
-    const res = await client.conversations.list({
-      types: 'im,mpim',
-      limit: input.limit,
-      exclude_archived: true,
-    });
-
-    const channels = res.channels ?? [];
-    const userCache = new Map<string, string>();
+    const sinceEpoch = input.sinceIso ? new Date(input.sinceIso).getTime() / 1000 : undefined;
     const conversations: DmConversation[] = [];
 
-    for (const ch of channels) {
-      const channelId = (ch as { id?: string }).id ?? '';
-      const isGroup = (ch as { is_mpim?: boolean }).is_mpim === true;
-      // Slack Connect DMs have is_ext_shared or connected_team_ids
-      const isConnect =
-        (ch as { is_ext_shared?: boolean }).is_ext_shared === true ||
-        ((ch as { connected_team_ids?: string[] }).connected_team_ids?.length ?? 0) > 0;
+    if (sinceEpoch !== undefined) {
+      // Paginate through ALL conversations to find those with recent activity
+      let cursor: string | undefined;
+      do {
+        const res = await client.conversations.list({
+          types: 'im,mpim',
+          limit: 200,
+          exclude_archived: true,
+          cursor,
+        });
 
-      if (isGroup) {
-        // Group DM: fetch members and resolve names
-        let memberNames: string[] = [];
-        try {
-          const membersRes = await client.conversations.members({ channel: channelId });
-          const memberIds = (membersRes.members ?? []) as string[];
-          memberNames = await Promise.all(
-            memberIds.map(uid => resolveUserName(client, uid, userCache)),
-          );
-        } catch {
-          // best-effort
+        const channels = res.channels ?? [];
+        for (const ch of channels) {
+          const updated = parseFloat((ch as { updated?: string | number }).updated as string ?? '0');
+          if (updated < sinceEpoch) continue;
+
+          const channelId = (ch as { id?: string }).id ?? '';
+          const isGroup = (ch as { is_mpim?: boolean }).is_mpim === true;
+          const isConnect =
+            (ch as { is_ext_shared?: boolean }).is_ext_shared === true ||
+            ((ch as { connected_team_ids?: string[] }).connected_team_ids?.length ?? 0) > 0;
+
+          if (isGroup) {
+            let memberNames: string[] = [];
+            try {
+              const membersRes = await client.conversations.members({ channel: channelId });
+              const memberIds = (membersRes.members ?? []) as string[];
+              memberNames = await Promise.all(
+                memberIds.map(uid => userCache.resolve(uid).then(u => u.name)),
+              );
+            } catch {
+              // best-effort
+            }
+            conversations.push({
+              channelId,
+              isGroup: true,
+              isConnect,
+              userName: memberNames.length > 0 ? memberNames.join(', ') : undefined,
+            });
+          } else {
+            const userId = (ch as { user?: string }).user;
+            let userName: string | undefined;
+            if (userId) {
+              userName = (await userCache.resolve(userId)).name;
+            }
+            conversations.push({
+              channelId,
+              userId,
+              userName,
+              isGroup: false,
+              isConnect,
+            });
+          }
+
+          if (conversations.length >= input.limit) break;
         }
-        conversations.push({
-          channelId,
-          isGroup: true,
-          isConnect,
-          userName: memberNames.length > 0 ? memberNames.join(', ') : undefined,
-        });
-      } else {
-        // 1:1 DM: single user field
-        const userId = (ch as { user?: string }).user;
-        let userName: string | undefined;
-        if (userId) {
-          userName = await resolveUserName(client, userId, userCache);
+
+        cursor = (res.response_metadata as { next_cursor?: string } | undefined)?.next_cursor || undefined;
+        if (conversations.length >= input.limit) break;
+      } while (cursor);
+    } else {
+      // Default: return the first `limit` conversations by most recent activity
+      const res = await client.conversations.list({
+        types: 'im,mpim',
+        limit: input.limit,
+        exclude_archived: true,
+      });
+
+      const channels = res.channels ?? [];
+
+      for (const ch of channels) {
+        const channelId = (ch as { id?: string }).id ?? '';
+        const isGroup = (ch as { is_mpim?: boolean }).is_mpim === true;
+        const isConnect =
+          (ch as { is_ext_shared?: boolean }).is_ext_shared === true ||
+          ((ch as { connected_team_ids?: string[] }).connected_team_ids?.length ?? 0) > 0;
+
+        if (isGroup) {
+          let memberNames: string[] = [];
+          try {
+            const membersRes = await client.conversations.members({ channel: channelId });
+            const memberIds = (membersRes.members ?? []) as string[];
+            memberNames = await Promise.all(
+              memberIds.map(uid => userCache.resolve(uid).then(u => u.name)),
+            );
+          } catch {
+            // best-effort
+          }
+          conversations.push({
+            channelId,
+            isGroup: true,
+            isConnect,
+            userName: memberNames.length > 0 ? memberNames.join(', ') : undefined,
+          });
+        } else {
+          const userId = (ch as { user?: string }).user;
+          let userName: string | undefined;
+          if (userId) {
+            userName = (await userCache.resolve(userId)).name;
+          }
+          conversations.push({
+            channelId,
+            userId,
+            userName,
+            isGroup: false,
+            isConnect,
+          });
         }
-        conversations.push({
-          channelId,
-          userId,
-          userName,
-          isGroup: false,
-          isConnect,
-        });
       }
     }
 
@@ -179,6 +224,7 @@ export async function _executeListDms(
 export async function _executeReadDm(
   client: webApi.WebClient,
   input: ReadDmInput,
+  userCache: UserCache,
 ): Promise<ReadDmResult> {
   try {
     const res = await client.conversations.history({
@@ -186,13 +232,12 @@ export async function _executeReadDm(
       limit: input.limit,
     });
 
-    const userCache = new Map<string, string>();
     const rawMessages = res.messages ?? [];
 
     const messages: DmMessage[] = await Promise.all(
       rawMessages.map(async m => {
         const userId = (m as { user?: string }).user ?? '';
-        const userName = userId ? await resolveUserName(client, userId, userCache) : '';
+        const userName = userId ? (await userCache.resolve(userId)).name : '';
         return {
           user: userId,
           userName,
@@ -240,24 +285,25 @@ export async function _executeReadDm(
 // Tool exports
 // ---------------------------------------------------------------------------
 
-export function slackListDmsTool(client: webApi.WebClient) {
+export function slackListDmsTool(client: webApi.WebClient, userCache: UserCache) {
   return tool({
     description:
       'List your recent DM conversations (1:1 and group, including Slack Connect). ' +
       'Returns channel IDs, participant names, and whether it is a Connect DM. ' +
+      'Use sinceIso to find conversations with activity since a specific time (e.g., today). ' +
       'Use this to find the right channel ID before calling slack_read_dm.',
     inputSchema: listDmsInputSchema,
-    execute: input => _executeListDms(client, input),
+    execute: input => _executeListDms(client, input, userCache),
   });
 }
 
-export function slackReadDmTool(client: webApi.WebClient) {
+export function slackReadDmTool(client: webApi.WebClient, userCache: UserCache) {
   return tool({
     description:
       'Read recent messages from a specific DM conversation. ' +
       'Get the channel ID from slack_list_dms or slack_search_messages. ' +
       'Use for "show me my recent DMs with person Y", "what did Z say to me yesterday?", etc.',
     inputSchema: readDmInputSchema,
-    execute: input => _executeReadDm(client, input),
+    execute: input => _executeReadDm(client, input, userCache),
   });
 }

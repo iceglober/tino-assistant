@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { _executeListDms, _executeReadDm } from '../../src/tools/slack/dms.js';
 import type { webApi } from '@slack/bolt';
+import type { UserCache } from '../../src/slack/userCache.js';
 
 // ---------------------------------------------------------------------------
 // Mock WebClient factory
@@ -10,7 +11,6 @@ function makeClient(overrides: {
   conversationsList?: ReturnType<typeof vi.fn>;
   conversationsMembers?: ReturnType<typeof vi.fn>;
   conversationsHistory?: ReturnType<typeof vi.fn>;
-  usersInfo?: ReturnType<typeof vi.fn>;
 }): webApi.WebClient {
   return {
     conversations: {
@@ -18,10 +18,30 @@ function makeClient(overrides: {
       members: overrides.conversationsMembers ?? vi.fn(),
       history: overrides.conversationsHistory ?? vi.fn(),
     },
-    users: {
-      info: overrides.usersInfo ?? vi.fn(),
-    },
   } as unknown as webApi.WebClient;
+}
+
+// ---------------------------------------------------------------------------
+// Mock UserCache factory
+// ---------------------------------------------------------------------------
+
+function makeUserCache(nameMap: Record<string, string>): UserCache {
+  return {
+    get: (userId: string) => {
+      const name = nameMap[userId];
+      if (!name) return undefined;
+      return { id: userId, name, isBot: false, isExternal: false, teamId: 'T001' };
+    },
+    resolve: async (userId: string) => ({
+      id: userId,
+      name: nameMap[userId] ?? userId,
+      isBot: false,
+      isExternal: false,
+      teamId: 'T001',
+    }),
+    getAll: () => Object.entries(nameMap).map(([id, name]) => ({ id, name, isBot: false, isExternal: false, teamId: 'T001' })),
+    size: () => Object.keys(nameMap).length,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -31,17 +51,6 @@ function makeClient(overrides: {
 describe('_executeListDms', () => {
   // 1. Happy path — 2 DMs (1 regular, 1 Connect)
   it('returns shaped conversations including isConnect flag', async () => {
-    const usersInfo = vi.fn().mockImplementation(({ user }: { user: string }) => {
-      const names: Record<string, string> = {
-        U001: 'Alice',
-        U002: 'Bob',
-      };
-      return Promise.resolve({
-        ok: true,
-        user: { profile: { display_name: names[user] ?? user, real_name: names[user] ?? user } },
-      });
-    });
-
     const conversationsList = vi.fn().mockResolvedValue({
       ok: true,
       channels: [
@@ -64,8 +73,9 @@ describe('_executeListDms', () => {
       ],
     });
 
-    const client = makeClient({ conversationsList, usersInfo });
-    const result = await _executeListDms(client, { limit: 20 });
+    const client = makeClient({ conversationsList });
+    const userCache = makeUserCache({ U001: 'Alice', U002: 'Bob' });
+    const result = await _executeListDms(client, { limit: 20 }, userCache);
 
     expect(result).toMatchObject({
       count: 2,
@@ -78,13 +88,6 @@ describe('_executeListDms', () => {
 
   // 2. Group DM — mpim conversation
   it('returns isGroup: true for mpim conversations', async () => {
-    const usersInfo = vi.fn().mockImplementation(({ user }: { user: string }) =>
-      Promise.resolve({
-        ok: true,
-        user: { profile: { display_name: user === 'U001' ? 'Alice' : 'Bob', real_name: '' } },
-      }),
-    );
-
     const conversationsList = vi.fn().mockResolvedValue({
       ok: true,
       channels: [
@@ -103,8 +106,9 @@ describe('_executeListDms', () => {
       members: ['U001', 'U002'],
     });
 
-    const client = makeClient({ conversationsList, conversationsMembers, usersInfo });
-    const result = await _executeListDms(client, { limit: 20 });
+    const client = makeClient({ conversationsList, conversationsMembers });
+    const userCache = makeUserCache({ U001: 'Alice', U002: 'Bob' });
+    const result = await _executeListDms(client, { limit: 20 }, userCache);
 
     expect(result).toMatchObject({
       count: 1,
@@ -124,9 +128,105 @@ describe('_executeListDms', () => {
     const conversationsList = vi.fn().mockRejectedValue({ data: { error: 'not_authed' } });
 
     const client = makeClient({ conversationsList });
-    const result = await _executeListDms(client, { limit: 20 });
+    const userCache = makeUserCache({});
+    const result = await _executeListDms(client, { limit: 20 }, userCache);
 
     expect(result).toMatchObject({ error: 'auth_error' });
+  });
+
+  // 4. sinceIso — filters conversations by updated timestamp
+  it('returns only conversations updated at or after sinceIso', async () => {
+    // Epoch for 2026-05-12T00:00:00Z = 1747008000
+    const sinceIso = '2026-05-12T00:00:00.000Z';
+    const sinceEpoch = new Date(sinceIso).getTime() / 1000; // 1747008000
+
+    const conversationsList = vi.fn().mockResolvedValue({
+      ok: true,
+      channels: [
+        {
+          id: 'D001',
+          is_im: true,
+          is_mpim: false,
+          user: 'U001',
+          is_ext_shared: false,
+          connected_team_ids: [],
+          updated: String(sinceEpoch + 100), // after sinceIso — should be included
+        },
+        {
+          id: 'D002',
+          is_im: true,
+          is_mpim: false,
+          user: 'U002',
+          is_ext_shared: false,
+          connected_team_ids: [],
+          updated: String(sinceEpoch - 100), // before sinceIso — should be excluded
+        },
+      ],
+      response_metadata: { next_cursor: '' },
+    });
+
+    const client = makeClient({ conversationsList });
+    const userCache = makeUserCache({ U001: 'Alice', U002: 'Bob' });
+    const result = await _executeListDms(client, { limit: 20, sinceIso }, userCache);
+
+    expect(result).toMatchObject({
+      count: 1,
+      conversations: [
+        { channelId: 'D001', userName: 'Alice' },
+      ],
+    });
+    if ('conversations' in result) {
+      expect(result.conversations.find(c => c.channelId === 'D002')).toBeUndefined();
+    }
+  });
+
+  // 5. sinceIso — paginates through multiple pages
+  it('paginates through all pages when sinceIso is provided', async () => {
+    const sinceIso = '2026-05-12T00:00:00.000Z';
+    const sinceEpoch = new Date(sinceIso).getTime() / 1000;
+
+    const conversationsList = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        channels: [
+          {
+            id: 'D001',
+            is_im: true,
+            is_mpim: false,
+            user: 'U001',
+            is_ext_shared: false,
+            connected_team_ids: [],
+            updated: String(sinceEpoch - 100), // old — excluded
+          },
+        ],
+        response_metadata: { next_cursor: 'cursor1' },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        channels: [
+          {
+            id: 'D002',
+            is_im: true,
+            is_mpim: false,
+            user: 'U002',
+            is_ext_shared: false,
+            connected_team_ids: [],
+            updated: String(sinceEpoch + 200), // recent — included
+          },
+        ],
+        response_metadata: { next_cursor: '' },
+      });
+
+    const client = makeClient({ conversationsList });
+    const userCache = makeUserCache({ U001: 'Alice', U002: 'Bob' });
+    const result = await _executeListDms(client, { limit: 20, sinceIso }, userCache);
+
+    expect(conversationsList).toHaveBeenCalledTimes(2);
+    expect(result).toMatchObject({
+      count: 1,
+      conversations: [{ channelId: 'D002', userName: 'Bob' }],
+    });
   });
 });
 
@@ -137,18 +237,6 @@ describe('_executeListDms', () => {
 describe('_executeReadDm', () => {
   // 1. Happy path — 3 messages with user names resolved
   it('returns messages with resolved user names', async () => {
-    const usersInfo = vi.fn().mockImplementation(({ user }: { user: string }) =>
-      Promise.resolve({
-        ok: true,
-        user: {
-          profile: {
-            display_name: user === 'U001' ? 'Alice' : 'Bob',
-            real_name: '',
-          },
-        },
-      }),
-    );
-
     const conversationsHistory = vi.fn().mockResolvedValue({
       ok: true,
       messages: [
@@ -159,8 +247,9 @@ describe('_executeReadDm', () => {
       has_more: false,
     });
 
-    const client = makeClient({ conversationsHistory, usersInfo });
-    const result = await _executeReadDm(client, { channel: 'D001', limit: 20 });
+    const client = makeClient({ conversationsHistory });
+    const userCache = makeUserCache({ U001: 'Alice', U002: 'Bob' });
+    const result = await _executeReadDm(client, { channel: 'D001', limit: 20 }, userCache);
 
     expect(result).toMatchObject({
       count: 3,
@@ -182,7 +271,8 @@ describe('_executeReadDm', () => {
     });
 
     const client = makeClient({ conversationsHistory });
-    const result = await _executeReadDm(client, { channel: 'D001', limit: 20 });
+    const userCache = makeUserCache({});
+    const result = await _executeReadDm(client, { channel: 'D001', limit: 20 }, userCache);
 
     expect(result).toEqual({ messages: [], count: 0, hasMore: false });
   });
@@ -194,18 +284,14 @@ describe('_executeReadDm', () => {
       .mockRejectedValue({ data: { error: 'channel_not_found' } });
 
     const client = makeClient({ conversationsHistory });
-    const result = await _executeReadDm(client, { channel: 'DINVALID', limit: 20 });
+    const userCache = makeUserCache({});
+    const result = await _executeReadDm(client, { channel: 'DINVALID', limit: 20 }, userCache);
 
     expect(result).toMatchObject({ error: 'channel_not_found' });
   });
 
   // 4. has_more flag is passed through
   it('passes has_more: true through to the result', async () => {
-    const usersInfo = vi.fn().mockResolvedValue({
-      ok: true,
-      user: { profile: { display_name: 'Alice', real_name: '' } },
-    });
-
     const conversationsHistory = vi.fn().mockResolvedValue({
       ok: true,
       messages: [
@@ -215,8 +301,9 @@ describe('_executeReadDm', () => {
       has_more: true,
     });
 
-    const client = makeClient({ conversationsHistory, usersInfo });
-    const result = await _executeReadDm(client, { channel: 'D001', limit: 2 });
+    const client = makeClient({ conversationsHistory });
+    const userCache = makeUserCache({ U001: 'Alice' });
+    const result = await _executeReadDm(client, { channel: 'D001', limit: 2 }, userCache);
 
     expect(result).toMatchObject({ count: 2, hasMore: true });
   });

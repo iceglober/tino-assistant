@@ -1,6 +1,7 @@
 import { tool } from 'ai';
 import { z } from 'zod';
 import { webApi } from '@slack/bolt';
+import type { UserCache } from '../../slack/userCache.js';
 
 const inputSchema = z.object({
   query: z.string().min(1).describe(
@@ -18,6 +19,7 @@ interface SlackSearchResult {
     ts: string;
     text: string;
     user: string;
+    userName: string;
     permalink: string;
   }>;
   total: number;
@@ -28,6 +30,7 @@ type SearchResult = SlackSearchResult | { error: string; message: string };
 export async function _executeSlackSearch(
   client: webApi.WebClient,
   input: SearchInput,
+  userCache?: UserCache,
 ): Promise<SearchResult> {
   try {
     const res = await client.search.messages({
@@ -38,15 +41,23 @@ export async function _executeSlackSearch(
     });
 
     const matches = res.messages?.matches ?? [];
-    const messages = matches.map(m => ({
-      channel: {
-        id: m.channel?.id ?? '',
-        name: m.channel?.name ?? '',
-      },
-      ts: m.ts ?? '',
-      text: m.text ?? '',
-      user: m.user ?? (m.username ?? ''),
-      permalink: m.permalink ?? '',
+    const messages = await Promise.all(matches.map(async m => {
+      const userId = m.user ?? (m.username ?? '');
+      let userName = userId;
+      if (userCache && userId) {
+        userName = (await userCache.resolve(userId)).name;
+      }
+      return {
+        channel: {
+          id: m.channel?.id ?? '',
+          name: m.channel?.name ?? '',
+        },
+        ts: m.ts ?? '',
+        text: m.text ?? '',
+        user: userId,
+        userName,
+        permalink: m.permalink ?? '',
+      };
     }));
 
     return {
@@ -66,14 +77,14 @@ export async function _executeSlackSearch(
   }
 }
 
-export function slackSearchMessagesTool(client: webApi.WebClient) {
+export function slackSearchMessagesTool(client: webApi.WebClient, userCache: UserCache) {
   return tool({
     description:
       'Search Slack messages across all channels the owner is a member of. ' +
       'Uses the same search syntax as the Slack search bar. ' +
-      'Returns message text, channel, timestamp, user, and permalink. ' +
+      'Returns message text, channel, timestamp, user, userName, and permalink. ' +
       'Use for "what did the team discuss about X?", "find messages from @alice about Y", etc.',
     inputSchema,
-    execute: input => _executeSlackSearch(client, input),
+    execute: input => _executeSlackSearch(client, input, userCache),
   });
 }
