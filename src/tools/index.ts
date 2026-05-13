@@ -4,6 +4,7 @@ import type { AppLogger } from '../slack/app.js';
 import { createOctokit } from './github/client.js';
 import { githubSearchCodeTool } from './github/search.js';
 import { githubGetFileTool } from './github/getFile.js';
+import { githubListWorkflowRunsTool, githubGetWorkflowRunLogsTool } from './github/workflows.js';
 import { isAllowedRepo, parseRepoSpec, type RepoSpec } from './github/allowlist.js';
 import { createCloudWatchLogsClient } from './cloudwatch/client.js';
 import { cloudwatchLogsQueryTool } from './cloudwatch/query.js';
@@ -29,6 +30,8 @@ export function buildTools(env: Env, logger: AppLogger): ToolSet {
     const defaultRepo = resolveDefaultRepo(env, logger);
     tools['github_search_code'] = githubSearchCodeTool({ octokit, defaultRepo });
     tools['github_get_file'] = githubGetFileTool({ octokit, defaultRepo });
+    tools['github_list_workflow_runs'] = githubListWorkflowRunsTool({ octokit, defaultRepo });
+    tools['github_get_workflow_run_logs'] = githubGetWorkflowRunLogsTool({ octokit, defaultRepo });
     logger.info(
       { defaultRepo: defaultRepo ? `${defaultRepo.owner}/${defaultRepo.repo}` : null },
       'github tools enabled',
