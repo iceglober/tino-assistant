@@ -134,11 +134,9 @@ describe('_executeListDms', () => {
     expect(result).toMatchObject({ error: 'auth_error' });
   });
 
-  // 4. sinceIso — filters conversations by updated timestamp
-  it('returns only conversations updated at or after sinceIso', async () => {
-    // Epoch for 2026-05-12T00:00:00Z = 1747008000
+  // 4. sinceIso — filters conversations by checking conversations.history for real messages
+  it('returns only conversations with real messages after sinceIso', async () => {
     const sinceIso = '2026-05-12T00:00:00.000Z';
-    const sinceEpoch = new Date(sinceIso).getTime() / 1000; // 1747008000
 
     const conversationsList = vi.fn().mockResolvedValue({
       ok: true,
@@ -150,7 +148,6 @@ describe('_executeListDms', () => {
           user: 'U001',
           is_ext_shared: false,
           connected_team_ids: [],
-          updated: String(sinceEpoch + 100), // after sinceIso — should be included
         },
         {
           id: 'D002',
@@ -159,13 +156,20 @@ describe('_executeListDms', () => {
           user: 'U002',
           is_ext_shared: false,
           connected_team_ids: [],
-          updated: String(sinceEpoch - 100), // before sinceIso — should be excluded
         },
       ],
       response_metadata: { next_cursor: '' },
     });
 
-    const client = makeClient({ conversationsList });
+    // D001 has a message after sinceIso, D002 does not
+    const conversationsHistory = vi.fn().mockImplementation(({ channel }: { channel: string }) => {
+      if (channel === 'D001') {
+        return Promise.resolve({ ok: true, messages: [{ text: 'hello', ts: '1747008100.000000' }] });
+      }
+      return Promise.resolve({ ok: true, messages: [] });
+    });
+
+    const client = makeClient({ conversationsList, conversationsHistory });
     const userCache = makeUserCache({ U001: 'Alice', U002: 'Bob' });
     const result = await _executeListDms(client, { limit: 20, sinceIso }, userCache);
 
@@ -183,7 +187,6 @@ describe('_executeListDms', () => {
   // 5. sinceIso — paginates through multiple pages
   it('paginates through all pages when sinceIso is provided', async () => {
     const sinceIso = '2026-05-12T00:00:00.000Z';
-    const sinceEpoch = new Date(sinceIso).getTime() / 1000;
 
     const conversationsList = vi
       .fn()
@@ -197,7 +200,6 @@ describe('_executeListDms', () => {
             user: 'U001',
             is_ext_shared: false,
             connected_team_ids: [],
-            updated: String(sinceEpoch - 100), // old — excluded
           },
         ],
         response_metadata: { next_cursor: 'cursor1' },
@@ -212,13 +214,20 @@ describe('_executeListDms', () => {
             user: 'U002',
             is_ext_shared: false,
             connected_team_ids: [],
-            updated: String(sinceEpoch + 200), // recent — included
           },
         ],
         response_metadata: { next_cursor: '' },
       });
 
-    const client = makeClient({ conversationsList });
+    // D001 has no messages after sinceIso, D002 does
+    const conversationsHistory = vi.fn().mockImplementation(({ channel }: { channel: string }) => {
+      if (channel === 'D002') {
+        return Promise.resolve({ ok: true, messages: [{ text: 'hi', ts: '1747008200.000000' }] });
+      }
+      return Promise.resolve({ ok: true, messages: [] });
+    });
+
+    const client = makeClient({ conversationsList, conversationsHistory });
     const userCache = makeUserCache({ U001: 'Alice', U002: 'Bob' });
     const result = await _executeListDms(client, { limit: 20, sinceIso }, userCache);
 

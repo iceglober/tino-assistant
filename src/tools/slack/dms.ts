@@ -82,115 +82,83 @@ export async function _executeListDms(
     const sinceEpoch = input.sinceIso ? new Date(input.sinceIso).getTime() / 1000 : undefined;
     const conversations: DmConversation[] = [];
 
-    if (sinceEpoch !== undefined) {
-      // Paginate through ALL conversations to find those with recent activity
-      let cursor: string | undefined;
-      do {
-        const res = await client.conversations.list({
-          types: 'im,mpim',
-          limit: 200,
-          exclude_archived: true,
-          cursor,
-        });
-
-        const channels = res.channels ?? [];
-        for (const ch of channels) {
-          const updated = parseFloat((ch as { updated?: string | number }).updated as string ?? '0');
-          if (updated < sinceEpoch) continue;
-
-          const channelId = (ch as { id?: string }).id ?? '';
-          const isGroup = (ch as { is_mpim?: boolean }).is_mpim === true;
-          const isConnect =
-            (ch as { is_ext_shared?: boolean }).is_ext_shared === true ||
-            ((ch as { connected_team_ids?: string[] }).connected_team_ids?.length ?? 0) > 0;
-
-          if (isGroup) {
-            let memberNames: string[] = [];
-            try {
-              const membersRes = await client.conversations.members({ channel: channelId });
-              const memberIds = (membersRes.members ?? []) as string[];
-              memberNames = await Promise.all(
-                memberIds.map(uid => userCache ? userCache.resolve(uid).then(u => u.name) : Promise.resolve(uid)),
-              );
-            } catch {
-              // best-effort
-            }
-            conversations.push({
-              channelId,
-              isGroup: true,
-              isConnect,
-              userName: memberNames.length > 0 ? memberNames.join(', ') : undefined,
-            });
-          } else {
-            const userId = (ch as { user?: string }).user;
-            let userName: string | undefined;
-            if (userId) {
-              userName = userCache ? (await userCache.resolve(userId)).name : userId;
-            }
-            conversations.push({
-              channelId,
-              userId,
-              userName,
-              isGroup: false,
-              isConnect,
-            });
-          }
-
-          if (conversations.length >= input.limit) break;
-        }
-
-        cursor = (res.response_metadata as { next_cursor?: string } | undefined)?.next_cursor || undefined;
-        if (conversations.length >= input.limit) break;
-      } while (cursor);
-    } else {
-      // Default: return the first `limit` conversations by most recent activity
+    // Collect all DM conversations (paginated)
+    const allChannels: Array<Record<string, unknown>> = [];
+    let cursor: string | undefined;
+    do {
       const res = await client.conversations.list({
         types: 'im,mpim',
-        limit: input.limit,
+        limit: 200,
         exclude_archived: true,
+        cursor,
       });
+      const channels = (res.channels ?? []) as Array<Record<string, unknown>>;
+      allChannels.push(...channels);
+      cursor = (res.response_metadata as { next_cursor?: string } | undefined)?.next_cursor || undefined;
+    } while (cursor);
 
-      const channels = res.channels ?? [];
+    for (const ch of allChannels) {
+      const channelId = (ch.id as string) ?? '';
+      if (!channelId) continue;
 
-      for (const ch of channels) {
-        const channelId = (ch as { id?: string }).id ?? '';
-        const isGroup = (ch as { is_mpim?: boolean }).is_mpim === true;
-        const isConnect =
-          (ch as { is_ext_shared?: boolean }).is_ext_shared === true ||
-          ((ch as { connected_team_ids?: string[] }).connected_team_ids?.length ?? 0) > 0;
-
-        if (isGroup) {
-          let memberNames: string[] = [];
-          try {
-            const membersRes = await client.conversations.members({ channel: channelId });
-            const memberIds = (membersRes.members ?? []) as string[];
-            memberNames = await Promise.all(
-              memberIds.map(uid => userCache ? userCache.resolve(uid).then(u => u.name) : Promise.resolve(uid)),
-            );
-          } catch {
-            // best-effort
-          }
-          conversations.push({
-            channelId,
-            isGroup: true,
-            isConnect,
-            userName: memberNames.length > 0 ? memberNames.join(', ') : undefined,
+      // When sinceIso is provided, verify the conversation has REAL messages
+      // from that time period — not just any activity signal. The `updated`
+      // field on conversations.list is unreliable (includes reactions, typing
+      // indicators, metadata changes). We call conversations.history with
+      // `oldest` and check if any messages came back.
+      if (sinceEpoch !== undefined) {
+        try {
+          const histRes = await client.conversations.history({
+            channel: channelId,
+            oldest: String(sinceEpoch),
+            limit: 1,
           });
-        } else {
-          const userId = (ch as { user?: string }).user;
-          let userName: string | undefined;
-          if (userId) {
-            userName = userCache ? (await userCache.resolve(userId)).name : userId;
-          }
-          conversations.push({
-            channelId,
-            userId,
-            userName,
-            isGroup: false,
-            isConnect,
-          });
+          const msgs = histRes.messages ?? [];
+          if (msgs.length === 0) continue; // no real messages since sinceIso — skip
+        } catch {
+          continue; // can't read this conversation — skip
         }
       }
+
+      const isGroup = (ch.is_mpim as boolean) === true;
+      const isConnect =
+        (ch.is_ext_shared as boolean) === true ||
+        ((ch.connected_team_ids as string[] | undefined)?.length ?? 0) > 0;
+
+      if (isGroup) {
+        let memberNames: string[] = [];
+        try {
+          const membersRes = await client.conversations.members({ channel: channelId });
+          const memberIds = (membersRes.members ?? []) as string[];
+          memberNames = await Promise.all(
+            memberIds.map(uid => userCache ? userCache.resolve(uid).then(u => u.name) : Promise.resolve(uid)),
+          );
+        } catch {
+          // best-effort
+        }
+        conversations.push({
+          channelId,
+          isGroup: true,
+          isConnect,
+          userName: memberNames.length > 0 ? memberNames.join(', ') : undefined,
+        });
+      } else {
+        const userId = ch.user as string | undefined;
+        let userName: string | undefined;
+        if (userId) {
+          userName = userCache ? (await userCache.resolve(userId)).name : userId;
+        }
+        conversations.push({
+          channelId,
+          userId,
+          userName,
+          isGroup: false,
+          isConnect,
+        });
+      }
+
+      // Stop once we have enough
+      if (conversations.length >= input.limit) break;
     }
 
     return { conversations, count: conversations.length };
