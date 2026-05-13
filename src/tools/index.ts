@@ -21,7 +21,6 @@ import { createUserCache } from '../slack/userCache.js';
 import { slackSearchMessagesTool } from './slack/search.js';
 import { slackReadThreadTool } from './slack/thread.js';
 import { slackListDmsTool, slackReadDmTool } from './slack/dms.js';
-import { slackListUsersTool } from './slack/users.js';
 
 /**
  * Build the toolset for `runAgent`.
@@ -95,7 +94,6 @@ export async function buildTools(env: Env, logger: AppLogger, taskStore?: TaskSt
     tools['slack_read_thread'] = slackReadThreadTool(userClient, userCache);
     tools['slack_list_dms'] = slackListDmsTool(userClient, userCache);
     tools['slack_read_dm'] = slackReadDmTool(userClient, userCache);
-    tools['slack_list_users'] = slackListUsersTool(userCache);
     logger.info('slack reading tools enabled');
   } catch (err) {
     logger.warn({ err: (err as Error).message }, 'slack reading tools disabled');
