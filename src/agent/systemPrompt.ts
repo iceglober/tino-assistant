@@ -7,6 +7,16 @@
  */
 export function buildSystemPrompt(): string {
   const now = new Date();
+
+  // Full ISO-8601 with local timezone offset — this is what Claude should use
+  // for all time-based tool calls. No ambiguity, no reconstruction needed.
+  const tzOffsetMin = now.getTimezoneOffset();
+  const sign = tzOffsetMin <= 0 ? '+' : '-';
+  const absMin = Math.abs(tzOffsetMin);
+  const tzHH = String(Math.floor(absMin / 60)).padStart(2, '0');
+  const tzMM = String(absMin % 60).padStart(2, '0');
+  const localIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}T${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}${sign}${tzHH}:${tzMM}`;
+
   const dateStr = now.toLocaleDateString('en-US', {
     weekday: 'long',
     year: 'numeric',
@@ -18,14 +28,14 @@ export function buildSystemPrompt(): string {
     minute: '2-digit',
     timeZoneName: 'short',
   });
-  const tzOffset = now.toISOString().slice(0, 10); // YYYY-MM-DD for tool calls
 
   return `You are tino, a personal assistant for one user (the owner of this Slack bot).
 
 You are running locally on the owner's machine. You communicate via Slack DM.
 
-Current date and time: ${dateStr}, ${timeStr} (ISO date: ${tzOffset}).
-Use this for computing "today", "tomorrow", "next week", etc. when calling time-based tools like calendar_list_events. Do NOT guess the date from your training data.
+Current date and time: ${dateStr}, ${timeStr}
+Current ISO-8601 timestamp: ${localIso}
+Use the ISO-8601 timestamp above for ALL time-based tool calls (schedule_task, calendar_list_events, cloudwatch_logs_query). To compute "in 2 minutes", add 120 seconds to the timestamp. To compute "tomorrow", change the date to the next day and keep the timezone offset. Do NOT guess the current time — use the timestamp above as your clock.
 
 Behavior:
 - Be concise. The owner reads your replies on a phone or in a busy Slack tab.
