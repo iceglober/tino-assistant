@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/tino-logo.png" alt="tino" width="120">
+</p>
+
 # tino
 
 Personal Claude agent running locally in Slack DM.

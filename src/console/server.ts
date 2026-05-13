@@ -1,4 +1,6 @@
 import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
 import type { ConfigStore } from '../persistence/config.js';
 import type { AppLogger } from '../slack/app.js';
 import type { CapabilityRegistry } from '../capabilities/types.js';
@@ -168,6 +170,20 @@ export function startConsole(
           res.end(JSON.stringify({ ok: true, id }));
         });
       });
+      return;
+    }
+
+    // ── GET /assets/tino-logo.png ──────────────────────────────────────────
+    if (method === 'GET' && path === '/assets/tino-logo.png') {
+      const logoPath = new URL('../../assets/tino-logo.png', import.meta.url);
+      try {
+        const data = fs.readFileSync(logoPath);
+        res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=86400' });
+        res.end(data);
+      } catch {
+        res.writeHead(404, { 'Content-Type': 'text/plain' });
+        res.end('Logo not found');
+      }
       return;
     }
 

@@ -152,7 +152,10 @@ export function getConsoleHtml(): string {
   </style>
 </head>
 <body>
-  <h1>tino config console</h1>
+  <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 4px;">
+    <img src="/assets/tino-logo.png" alt="tino" style="width: 48px; height: 48px; border-radius: 10px;">
+    <h1>tino config console</h1>
+  </div>
   <p class="subtitle">localhost only · capability changes take effect on next restart</p>
 
   <div id="msg"></div>
