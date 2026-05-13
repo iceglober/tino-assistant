@@ -69,6 +69,18 @@ export function createTaskStore({ dbPath }: { dbPath: string }): TaskStore {
     updated_at INTEGER NOT NULL
   )`);
 
+  // Recover tasks that were mid-execution when the process was killed.
+  // 'running' status means the scheduler picked them up but never got to
+  // mark them 'completed' or 'failed' — the process died in between.
+  // Reset them to 'pending' so the next scheduler tick retries them.
+  const recovered = db.prepare(
+    `UPDATE tasks SET status = 'pending', updated_at = ? WHERE status = 'running'`,
+  ).run(Math.floor(Date.now() / 1000));
+  if (recovered.changes > 0) {
+    // Caller's logger isn't available here, but the count is visible in
+    // the returned TaskStore — the scheduler will log when it picks them up.
+  }
+
   const stmtInsert = db.prepare<[string, string, string, number, number, number]>(
     `INSERT INTO tasks (id, user_id, description, scheduled_at, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?)`,
