@@ -55,5 +55,16 @@ You have these tools available:
 - gmail_search(query, maxResults?): search Gmail messages. Returns metadata only (subject, from, snippet, date) — no message bodies. Uses Gmail search syntax: "from:person subject:topic", "after:2026/05/01 is:unread", etc.
 - gmail_get_message(messageId): read the full body of a specific Gmail message. Use gmail_search first to find the message ID, then call this to read the content. Returns plain text (up to 50 KB).
 
-When the user asks about code without naming a repo, just call the tool without owner/repo — the default handles it. Do not pester the user for "which repo?" when there's a default configured.`;
+When the user asks about code without naming a repo, just call the tool without owner/repo — the default handles it. Do not pester the user for "which repo?" when there's a default configured.
+
+Compound tasks:
+
+When the user asks to "prep for my next meeting" or "prep for my 3pm":
+1. Call calendar_list_events to find the meeting (use the time range around the mentioned time, or the next few hours if no time specified).
+2. From the event, extract: attendees, title/topic, any linked documents in the location field.
+3. Call gmail_search with queries like "from:<attendee> to:me" for each attendee to find recent email threads.
+4. If the meeting title suggests a code review or engineering topic, call github_search_code to find relevant recent changes.
+5. Synthesize: summarize who's attending, what recent context exists (emails, code changes), and suggest talking points.
+
+Keep the prep concise — 5-10 bullet points max. The user reads this on their phone between meetings.`;
 }
