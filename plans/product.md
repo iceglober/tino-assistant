@@ -1061,9 +1061,25 @@ each capability has a different friction profile. the onboarding flow handles ea
 **Google Calendar + Gmail (OAuth flow, low friction):**
 - user clicks "Connect" in the console
 - better-auth handles the OAuth flow (redirect to Google, consent screen, callback)
-- refresh token stored automatically
-- user never sees a token or a config file
-- **the org admin's GCP project is pre-configured with the OAuth client** — the user just authenticates
+- refresh token stored automatically (encrypted in DynamoDB)
+- user never sees a token, a config file, or the GCP console
+
+**how the GCP project gets created (org admin, during `tino init`):**
+
+the `tino init` CLI automates the entire GCP setup. the org admin signs in with Google once, and the CLI:
+1. creates a GCP project (`tino-deploy-<random>`) via the Resource Manager API
+2. enables Google Calendar API + Gmail API via the Service Usage API
+3. configures the OAuth consent screen (app name: "tino", internal to the org's Workspace domain)
+4. creates a Desktop-type OAuth client via the OAuth2 API
+5. stores the client ID + secret in Secrets Manager
+
+the org admin never opens the GCP console. the entire flow is ~60 seconds.
+
+**legal posture:**
+- **CASA does NOT apply.** CASA is required only for OAuth apps verified for public distribution. tino's OAuth clients are Desktop-type, per-deployment, unverified. each deployer creates their own client in their own GCP project.
+- **iceglober has zero legal exposure.** iceglober doesn't own the OAuth client (the deployer's GCP project does), doesn't see the tokens (stored in the deployer's infrastructure), and doesn't process the data (runs on the deployer's AWS account). the CLI is automation, not a service — same legal posture as a Terraform module that creates GCP resources.
+- **the "unverified app" warning** appears on the consent screen for non-Workspace users. for Workspace users, the admin marks the app as "internal" during `tino init` → no warning at all for org members. this is the standard pattern for internal tools.
+- **the deployer accepts** Google's Cloud Platform ToS (during sign-in) and is responsible for their own GCP project. tino's docs make this explicit.
 
 **GitHub (PAT, medium friction):**
 - user clicks "Connect GitHub" in the console
