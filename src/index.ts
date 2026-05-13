@@ -16,8 +16,9 @@ const logger = createLogger(env);
 const model = createBedrockModel(env);
 const dbPath = env.DB_PATH ?? './tino.db';
 const history = createSqliteHistoryStore({ dbPath, cap: 40 });
-logger.info({ dbPath }, 'history store: sqlite');
-const tools = buildTools(env, logger);
+const taskStore = createTaskStore({ dbPath });
+logger.info({ dbPath }, 'persistence: sqlite');
+const tools = buildTools(env, logger, taskStore);
 
 // 9g: Log tool-definition token count estimate at startup.
 // Rough estimate: count characters in all tool descriptions + schema JSON,
@@ -44,9 +45,6 @@ logger.info({ nodeVersion: process.version, pid: process.pid }, 'tino starting (
 
 // Proactive DM — resolve owner's DM channel after app is started
 const postDm = await createProactiveDm(app, env.ALLOWED_SLACK_USER_ID, logger);
-
-// Task store (same DB as history)
-const taskStore = createTaskStore({ dbPath });
 
 // Scheduler — runs every 60s, executes pending tasks through the agent loop
 const stopScheduler = startScheduler({
