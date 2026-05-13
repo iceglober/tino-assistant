@@ -1111,6 +1111,8 @@ total time: ~5 minutes. the admin does this once. users never touch the GCP cons
 
 **supported platform: Google Workspace only (v2).** Microsoft 365 (Outlook Calendar + Mail) is a future capability type — the capability instance model supports it (same `calendar_list_events` tool interface, different backend). not in scope for v2.
 
+**future: Stagehand-driven setup (v3).** replace the guided walkthrough with browser automation via Stagehand. `tino init` launches the admin's browser and drives the GCP console directly — creating the project, enabling APIs, configuring OAuth, extracting credentials — while the admin watches. AI-driven actions adapt to UI changes (no brittle CSS selectors). falls back to the manual walkthrough if Stagehand fails or the admin declines browser automation. same pattern applies to Slack app creation, Linear OAuth app setup, and any other platform that requires console interaction.
+
 **GitHub (PAT, medium friction):**
 - user clicks "Connect GitHub" in the console
 - console shows: "create a Personal Access Token at github.com/settings/tokens → Classic → repo scope"
