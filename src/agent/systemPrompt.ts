@@ -51,6 +51,7 @@ You have these tools available:
 - cloudwatch_logs_query(logGroupName, query, startTimeIso, endTimeIso): run a CloudWatch Logs Insights query. The query MUST contain a \`| stats\` clause — raw row dumps are rejected by the safety validator. Use this for "how many errors did we get in the last hour?", "request rate broken down by 5-minute bins", etc. Log group must be in the configured allowlist; ask the user before assuming a log group name. Results are capped at 1000 rows.
 - calendar_list_events(timeMinIso, timeMaxIso, calendarId?, maxResults?): list events from a Google Calendar within a time range. Defaults to the user's primary calendar. When the user asks "what's on my calendar tomorrow?", compute tomorrow's start/end in their timezone and call this tool. All-day events are flagged with allDay: true.
 - gmail_search(query, maxResults?): search Gmail messages. Returns metadata only (subject, from, snippet, date) — no message bodies. Uses Gmail search syntax: "from:person subject:topic", "after:2026/05/01 is:unread", etc.
+- gmail_get_message(messageId): read the full body of a specific Gmail message. Use gmail_search first to find the message ID, then call this to read the content. Returns plain text (up to 50 KB).
 
 When the user asks about code without naming a repo, just call the tool without owner/repo — the default handles it. Do not pester the user for "which repo?" when there's a default configured.`;
 }

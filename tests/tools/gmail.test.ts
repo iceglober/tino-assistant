@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { _executeGmailSearch } from '../../src/tools/google/gmail.js';
+import { _executeGmailSearch, _executeGmailGetMessage } from '../../src/tools/google/gmail.js';
 import type { gmail_v1 } from 'googleapis';
 
 // ---------------------------------------------------------------------------
@@ -194,5 +194,158 @@ describe('_executeGmailSearch', () => {
     expect(listMock).toHaveBeenCalledWith(
       expect.objectContaining({ maxResults: 5 }),
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// _executeGmailGetMessage tests
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a minimal gmail_v1.Gmail mock for the get-message path.
+ * The `get` mock is used for both the search path (format: 'metadata')
+ * and the get-message path (format: 'full').
+ */
+const makeGetMessageClient = (getMock: ReturnType<typeof vi.fn>) =>
+  ({
+    users: {
+      messages: {
+        list: vi.fn().mockResolvedValue({ data: { messages: [] } }),
+        get: getMock,
+      },
+    },
+  }) as unknown as gmail_v1.Gmail;
+
+/** Encode a string as base64url (Gmail's encoding for body.data). */
+function toBase64Url(text: string): string {
+  return Buffer.from(text, 'utf8')
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+}
+
+const makeFullMessageResponse = (overrides: {
+  id?: string;
+  threadId?: string;
+  subject?: string;
+  from?: string;
+  plainBody?: string;
+  htmlBody?: string;
+}) => {
+  const parts: gmail_v1.Schema$MessagePart[] = [];
+  if (overrides.plainBody !== undefined) {
+    parts.push({
+      mimeType: 'text/plain',
+      body: { data: toBase64Url(overrides.plainBody) },
+    });
+  }
+  if (overrides.htmlBody !== undefined) {
+    parts.push({
+      mimeType: 'text/html',
+      body: { data: toBase64Url(overrides.htmlBody) },
+    });
+  }
+
+  return {
+    data: {
+      id: overrides.id ?? 'msg-full-1',
+      threadId: overrides.threadId ?? 'thread-full-1',
+      payload: {
+        headers: [
+          { name: 'Subject', value: overrides.subject ?? 'Test Subject' },
+          { name: 'From', value: overrides.from ?? 'sender@example.com' },
+        ],
+        parts,
+      },
+    },
+  };
+};
+
+describe('_executeGmailGetMessage', () => {
+  // 1. Happy path — plain text body
+  it('returns decoded plain-text body, truncated: false for small message', async () => {
+    const bodyText = 'Hello, this is the email body.';
+    const getMock = vi.fn().mockResolvedValue(
+      makeFullMessageResponse({ plainBody: bodyText, subject: 'Hello', from: 'alice@example.com' }),
+    );
+    const client = makeGetMessageClient(getMock);
+
+    const result = await _executeGmailGetMessage(client, { messageId: 'msg-full-1' });
+
+    expect('body' in result).toBe(true);
+    if (!('body' in result)) return;
+
+    expect(result.id).toBe('msg-full-1');
+    expect(result.threadId).toBe('thread-full-1');
+    expect(result.subject).toBe('Hello');
+    expect(result.from).toBe('alice@example.com');
+    expect(result.body).toBe(bodyText);
+    expect(result.truncated).toBe(false);
+  });
+
+  // 2. HTML fallback — no text/plain part
+  it('strips HTML tags when only text/html part is present', async () => {
+    const htmlBody = '<p>Hello <b>world</b>!</p>';
+    const getMock = vi.fn().mockResolvedValue(
+      makeFullMessageResponse({ htmlBody }),
+    );
+    const client = makeGetMessageClient(getMock);
+
+    const result = await _executeGmailGetMessage(client, { messageId: 'msg-html-1' });
+
+    expect('body' in result).toBe(true);
+    if (!('body' in result)) return;
+
+    // Tags should be stripped; text content preserved
+    expect(result.body).not.toContain('<p>');
+    expect(result.body).not.toContain('<b>');
+    expect(result.body).toContain('Hello');
+    expect(result.body).toContain('world');
+    expect(result.truncated).toBe(false);
+  });
+
+  // 3. Truncation — body > 50 KB
+  it('truncates body to 50 KB and sets truncated: true', async () => {
+    const bigBody = 'x'.repeat(60 * 1024); // 60 KB
+    const getMock = vi.fn().mockResolvedValue(
+      makeFullMessageResponse({ plainBody: bigBody }),
+    );
+    const client = makeGetMessageClient(getMock);
+
+    const result = await _executeGmailGetMessage(client, { messageId: 'msg-big-1' });
+
+    expect('body' in result).toBe(true);
+    if (!('body' in result)) return;
+
+    expect(result.truncated).toBe(true);
+    expect(result.body.length).toBe(50 * 1024);
+  });
+
+  // 4. Message not found (404)
+  it('returns { error: "not_found" } on 404', async () => {
+    const getMock = vi.fn().mockRejectedValue({ code: 404, message: 'Not Found' });
+    const client = makeGetMessageClient(getMock);
+
+    const result = await _executeGmailGetMessage(client, { messageId: 'missing-id' });
+
+    expect('error' in result).toBe(true);
+    if (!('error' in result)) return;
+
+    expect(result.error).toBe('not_found');
+  });
+
+  // 5. Auth error (401)
+  it('returns { error: "auth_error" } on 401', async () => {
+    const getMock = vi.fn().mockRejectedValue({ code: 401, message: 'invalid_grant' });
+    const client = makeGetMessageClient(getMock);
+
+    const result = await _executeGmailGetMessage(client, { messageId: 'msg-auth-fail' });
+
+    expect('error' in result).toBe(true);
+    if (!('error' in result)) return;
+
+    expect(result.error).toBe('auth_error');
+    expect(result.message).toContain('401');
   });
 });
