@@ -13,6 +13,9 @@ import type { CapabilityConfig } from './types.js';
 
 /** Subset of env vars that may contain legacy credentials. */
 export interface LegacyEnv {
+  SLACK_BOT_TOKEN?: string;
+  SLACK_APP_TOKEN?: string;
+  ALLOWED_SLACK_USER_ID?: string;
   GITHUB_TOKEN?: string;
   GITHUB_DEFAULT_REPO?: string;
   GOOGLE_OAUTH_CLIENT_ID?: string;
@@ -41,6 +44,18 @@ export async function migrateEnvToCapabilities(
   const result: MigrationResult = { migrated: [], skipped: [], alreadyPresent: [] };
 
   const capabilityIds = ['github', 'linear', 'slack', 'gmail', 'calendar', 'cloudwatch'];
+
+  // Migrate Slack connection tokens (stored separately from the slack capability)
+  const existingSlackConn = await configStore.get('slack.connection');
+  if (existingSlackConn === null && (env.SLACK_BOT_TOKEN || env.SLACK_APP_TOKEN || env.ALLOWED_SLACK_USER_ID)) {
+    await configStore.set('slack.connection', {
+      botToken: env.SLACK_BOT_TOKEN ?? '',
+      appToken: env.SLACK_APP_TOKEN ?? '',
+      allowedUserId: env.ALLOWED_SLACK_USER_ID ?? '',
+    });
+    result.migrated.push('slack.connection');
+    logger.info({ capabilityId: 'slack.connection' }, 'capability migration: wrote config from env vars');
+  }
 
   // Check which capabilities already have config entries
   for (const id of capabilityIds) {

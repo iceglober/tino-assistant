@@ -19,36 +19,9 @@ export interface TinoServiceArgs {
   cluster?: aws.ecs.Cluster;
 
   /**
-   * Secrets Manager ARN or SSM parameter name for the Slack bot token (xoxb-).
-   */
-  slackBotTokenSecret: pulumi.Input<string>;
-
-  /**
-   * Secrets Manager ARN or SSM parameter name for the Slack app token (xapp-).
-   */
-  slackAppTokenSecret: pulumi.Input<string>;
-
-  /**
-   * Slack user ID of the initial admin.
-   */
-  adminSlackUserId: pulumi.Input<string>;
-
-  /**
-   * Bedrock model ID. Default: "global.anthropic.claude-sonnet-4-6"
-   */
-  bedrockModelId?: pulumi.Input<string>;
-
-  /**
    * AWS region. Default: current region.
    */
   region?: pulumi.Input<string>;
-
-  /**
-   * Additional secrets to inject as environment variables.
-   * Key: env var name, Value: Secrets Manager ARN or SSM parameter name.
-   * Use for: GITHUB_TOKEN, LINEAR_DEVELOPER_TOKEN, GOOGLE_OAUTH_*, SLACK_USER_TOKEN, etc.
-   */
-  secrets?: Record<string, pulumi.Input<string>>;
 
   /**
    * Regulatory compliance configuration. Optional.
@@ -161,7 +134,6 @@ export class TinoService extends pulumi.ComponentResource {
       "tino:managed": "true",
       ...(hipaaCompliance ? { "compliance:hipaa": "true" } : {}),
     };
-    const bedrockModelId = args.bedrockModelId ?? "global.anthropic.claude-sonnet-4-6";
 
     // ── BAA check (compliance.hipaa=true only) ───────────────────────────
     // Use a Pulumi dynamic provider that runs during planning.
@@ -379,17 +351,8 @@ export class TinoService extends pulumi.ComponentResource {
     // ── ECS task definition ──────────────────────────────────────────────
     const imageUri = args.imageUri ?? ecrRepo!.repositoryUrl.apply(url => `${url}:latest`);
 
-    // Build secrets list from args.secrets + required secrets
-    const secretsList: { name: string; valueFrom: pulumi.Input<string> }[] = [
-      { name: "SLACK_BOT_TOKEN", valueFrom: args.slackBotTokenSecret },
-      { name: "SLACK_APP_TOKEN", valueFrom: args.slackAppTokenSecret },
-    ];
-    if (args.secrets) {
-      for (const [envName, secretArn] of Object.entries(args.secrets)) {
-        secretsList.push({ name: envName, valueFrom: secretArn });
-      }
-    }
-
+    // All credentials are stored in the DynamoDB config store and read at
+    // startup. The task definition only needs the infrastructure env vars.
     const taskDef = new aws.ecs.TaskDefinition(`${name}-task`, {
       family: `tino-${name}`,
       networkMode: "awsvpc",
@@ -407,11 +370,10 @@ export class TinoService extends pulumi.ComponentResource {
             { name: "NODE_ENV", value: "production" },
             { name: "PERSISTENCE_ADAPTER", value: "dynamodb" },
             { name: "DYNAMODB_TABLE_NAME", value: `tino-${name}` },
-            { name: "BEDROCK_MODEL_ID", value: bedrockModelId },
-            { name: "ALLOWED_SLACK_USER_ID", value: args.adminSlackUserId },
+            { name: "DYNAMODB_ENDPOINT", value: "" }, // empty = use real AWS
             { name: "LOG_LEVEL", value: "info" },
           ],
-          secrets: secretsList,
+          // No secrets block — credentials come from the DynamoDB config store
           logConfiguration: {
             logDriver: "awslogs",
             options: {

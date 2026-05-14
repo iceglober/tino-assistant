@@ -39,6 +39,11 @@ export async function handleDmMessage(params: {
     return;
   }
 
+  if (!m.user) {
+    logger.debug('ignored DM with no user');
+    return;
+  }
+
   if (m.user !== env.ALLOWED_SLACK_USER_ID) {
     logger.warn({ user: m.user, channel: m.channel }, 'rejected DM from non-allowlisted user');
     return;

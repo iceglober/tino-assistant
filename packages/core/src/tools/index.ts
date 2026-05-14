@@ -86,7 +86,7 @@ export async function buildTools(
 
   try {
     const dbPath = env.DB_PATH ?? './tino.db';
-    const userId = env.ALLOWED_SLACK_USER_ID;
+    const userId = env.ALLOWED_SLACK_USER_ID ?? '';
     const prefStore = createPreferencesStore({ dbPath });
     tools['set_preference'] = setPreferenceTool(prefStore, userId);
     tools['get_preferences'] = getPreferencesTool(prefStore, userId);
@@ -97,7 +97,7 @@ export async function buildTools(
 
   if (taskStore) {
     try {
-      const userId = env.ALLOWED_SLACK_USER_ID;
+      const userId = env.ALLOWED_SLACK_USER_ID ?? '';
       tools['schedule_task'] = scheduleTaskTool(taskStore, userId);
       tools['list_tasks'] = listTasksTool(taskStore, userId);
       tools['cancel_task'] = cancelTaskTool(taskStore);

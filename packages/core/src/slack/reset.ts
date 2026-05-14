@@ -29,6 +29,7 @@ export async function handleResetCommand(params: ResetHandlerParams): Promise<bo
   // Same guards as handleDmMessage — subtype, channel_type, user
   if (m.subtype !== undefined) return false;
   if (m.channel_type !== 'im') return false;
+  if (!m.user) return false;
   if (m.user !== env.ALLOWED_SLACK_USER_ID) return false;
 
   const text = (m.text ?? '').trim().toLowerCase();
