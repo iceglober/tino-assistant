@@ -3,14 +3,28 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "main": "./src/index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./src/index.ts",
-    "./persistence": "./src/persistence/factory.ts",
-    "./pulumi": "./src/pulumi/index.ts",
-    "./encryption": "./src/encryption/index.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./persistence": {
+      "types": "./dist/persistence/factory.d.ts",
+      "default": "./dist/persistence/factory.js"
+    },
+    "./pulumi": {
+      "types": "./dist/pulumi/index.d.ts",
+      "default": "./dist/pulumi/index.js"
+    },
+    "./encryption": {
+      "types": "./dist/encryption/index.d.ts",
+      "default": "./dist/encryption/index.js"
+    }
   },
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },

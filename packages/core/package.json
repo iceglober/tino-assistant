@@ -3,20 +3,52 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "main": "./src/index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./src/index.ts",
-    "./env": "./src/env.ts",
-    "./agent/history": "./src/agent/history.ts",
-    "./persistence/tasks": "./src/persistence/tasks.ts",
-    "./persistence/preferences": "./src/persistence/preferences.ts",
-    "./persistence/config": "./src/persistence/config.ts",
-    "./persistence/factory": "./src/persistence/factory.ts",
-    "./slack/app": "./src/slack/app.ts",
-    "./audit/logger": "./src/audit/logger.ts",
-    "./audit/memory": "./src/audit/memory.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./env": {
+      "types": "./dist/env.d.ts",
+      "default": "./dist/env.js"
+    },
+    "./agent/history": {
+      "types": "./dist/agent/history.d.ts",
+      "default": "./dist/agent/history.js"
+    },
+    "./persistence/tasks": {
+      "types": "./dist/persistence/tasks.d.ts",
+      "default": "./dist/persistence/tasks.js"
+    },
+    "./persistence/preferences": {
+      "types": "./dist/persistence/preferences.d.ts",
+      "default": "./dist/persistence/preferences.js"
+    },
+    "./persistence/config": {
+      "types": "./dist/persistence/config.d.ts",
+      "default": "./dist/persistence/config.js"
+    },
+    "./persistence/factory": {
+      "types": "./dist/persistence/factory.d.ts",
+      "default": "./dist/persistence/factory.js"
+    },
+    "./slack/app": {
+      "types": "./dist/slack/app.d.ts",
+      "default": "./dist/slack/app.js"
+    },
+    "./audit/logger": {
+      "types": "./dist/audit/logger.d.ts",
+      "default": "./dist/audit/logger.js"
+    },
+    "./audit/memory": {
+      "types": "./dist/audit/memory.d.ts",
+      "default": "./dist/audit/memory.js"
+    }
   },
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
     "test": "vitest run",

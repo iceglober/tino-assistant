@@ -10,7 +10,7 @@ import type { Env } from '../../env.js';
  * Throws if any of the three required env vars are missing. Caller
  * (buildTools) catches and degrades gracefully.
  */
-export function createGoogleAuth(env: Env) {
+export function createGoogleAuth(env: Env): InstanceType<typeof google.auth.OAuth2> {
   if (!env.GOOGLE_OAUTH_CLIENT_ID) {
     throw new Error('GOOGLE_OAUTH_CLIENT_ID is not set');
   }
