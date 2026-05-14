@@ -36,22 +36,43 @@ export interface TinoServiceArgs {
   dockerContext?: string;
 
   /**
-   * Regulatory compliance. Security controls are always on.
-   * This adds regulatory-specific checks (BAA verification, compliance tags).
-   * Default: { hipaa: true }
+   * Regulatory compliance configuration. Security controls (encryption, PITR,
+   * audit alarms, least-privilege IAM, etc.) are ALWAYS on regardless of these
+   * flags. The compliance flags add framework-specific checks and resource tags
+   * that auditors use to identify in-scope resources.
+   *
+   * Defaults: hipaa=true, soc2=true, gdpr=false, hitrust=false.
    */
   compliance?: {
     /**
-     * Enable HIPAA compliance checks. Default: true.
-     *
-     * When true (default):
-     * - Adds "compliance:hipaa" tag to all resources
-     *
-     * When explicitly set to false:
-     * - No compliance-specific tags
-     * - All security controls still apply (encryption, PITR, alarms, etc.)
+     * HIPAA (Health Insurance Portability and Accountability Act). Default: true.
+     * Adds: BAA verification check, "compliance:hipaa" tags, Container Insights.
      */
     hipaa?: boolean;
+
+    /**
+     * SOC 2 Type II. Default: true.
+     * Adds: "compliance:soc2" tags. Recommends VPC Flow Logs (logged as a
+     * Pulumi warning if not detected on the VPC).
+     */
+    soc2?: boolean;
+
+    /**
+     * GDPR (General Data Protection Regulation). Default: false.
+     * Adds: "compliance:gdpr" tags, enforces single-region deployment (no
+     * cross-region replication), stricter default TTLs (30 days for history,
+     * 90 days for audit — matching right-to-erasure expectations).
+     *
+     * Enable if tino processes data from EU users or employees.
+     */
+    gdpr?: boolean;
+
+    /**
+     * HITRUST CSF. Default: false.
+     * Adds: "compliance:hitrust" tags. HITRUST is a superset of HIPAA —
+     * enabling this implies hipaa=true regardless of the hipaa flag.
+     */
+    hitrust?: boolean;
   };
 
   /**
@@ -177,11 +198,20 @@ export class TinoService extends pulumi.ComponentResource {
     super("tino:aws:TinoService", name, {}, opts);
 
     const hipaaCompliance = args?.compliance?.hipaa !== false; // default true
-    const tags: Record<string, string> = {
-      ...args?.tags,
-      "tino:managed": "true",
-      ...(hipaaCompliance ? { "compliance:hipaa": "true" } : {}),
-    };
+    const soc2Compliance = args?.compliance?.soc2 !== false;   // default true
+    const gdprCompliance = args?.compliance?.gdpr === true;    // default false
+    const hitrustCompliance = args?.compliance?.hitrust === true; // default false
+
+    // HITRUST is a superset of HIPAA — if HITRUST is on, HIPAA is on
+    const effectiveHipaa = hipaaCompliance || hitrustCompliance;
+
+    const complianceTags: Record<string, string> = {};
+    if (effectiveHipaa) complianceTags["compliance:hipaa"] = "true";
+    if (soc2Compliance) complianceTags["compliance:soc2"] = "true";
+    if (gdprCompliance) complianceTags["compliance:gdpr"] = "true";
+    if (hitrustCompliance) complianceTags["compliance:hitrust"] = "true";
+
+    const tags = { ...args?.tags, "tino:managed": "true", ...complianceTags };
 
     // ── VPC ──────────────────────────────────────────────────────────────
     // Use provided VPC (object or ID string), or discover the default VPC.
