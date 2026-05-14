@@ -12,7 +12,9 @@
     "./persistence/preferences": "./src/persistence/preferences.ts",
     "./persistence/config": "./src/persistence/config.ts",
     "./persistence/factory": "./src/persistence/factory.ts",
-    "./slack/app": "./src/slack/app.ts"
+    "./slack/app": "./src/slack/app.ts",
+    "./audit/logger": "./src/audit/logger.ts",
+    "./audit/memory": "./src/audit/memory.ts"
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",

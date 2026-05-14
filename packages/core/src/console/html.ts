@@ -841,6 +841,57 @@ export function getConsoleHtml(): string {
         transition-duration: 0.01ms !important;
       }
     }
+
+    /* ── Compliance section ─────────────────────────────────────────────── */
+    .compliance-section {
+      margin-bottom: 28px;
+    }
+    .compliance-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.786rem;
+    }
+    .compliance-table th {
+      text-align: left;
+      padding: 0 8px 8px 0;
+      color: var(--text-dim);
+      font-weight: 500;
+      font-size: 0.714rem;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      border-bottom: 1px solid var(--border-sub);
+    }
+    .compliance-table td {
+      padding: 7px 8px 7px 0;
+      border-bottom: 1px solid var(--border-sub);
+      vertical-align: middle;
+    }
+    .compliance-table tr:last-child td { border-bottom: none; }
+    .compliance-table .col-service {
+      font-family: var(--mono);
+      color: var(--silver);
+      white-space: nowrap;
+      padding-right: 16px;
+    }
+    .compliance-table .col-status { white-space: nowrap; }
+    .compliance-table .col-detail {
+      color: var(--text-sec);
+      font-size: 0.714rem;
+    }
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 0.714rem;
+      font-family: var(--mono);
+      padding: 2px 6px;
+      border-radius: 3px;
+    }
+    .status-ok    { background: rgba(106, 171, 122, 0.12); color: var(--ok); }
+    .status-warn  { background: rgba(200, 149, 106, 0.12); color: var(--accent); }
+    .status-err   { background: rgba(192, 96, 96, 0.12);   color: var(--err); }
+    .status-dim   { background: rgba(168, 176, 188, 0.1);  color: var(--silver); }
+    .compliance-loading { color: var(--text-dim); font-size: 0.857rem; font-style: italic; padding: 8px 0; }
   </style>
 </head>
 <body>
@@ -917,6 +968,51 @@ export function getConsoleHtml(): string {
             </div>
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- ── Compliance ──────────────────────────────────────────────────── -->
+    <div class="section-label" style="margin-top:28px">Compliance</div>
+    <div class="compliance-section" id="compliance-section">
+      <div class="compliance-loading" id="compliance-loading">Loading…</div>
+      <div id="compliance-content" style="display:none">
+
+        <div class="detail-label" style="margin-bottom:8px">BAA Status</div>
+        <table class="compliance-table" id="baa-table">
+          <thead><tr>
+            <th class="col-service">Service</th>
+            <th class="col-status">Status</th>
+          </tr></thead>
+          <tbody id="baa-body"></tbody>
+        </table>
+
+        <div class="detail-label" style="margin-top:16px;margin-bottom:8px">Encryption</div>
+        <table class="compliance-table" id="enc-table">
+          <thead><tr>
+            <th class="col-service">Resource</th>
+            <th class="col-status">Status</th>
+          </tr></thead>
+          <tbody id="enc-body"></tbody>
+        </table>
+
+        <div class="detail-label" style="margin-top:16px;margin-bottom:8px">Audit Log Health</div>
+        <table class="compliance-table" id="audit-table">
+          <thead><tr>
+            <th class="col-service">Metric</th>
+            <th class="col-detail">Value</th>
+          </tr></thead>
+          <tbody id="audit-body"></tbody>
+        </table>
+
+        <div class="detail-label" style="margin-top:16px;margin-bottom:8px">Data Retention</div>
+        <table class="compliance-table" id="retention-table">
+          <thead><tr>
+            <th class="col-service">Policy</th>
+            <th class="col-detail">Value</th>
+          </tr></thead>
+          <tbody id="retention-body"></tbody>
+        </table>
+
       </div>
     </div>
 
@@ -1070,7 +1166,7 @@ export function getConsoleHtml(): string {
 
     // ── Bootstrap ──────────────────────────────────────────────────────────
     async function loadAll() {
-      await Promise.all([loadCapabilities(), loadConfig(), loadHealth()]);
+      await Promise.all([loadCapabilities(), loadConfig(), loadHealth(), loadCompliance()]);
       // Wire dirty tracking for the raw config "Save entry" button.
       // Enabled only when both key and value fields have content.
       const addBtn = document.getElementById('add-btn');
@@ -1817,6 +1913,73 @@ export function getConsoleHtml(): string {
       const btn = section.querySelector('.raw-toggle');
       const isOpen = section.classList.toggle('open');
       btn.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+    }
+
+    // ── Compliance ─────────────────────────────────────────────────────────
+    async function loadCompliance() {
+      try {
+        const res = await fetch('/api/compliance');
+        const data = await res.json();
+        const h = data.hipaa;
+
+        // BAA status
+        const baaStatusMap = {
+          verified:  ['status-ok',   '✓ verified'],
+          confirmed: ['status-ok',   '✓ confirmed'],
+          'no-baa':  ['status-err',  '✗ no BAA'],
+          unknown:   ['status-dim',  '? unknown'],
+        };
+        const baaBody = document.getElementById('baa-body');
+        baaBody.innerHTML = Object.entries(h.baaStatus).map(([svc, status]) => {
+          const [cls, label] = baaStatusMap[status] ?? ['status-dim', status];
+          return \`<tr>
+            <td class="col-service">\${escHtml(svc)}</td>
+            <td class="col-status"><span class="status-badge \${cls}">\${escHtml(label)}</span></td>
+          </tr>\`;
+        }).join('');
+
+        // Encryption
+        const encStatusMap = {
+          cmk:         ['status-ok',   '✓ CMK'],
+          'aws-managed':['status-warn', '~ AWS-managed'],
+          unknown:     ['status-dim',  '? unknown'],
+        };
+        const encBody = document.getElementById('enc-body');
+        encBody.innerHTML = Object.entries(h.encryption).map(([resource, status]) => {
+          const [cls, label] = encStatusMap[status] ?? ['status-dim', status];
+          return \`<tr>
+            <td class="col-service">\${escHtml(resource)}</td>
+            <td class="col-status"><span class="status-badge \${cls}">\${escHtml(label)}</span></td>
+          </tr>\`;
+        }).join('');
+
+        // Audit log health
+        const al = h.auditLogging;
+        const lastEntry = al.lastEntryAt
+          ? new Date(al.lastEntryAt).toLocaleString()
+          : 'never';
+        const auditBody = document.getElementById('audit-body');
+        auditBody.innerHTML = \`
+          <tr><td class="col-service">enabled</td><td class="col-detail">\${al.enabled ? '✓ yes' : '✗ no'}</td></tr>
+          <tr><td class="col-service">entry count</td><td class="col-detail">\${al.entryCount.toLocaleString()}</td></tr>
+          <tr><td class="col-service">last entry</td><td class="col-detail">\${escHtml(lastEntry)}</td></tr>
+          <tr><td class="col-service">retention</td><td class="col-detail">\${al.retentionDays} days</td></tr>
+        \`;
+
+        // Data retention
+        const dr = h.dataRetention;
+        const retentionBody = document.getElementById('retention-body');
+        retentionBody.innerHTML = \`
+          <tr><td class="col-service">TTL enabled</td><td class="col-detail">\${dr.ttlEnabled ? '✓ yes' : '✗ no'}</td></tr>
+          <tr><td class="col-service">history retention</td><td class="col-detail">\${dr.historyRetentionDays} days</td></tr>
+          <tr><td class="col-service">audit retention</td><td class="col-detail">\${dr.auditRetentionDays} days</td></tr>
+        \`;
+
+        document.getElementById('compliance-loading').style.display = 'none';
+        document.getElementById('compliance-content').style.display = 'block';
+      } catch (e) {
+        document.getElementById('compliance-loading').textContent = 'Failed to load compliance data: ' + e.message;
+      }
     }
 
     // ── Toast (with optional undo action) ─────────────────────────────────

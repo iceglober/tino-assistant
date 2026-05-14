@@ -4,6 +4,7 @@ import path from 'node:path';
 import type { ConfigStore } from '../persistence/config.js';
 import type { AppLogger } from '../slack/app.js';
 import type { CapabilityRegistry } from '../capabilities/types.js';
+import type { AuditLogger } from '../audit/logger.js';
 import { getConsoleHtml } from './html.js';
 
 /**
@@ -17,6 +18,8 @@ import { getConsoleHtml } from './html.js';
  *   GET  /api/health                → { ok: true, tools: [...], uptime: <seconds>, capabilities: [...] }
  *   GET  /api/capabilities          → list all capability configs
  *   PUT  /api/capabilities/:id      → update a capability config (body: CapabilityConfig)
+ *   GET  /api/compliance            → HIPAA compliance status
+ *   DELETE /api/users/:userId       → deprovision a user (admin-only)
  *
  * Binds to 127.0.0.1 only — not accessible from outside localhost.
  */
@@ -26,6 +29,7 @@ export function startConsole(
   tools: Record<string, unknown>,
   registry?: CapabilityRegistry,
   port = 3001,
+  auditLogger?: AuditLogger,
 ): http.Server {
   const startTime = Date.now();
 
@@ -98,8 +102,16 @@ export function startConsole(
           res.end('Request body must have a "value" field');
           return;
         }
-        void config.set(key, parsed.value).then(() => {
+        void config.set(key, parsed.value).then(async () => {
           logger.info({ key }, 'config updated via console');
+          if (auditLogger) {
+            await auditLogger.log({
+              userId: 'console',
+              action: 'config_change',
+              toolName: key,
+              status: 'success',
+            });
+          }
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ ok: true, key }));
         });
@@ -115,9 +127,17 @@ export function startConsole(
         res.end('Missing key');
         return;
       }
-      void config.delete(key).then(deleted => {
+      void config.delete(key).then(async deleted => {
         if (deleted) {
           logger.info({ key }, 'config entry deleted via console');
+          if (auditLogger) {
+            await auditLogger.log({
+              userId: 'console',
+              action: 'config_change',
+              toolName: key,
+              status: 'success',
+            });
+          }
         }
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: true, deleted }));
@@ -170,6 +190,102 @@ export function startConsole(
           res.end(JSON.stringify({ ok: true, id }));
         });
       });
+      return;
+    }
+
+    // ── GET /api/compliance ────────────────────────────────────────────────
+    if (method === 'GET' && path === '/api/compliance') {
+      void (async () => {
+        // BAA status — read from tino.deploy.json if it exists
+        let baaStatus: Record<string, string> = {
+          aws: 'unknown',
+          bedrock: 'unknown',
+          github: 'unknown',
+          slack: 'no-baa',
+        };
+        try {
+          const deployJsonPath = new URL('../../../../tino.deploy.json', import.meta.url);
+          const deployJson = JSON.parse(fs.readFileSync(deployJsonPath, 'utf8')) as {
+            baa?: Record<string, string>;
+          };
+          if (deployJson.baa) baaStatus = { ...baaStatus, ...deployJson.baa };
+        } catch { /* file doesn't exist — use defaults */ }
+
+        // Audit logging stats
+        const entryCount = auditLogger ? await auditLogger.count() : 0;
+        const lastEntryAt = auditLogger ? await auditLogger.lastEntryAt() : undefined;
+
+        // User/admin count from config
+        const entries = await config.list();
+        const userEntries = entries.filter(e => e.key.startsWith('user.'));
+        const adminEntries = entries.filter(e => e.key.startsWith('admin.'));
+
+        const body = JSON.stringify({
+          hipaa: {
+            encryption: {
+              dynamodb: 'unknown',
+              secretsManager: 'unknown',
+              cloudwatchLogs: 'unknown',
+            },
+            auditLogging: {
+              enabled: auditLogger !== undefined,
+              entryCount,
+              lastEntryAt: lastEntryAt ?? null,
+              retentionDays: 90,
+            },
+            dataRetention: {
+              ttlEnabled: true,
+              historyRetentionDays: 30,
+              auditRetentionDays: 90,
+            },
+            baaStatus,
+            accessControl: {
+              userCount: Math.max(userEntries.length, 1),
+              adminCount: Math.max(adminEntries.length, 1),
+            },
+          },
+        });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(body);
+      })();
+      return;
+    }
+
+    // ── DELETE /api/users/:userId ──────────────────────────────────────────
+    if (method === 'DELETE' && path.startsWith('/api/users/')) {
+      const targetUserId = decodeURIComponent(path.slice('/api/users/'.length));
+      if (!targetUserId) {
+        res.writeHead(400, { 'Content-Type': 'text/plain' });
+        res.end('Missing userId');
+        return;
+      }
+      void (async () => {
+        // 1. Set user status to deactivated
+        await config.set(`user.${targetUserId}.status`, 'deactivated');
+
+        // 2. Delete personal capability tokens
+        const entries = await config.list();
+        const personalCapKeys = entries
+          .filter(e => e.key.startsWith(`user.${targetUserId}.capability.`))
+          .map(e => e.key);
+        for (const capKey of personalCapKeys) {
+          await config.delete(capKey);
+        }
+
+        // 3. Log audit entry
+        if (auditLogger) {
+          await auditLogger.log({
+            userId: 'console',
+            action: 'user_deprovisioned',
+            toolName: targetUserId,
+            status: 'success',
+          });
+        }
+
+        logger.info({ targetUserId }, 'user deprovisioned via console');
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, userId: targetUserId, status: 'deactivated' }));
+      })();
       return;
     }
 

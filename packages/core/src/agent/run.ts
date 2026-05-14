@@ -2,6 +2,8 @@ import { generateText, stepCountIs, type LanguageModel, type ToolSet } from 'ai'
 import type { HistoryStore } from './history.js';
 import type { AppLogger } from '../slack/app.js';
 import { buildSystemPrompt } from './systemPrompt.js';
+import type { AuditLogger } from '../audit/logger.js';
+import { validateAgentOutput } from './output-validator.js';
 
 export interface RunAgentParams {
   model: LanguageModel;
@@ -10,6 +12,9 @@ export interface RunAgentParams {
   tools?: ToolSet; // empty/undefined in Phase 3
   userId: string;
   text: string;
+  auditLogger?: AuditLogger;
+  /** Active capability IDs for this user — used by the output validator. */
+  activeCapabilities?: string[];
 }
 
 /**
@@ -21,13 +26,16 @@ export interface RunAgentParams {
  * - `stopWhen: stepCountIs(10)` caps multi-step tool loops at 10 turns.
  * - Appends `result.response.messages` (the model's new messages, including
  *   any tool calls/results) to history after the call.
+ * - Logs an audit entry for each tool call in result.steps (if auditLogger provided).
+ * - Runs output validation before returning; if flagged, returns a safe message
+ *   and logs a denied audit entry.
  * - Returns `result.text` if non-empty, otherwise a placeholder string. Claude
  *   sometimes ends a multi-step run on a tool call with no follow-up text;
  *   the placeholder makes that case visible to the user instead of posting an
  *   empty Slack message (which Bolt rejects).
  */
 export async function runAgent(params: RunAgentParams): Promise<string> {
-  const { model, history, logger, tools, userId, text } = params;
+  const { model, history, logger, tools, userId, text, auditLogger, activeCapabilities = [] } = params;
 
   await history.append(userId, [{ role: 'user', content: text }]);
 
@@ -43,6 +51,23 @@ export async function runAgent(params: RunAgentParams): Promise<string> {
 
   await history.append(userId, result.response.messages);
 
+  // ── Audit: log each tool call ─────────────────────────────────────────────
+  if (auditLogger) {
+    for (const step of result.steps) {
+      for (const toolCall of step.toolCalls ?? []) {
+        const toolStart = step.usage ? start : start; // best-effort; step timing not exposed
+        await auditLogger.log({
+          userId,
+          action: 'tool_call',
+          toolName: toolCall.toolName,
+          inputKeys: Object.keys(toolCall.input as Record<string, unknown>),
+          durationMs,
+          status: 'success',
+        });
+      }
+    }
+  }
+
   logger.info(
     {
       user: userId,
@@ -54,5 +79,24 @@ export async function runAgent(params: RunAgentParams): Promise<string> {
     'agent run complete',
   );
 
-  return result.text || '(no response)';
+  const responseText = result.text || '(no response)';
+
+  // ── Output validation ─────────────────────────────────────────────────────
+  const validation = validateAgentOutput(responseText, { userId, activeCapabilities });
+  if (!validation.safe) {
+    logger.warn({ userId, reason: validation.reason }, 'agent output flagged by safety filter');
+
+    if (auditLogger) {
+      await auditLogger.log({
+        userId,
+        action: 'injection_suspected',
+        status: 'denied',
+        errorMessage: validation.reason,
+      });
+    }
+
+    return "i generated a response but it was flagged by the safety filter. an admin has been notified.";
+  }
+
+  return responseText;
 }

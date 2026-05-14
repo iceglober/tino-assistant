@@ -11,11 +11,15 @@ import { startConsole } from './console/server.js';
 import { createPersistence } from './persistence/factory.js';
 import { migrateEnvToCapabilities } from './capabilities/migration.js';
 import { initCapabilityRegistry } from './capabilities/registry.js';
+import { createMemoryAuditLogger } from './audit/memory.js';
 
 const env = loadEnv();
 const logger = createLogger(env);
 const model = createBedrockModel(env);
 const { history, tasks: taskStore, config: configStore } = await createPersistence(env, logger);
+
+// Audit logger — in-memory for local dev; AWS deployment wires in DynamoDB logger
+const auditLogger = createMemoryAuditLogger();
 
 // Run one-time migration from env vars to capability configs (no-op if already done)
 await migrateEnvToCapabilities(env, configStore, logger);
@@ -44,6 +48,7 @@ const registry = await initCapabilityRegistry({
       tools: registry.tools,
       userId: env.ALLOWED_SLACK_USER_ID,
       text: prompt,
+      auditLogger,
     });
 
     await postDm(result);
@@ -65,10 +70,10 @@ const toolTokenEstimate = Math.ceil(
 logger.info({ toolCount: Object.keys(tools).length, estimatedTokens: toolTokenEstimate }, 'tool definitions loaded');
 
 const handler: DmHandler = async (userId, text) => {
-  return runAgent({ model, history, logger, tools, userId, text });
+  return runAgent({ model, history, logger, tools, userId, text, auditLogger });
 };
 
-const app = createSlackApp(env, handler, logger, history);
+const app = createSlackApp(env, handler, logger, history, auditLogger);
 
 await app.start();
 logger.info({ nodeVersion: process.version, pid: process.pid }, 'tino starting (slack connected)');
@@ -77,7 +82,7 @@ logger.info({ nodeVersion: process.version, pid: process.pid }, 'tino starting (
 const postDm = await createProactiveDm(app, env.ALLOWED_SLACK_USER_ID, logger);
 
 // Config console — localhost only, port 3001
-const consoleServer = startConsole(configStore, logger, tools, registry);
+const consoleServer = startConsole(configStore, logger, tools, registry, 3001, auditLogger);
 
 // Scheduler — runs every 15s, executes pending tasks through the agent loop
 const stopScheduler = startScheduler({
@@ -98,6 +103,7 @@ const stopScheduler = startScheduler({
       tools,
       userId: task.userId,
       text: taskPrompt,
+      auditLogger,
     });
   },
   postResult: postDm,
