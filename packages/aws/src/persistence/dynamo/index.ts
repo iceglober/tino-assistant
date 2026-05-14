@@ -1,9 +1,9 @@
-import type { Env } from '../../env.js';
-import type { AppLogger } from '../../slack/app.js';
-import type { HistoryStore } from '../../agent/history.js';
-import type { TaskStore } from '../tasks.js';
-import type { PreferencesStore } from '../preferences.js';
-import type { ConfigStore } from '../config.js';
+import type { Env } from '@tino/core/env';
+import type { AppLogger } from '@tino/core/slack/app';
+import type { HistoryStore } from '@tino/core/agent/history';
+import type { TaskStore } from '@tino/core/persistence/tasks';
+import type { PreferencesStore } from '@tino/core/persistence/preferences';
+import type { ConfigStore } from '@tino/core/persistence/config';
 import { createDynamoTable } from './client.js';
 import { createDynamoHistoryStore } from './history.js';
 import { createDynamoTaskStore } from './tasks.js';

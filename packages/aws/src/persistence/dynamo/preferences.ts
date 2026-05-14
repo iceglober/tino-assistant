@@ -4,7 +4,7 @@ import {
   DeleteItemCommand,
   QueryCommand,
 } from 'dynamodb-toolbox';
-import type { PreferencesStore } from '../../persistence/preferences.js';
+import type { PreferencesStore } from '@tino/core/persistence/preferences';
 import { createPreferenceEntity } from './entities.js';
 import type { TinoTable } from './client.js';
 

@@ -1,7 +1,7 @@
 import type { ModelMessage } from 'ai';
 import { GetItemCommand, PutItemCommand, DeleteItemCommand } from 'dynamodb-toolbox';
-import type { HistoryStore } from '../../agent/history.js';
-import { trim } from '../../agent/history.js';
+import type { HistoryStore } from '@tino/core/agent/history';
+import { trim } from '@tino/core/agent/history';
 import { createHistoryEntity } from './entities.js';
 import type { TinoTable } from './client.js';
 

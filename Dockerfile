@@ -1,21 +1,26 @@
 FROM node:22-slim AS deps
 WORKDIR /app
-RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
-COPY package.json pnpm-lock.yaml ./
-# Approve native build scripts (better-sqlite3 needs node-gyp; esbuild needs its binary)
-RUN echo "onlyBuiltDependencies[]=better-sqlite3\nonlyBuiltDependencies[]=esbuild" > .npmrc
-RUN pnpm install --frozen-lockfile --prod=false
+RUN npm install -g bun
+COPY package.json bun.lock* ./
+COPY packages/core/package.json ./packages/core/
+COPY packages/aws/package.json ./packages/aws/
+COPY packages/cli/package.json ./packages/cli/
+# Install all workspace dependencies (including native modules like better-sqlite3)
+RUN bun install --frozen-lockfile
 
 FROM node:22-slim AS runner
 WORKDIR /app
-RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
+RUN npm install -g bun
 COPY --from=deps /app/node_modules ./node_modules
-COPY package.json pnpm-lock.yaml tsconfig.json ./
-COPY src ./src
+COPY --from=deps /app/packages/core/node_modules ./packages/core/node_modules
+COPY --from=deps /app/packages/aws/node_modules ./packages/aws/node_modules
+COPY package.json ./
+COPY packages/core/package.json ./packages/core/
+COPY packages/aws/package.json ./packages/aws/
+COPY packages/core/src ./packages/core/src
+COPY packages/aws/src ./packages/aws/src
 COPY scripts ./scripts
 
-# better-sqlite3 needs the native module from the deps stage
 # tsx runs TypeScript directly — no build step needed
-
 ENV NODE_ENV=production
-CMD ["npx", "tsx", "src/index.ts"]
+CMD ["bun", "run", "--filter", "@tino/core", "start"]

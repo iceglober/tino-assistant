@@ -1,18 +1,8 @@
 {
-  "compilerOptions": {
-    "strict": true,
-    "noUncheckedIndexedAccess": true,
-    "module": "nodenext",
-    "moduleResolution": "nodenext",
-    "target": "es2022",
-    "esModuleInterop": true,
-    "skipLibCheck": true,
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-    "rootDir": "src",
-    "outDir": "dist",
-    "noEmit": true,
-    "types": ["node"]
-  },
-  "include": ["src/**/*"]
+  "files": [],
+  "references": [
+    { "path": "./packages/core" },
+    { "path": "./packages/aws" },
+    { "path": "./packages/cli" }
+  ]
 }

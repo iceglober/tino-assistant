@@ -6,7 +6,7 @@ import {
   QueryCommand,
   ScanCommand,
 } from 'dynamodb-toolbox';
-import type { Task, TaskStore } from '../../persistence/tasks.js';
+import type { Task, TaskStore } from '@tino/core/persistence/tasks';
 import { createTaskEntity, padScheduledAt } from './entities.js';
 import type { TinoTable } from './client.js';
 

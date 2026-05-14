@@ -24,7 +24,11 @@ export async function createPersistence(env: Env, logger: AppLogger): Promise<Pe
   const adapter = env.PERSISTENCE_ADAPTER ?? 'sqlite';
 
   if (adapter === 'dynamodb') {
-    const { createDynamoPersistence } = await import('./dynamo/index.js');
+    // Dynamic import keeps @tino/aws out of core's dependency tree
+    // when using SQLite. The import only resolves if @tino/aws is installed.
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore — @tino/aws is an optional peer; not in core's dep tree
+    const { createDynamoPersistence } = await import('@tino/aws/persistence');
     return createDynamoPersistence(env, logger);
   }
 

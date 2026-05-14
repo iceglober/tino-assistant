@@ -1,0 +1,25 @@
+{
+  "name": "@tino/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "tino": "./src/index.ts"
+  },
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@inquirer/prompts": "^7.5.2"
+  },
+  "peerDependencies": {
+    "@tino/core": "workspace:*",
+    "@tino/aws": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3",
+    "tsx": "^4.21.0",
+    "@types/node": "^25.7.0"
+  }
+}

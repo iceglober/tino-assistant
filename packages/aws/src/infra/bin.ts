@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import * as cdk from 'aws-cdk-lib';
-import { TinoStack } from '../lib/tino-stack';
+import { TinoStack } from './tino-stack.js';
 
 const app = new cdk.App();
 new TinoStack(app, 'TinoStack', {

@@ -4,7 +4,7 @@ import {
   DeleteItemCommand,
   QueryCommand,
 } from 'dynamodb-toolbox';
-import type { ConfigStore } from '../../persistence/config.js';
+import type { ConfigStore } from '@tino/core/persistence/config';
 import { createConfigEntity } from './entities.js';
 import type { TinoTable } from './client.js';
 
