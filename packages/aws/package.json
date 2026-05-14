@@ -7,7 +7,9 @@
   "exports": {
     ".": "./src/index.ts",
     "./persistence": "./src/persistence/factory.ts",
-    "./infra": "./src/infra/tino-stack.ts"
+    "./pulumi": "./src/pulumi/index.ts",
+    "./infra": "./src/infra/tino-stack.ts",
+    "./encryption": "./src/encryption/index.ts"
   },
   "scripts": {
     "test": "vitest run",
@@ -25,11 +27,15 @@
     "ai": "^6.0.178"
   },
   "peerDependencies": {
-    "@tino/core": "workspace:*"
+    "@tino/core": "workspace:*",
+    "@pulumi/aws": ">=6.0.0",
+    "@pulumi/pulumi": ">=3.0.0"
   },
   "devDependencies": {
     "typescript": "^6.0.3",
     "vitest": "^4.1.6",
-    "@types/node": "^25.7.0"
+    "@types/node": "^25.7.0",
+    "@pulumi/aws": "^6.0.0",
+    "@pulumi/pulumi": "^3.0.0"
   }
 }
