@@ -23,20 +23,16 @@ function runCommand(cmd: string, args: string[], cwd?: string): Promise<void> {
   });
 }
 
-function readStackOutputs(region: string): {
-  ecrRepoUri: string;
-  clusterName: string;
-  serviceName: string;
-} {
-  const raw = execSync(
-    `aws cloudformation describe-stacks --stack-name TinoStack --region ${region} --output json`,
-    { encoding: 'utf8' }
-  );
-  const stacks = JSON.parse(raw) as {
-    Stacks: Array<{ Outputs: Array<{ OutputKey: string; OutputValue: string }> }>;
-  };
-  const outputs = stacks.Stacks[0]?.Outputs ?? [];
-  const get = (key: string) => outputs.find((o) => o.OutputKey === key)?.OutputValue ?? '';
+function readPulumiOutputs(
+  infraDir: string,
+  stack: string
+): { ecrRepoUri: string; clusterName: string; serviceName: string } {
+  const get = (outputName: string) =>
+    execSync(`pulumi stack output ${outputName} --stack ${stack}`, {
+      cwd: infraDir,
+      encoding: 'utf8',
+    }).trim();
+
   return {
     ecrRepoUri: get('EcrRepoUri'),
     clusterName: get('ClusterName'),
@@ -47,28 +43,28 @@ function readStackOutputs(region: string): {
 export async function executeDeploy(config: DeployConfig): Promise<void> {
   // Repo root is 5 levels up from packages/cli/src/commands/
   const repoRoot = resolve(__dirname, '../../../../../');
-  const infraDir = resolve(repoRoot, 'packages/aws/src/infra');
+  const infraDir =
+    config.iac === 'standalone'
+      ? resolve(repoRoot, 'infra')
+      : resolve(repoRoot, config.infraPath ?? 'infra');
+  const stack = config.pulumiStack ?? 'dev';
   const region = config.region;
 
   try {
-    // Step 1: CDK bootstrap
-    displayStep(1, 6, 'CDK bootstrap');
-    await runCommand('npx', ['cdk', 'bootstrap'], infraDir);
+    // Step 1: pulumi up
+    displayStep(1, 5, 'Deploying infrastructure (pulumi up)');
+    await runCommand('pulumi', ['up', '--yes', '--stack', stack], infraDir);
 
-    // Step 2: CDK deploy
-    displayStep(2, 6, 'CDK deploy');
-    await runCommand('npx', ['cdk', 'deploy', '--require-approval', 'never'], infraDir);
+    // Step 2: Read Pulumi stack outputs
+    displayStep(2, 5, 'Reading stack outputs');
+    const outputs = readPulumiOutputs(infraDir, stack);
 
-    // Step 3: Read stack outputs
-    displayStep(3, 6, 'Reading stack outputs');
-    const outputs = readStackOutputs(region);
-
-    // Step 4: Docker build
-    displayStep(4, 6, 'Building Docker image');
+    // Step 3: Docker build
+    displayStep(3, 5, 'Building Docker image');
     await runCommand('docker', ['build', '-t', 'tino:latest', '.'], repoRoot);
 
-    // Step 5: ECR login + push
-    displayStep(5, 6, 'Pushing to ECR');
+    // Step 4: ECR login + push
+    displayStep(4, 5, 'Pushing to ECR');
     const ecrRepo = outputs.ecrRepoUri;
     execSync(
       `aws ecr get-login-password --region ${region} | docker login --username AWS --password-stdin ${ecrRepo}`,
@@ -77,8 +73,8 @@ export async function executeDeploy(config: DeployConfig): Promise<void> {
     execSync(`docker tag tino:latest ${ecrRepo}:latest`, { stdio: 'inherit' });
     await runCommand('docker', ['push', `${ecrRepo}:latest`], repoRoot);
 
-    // Step 6: ECS force new deployment
-    displayStep(6, 6, 'Deploying to ECS');
+    // Step 5: ECS force new deployment
+    displayStep(5, 5, 'Deploying to ECS');
     execSync(
       `aws ecs update-service --cluster ${outputs.clusterName} --service ${outputs.serviceName} --force-new-deployment --region ${region} --no-cli-pager`,
       { stdio: 'inherit' }

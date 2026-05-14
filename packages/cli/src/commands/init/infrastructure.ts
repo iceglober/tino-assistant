@@ -1,4 +1,6 @@
 import { select, input } from '@inquirer/prompts';
+import { writeFileSync, mkdirSync } from 'node:fs';
+import { resolve } from 'node:path';
 import type { DeployConfig } from './types.js';
 import { displayStep, displaySuccess, displayInfo } from '../../utils/display.js';
 
@@ -12,40 +14,159 @@ const REGIONS = [
   { name: 'Custom region', value: '__custom__' },
 ];
 
+const STANDALONE_PACKAGE_JSON = `{
+  "name": "tino-infra",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@pulumi/aws": "^7.0.0",
+    "@pulumi/pulumi": "^3.0.0",
+    "@tino/aws": "workspace:*"
+  }
+}
+`;
+
+const STANDALONE_PULUMI_YAML = `name: tino-infra
+runtime:
+  name: nodejs
+  options:
+    typescript: true
+main: index.ts
+`;
+
+const STANDALONE_INDEX_TS = `import * as aws from "@pulumi/aws";
+import * as pulumi from "@pulumi/pulumi";
+import { TinoService } from "@tino/aws/pulumi";
+
+const config = new pulumi.Config();
+
+// Use the default VPC for standalone deployments
+const defaultVpc = aws.ec2.getVpcOutput({ default: true });
+const subnets = aws.ec2.getSubnetsOutput({
+  filters: [{ name: "vpc-id", values: [defaultVpc.id] }],
+});
+
+const tino = new TinoService("tino", {
+  vpcId: defaultVpc.id,
+  subnetIds: subnets.ids,
+  slackBotTokenSecret: config.requireSecret("slackBotTokenSecret"),
+  slackAppTokenSecret: config.requireSecret("slackAppTokenSecret"),
+  adminSlackUserId: config.require("adminSlackUserId"),
+  bedrockModelId: config.get("bedrockModelId") ?? "global.anthropic.claude-sonnet-4-6",
+  alertEmail: config.get("alertEmail"),
+  secrets: {
+    // Additional secrets configured via \`pulumi config set --secret\`
+  },
+});
+
+export const EcrRepoUri = tino.ecrRepoUri;
+export const ClusterName = tino.clusterName;
+export const ServiceName = tino.serviceName;
+export const TableName = tino.tableName;
+export const KmsKeyArn = tino.kmsKeyArn;
+`;
+
+function generateExistingTinoTs(): string {
+  return `import * as pulumi from "@pulumi/pulumi";
+import { TinoService } from "@tino/aws/pulumi";
+
+/**
+ * Deploy tino into your existing infrastructure.
+ *
+ * Call this from your main index.ts:
+ *   import { createTino } from "./tino.js";
+ *   const tino = createTino({ vpcId: network.vpcId, subnetIds: network.privateSubnetIds, cluster: existingCluster });
+ */
+export function createTino(opts: {
+  vpcId: pulumi.Input<string>;
+  subnetIds: pulumi.Input<string>[];
+  cluster?: import("@pulumi/aws").ecs.Cluster;
+}) {
+  const config = new pulumi.Config("tino");
+
+  return new TinoService("tino", {
+    vpcId: opts.vpcId,
+    subnetIds: opts.subnetIds,
+    cluster: opts.cluster,
+    slackBotTokenSecret: config.requireSecret("slackBotTokenSecret"),
+    slackAppTokenSecret: config.requireSecret("slackAppTokenSecret"),
+    adminSlackUserId: config.require("adminSlackUserId"),
+    bedrockModelId: config.get("bedrockModelId") ?? "global.anthropic.claude-sonnet-4-6",
+    alertEmail: config.get("alertEmail"),
+    secrets: {
+      // Add your secrets here
+    },
+  });
+}
+`;
+}
+
 /**
  * Step 5: Infrastructure configuration.
- * IaC choice, region, and VPC config.
+ * Pulumi is the only IaC path — standalone project or existing project.
  */
 export async function stepInfrastructure(
   config: Partial<DeployConfig>
 ): Promise<Partial<DeployConfig>> {
   displayStep(5, 8, 'Infrastructure');
 
-  // IaC choice
   const iacChoice = await select({
-    message: 'Do you have an existing IaC project?',
+    message: 'Infrastructure setup:',
     choices: [
-      { name: 'No, create a new CDK project (recommended)', value: 'cdk' },
       {
-        name: "Yes, I'll integrate tino's CDK stack into my existing project",
+        name: 'Create a new Pulumi project (standalone deployment)',
+        value: 'standalone',
+      },
+      {
+        name: 'Add tino to an existing Pulumi project',
         value: 'existing',
       },
-      { name: 'Yes, I use Terraform (generates Terraform config)', value: 'terraform' },
-      { name: 'Yes, I use Pulumi (generates Pulumi config)', value: 'pulumi' },
     ],
-    default: 'cdk',
+    default: 'standalone',
   });
 
   const iac = iacChoice as DeployConfig['iac'];
 
-  if (iac === 'cdk') {
-    displaySuccess('CDK project will be created at ./infra/');
-  } else if (iac === 'existing') {
-    displayInfo("tino's CDK constructs will be exported for integration into your project.");
-  } else if (iac === 'terraform') {
-    displayInfo('Terraform config will be generated at ./infra/terraform/');
-  } else if (iac === 'pulumi') {
-    displayInfo('Pulumi config will be generated at ./infra/pulumi/');
+  let infraPath: string | undefined;
+  let pulumiStack: string | undefined;
+
+  if (iac === 'standalone') {
+    displaySuccess('Pulumi project will be created at ./infra/');
+    displayInfo('');
+    displayInfo('This creates:');
+    displayInfo('  infra/');
+    displayInfo('    Pulumi.yaml');
+    displayInfo('    index.ts          ← imports TinoService from @tino/aws/pulumi');
+    displayInfo('    package.json');
+
+    // Generate the standalone Pulumi project
+    const infraDir = resolve(process.cwd(), 'infra');
+    mkdirSync(infraDir, { recursive: true });
+    writeFileSync(resolve(infraDir, 'package.json'), STANDALONE_PACKAGE_JSON);
+    writeFileSync(resolve(infraDir, 'Pulumi.yaml'), STANDALONE_PULUMI_YAML);
+    writeFileSync(resolve(infraDir, 'index.ts'), STANDALONE_INDEX_TS);
+    displaySuccess('Generated infra/package.json, infra/Pulumi.yaml, infra/index.ts');
+  } else {
+    const rawPath = await input({
+      message: 'Path to your Pulumi project:',
+      default: './infra',
+    });
+    infraPath = rawPath.trim();
+
+    const rawStack = await input({
+      message: 'Pulumi stack name:',
+      default: 'dev',
+    });
+    pulumiStack = rawStack.trim();
+
+    // Generate tino.ts in the existing project
+    const tinoTsPath = resolve(process.cwd(), infraPath, 'tino.ts');
+    writeFileSync(tinoTsPath, generateExistingTinoTs());
+    displaySuccess(`Generated ${infraPath}/tino.ts`);
+    displayInfo('');
+    displayInfo('Add this to your Pulumi index.ts:');
+    displayInfo('  import { createTino } from "./tino.js";');
+    displayInfo('  const tino = createTino(network);');
   }
 
   // Region
@@ -68,36 +189,11 @@ export async function stepInfrastructure(
 
   displaySuccess(`Region: ${region}`);
 
-  // VPC config
-  const vpcChoice = await select({
-    message: 'VPC configuration?',
-    choices: [
-      { name: 'Use default VPC (simplest)', value: 'default' },
-      { name: 'Create a new VPC (more isolated)', value: 'new' },
-      { name: 'Use existing VPC (enter VPC ID)', value: 'existing' },
-    ],
-    default: 'default',
-  });
-
-  let vpc: DeployConfig['vpc'];
-
-  if (vpcChoice === 'existing') {
-    const vpcId = await input({
-      message: 'Enter VPC ID (vpc-...):',
-      validate: (v) =>
-        v.trim().startsWith('vpc-') ? true : 'VPC ID must start with vpc-',
-    });
-    vpc = { vpcId: vpcId.trim() };
-    displaySuccess(`Using existing VPC: ${vpcId.trim()}`);
-  } else {
-    vpc = vpcChoice as 'default' | 'new';
-    displaySuccess(`VPC: ${vpc}`);
-  }
-
   return {
     ...config,
     iac,
+    ...(infraPath !== undefined ? { infraPath } : {}),
+    ...(pulumiStack !== undefined ? { pulumiStack } : {}),
     region,
-    vpc,
   };
 }

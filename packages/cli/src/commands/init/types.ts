@@ -20,8 +20,9 @@ export interface DeployConfig {
     provider: 'bedrock';
     modelId: string;
   };
-  iac: 'cdk' | 'terraform' | 'pulumi' | 'existing';
-  vpc: 'default' | 'new' | { vpcId: string };
+  iac: 'standalone' | 'existing';
+  infraPath?: string;      // path to existing Pulumi project (only for 'existing')
+  pulumiStack?: string;    // stack name (default: 'dev')
   slack: {
     botTokenSet: boolean;
     appTokenSet: boolean;

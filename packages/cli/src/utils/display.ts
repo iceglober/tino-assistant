@@ -36,7 +36,7 @@ export function displaySummary(config: {
   ║  Provider:    ${padRight(`${config.provider ?? 'aws'} (${config.region ?? 'us-east-1'})`, 33)}║
   ║  BAA:         ${padRight(`${baaIcon} AWS BAA ${awsBaa}`, 33)}║
   ║  Model:       ${padRight(config.model?.modelId ?? 'not set', 33)}║
-  ║  IaC:         ${padRight(config.iac ?? 'cdk', 33)}║
+  ║  IaC:         ${padRight(config.iac ?? 'standalone', 33)}║
   ║  Capabilities:${padRight(` ${enabledCaps}`, 33)}║
   ║                                                 ║
   ║  This will create:                              ║

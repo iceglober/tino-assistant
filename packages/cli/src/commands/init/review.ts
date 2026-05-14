@@ -61,7 +61,8 @@ function buildSafeConfig(config: DeployConfig): Record<string, unknown> {
     region: config.region,
     model: config.model,
     iac: config.iac,
-    vpc: config.vpc,
+    infraPath: config.infraPath,
+    pulumiStack: config.pulumiStack,
     slack: {
       botTokenSet: config.slack.botTokenSet,
       appTokenSet: config.slack.appTokenSet,

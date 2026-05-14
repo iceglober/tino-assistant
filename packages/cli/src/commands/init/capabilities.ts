@@ -358,7 +358,7 @@ async function setupCloudWatch(): Promise<CapabilityResult> {
   displayInfo('');
   displayInfo('Setting up CloudWatch Logs...');
   displayInfo('  CloudWatch Logs uses the ECS task role — no additional credentials needed.');
-  displayInfo('  The CDK stack will grant the task role read access to configured log groups.');
+  displayInfo('  The Pulumi stack grants the task role read access to configured log groups.');
   displayInfo('');
 
   const logGroup = await input({
