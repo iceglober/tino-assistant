@@ -63,14 +63,14 @@ export interface TinoServiceArgs {
    */
   compliance?: {
     /**
-     * Enable HIPAA compliance checks. Default: false.
+     * Enable HIPAA compliance checks. Default: true.
      *
-     * When true:
+     * When true (default):
      * - Verifies AWS BAA is signed (fails deployment if not)
      * - Adds "compliance:hipaa" tag to all resources
      * - Enables Container Insights for deeper audit trail
      *
-     * When false or omitted:
+     * When explicitly set to false:
      * - No BAA check
      * - No compliance-specific tags
      * - All security controls still apply (encryption, PITR, alarms, etc.)
@@ -155,7 +155,7 @@ export class TinoService extends pulumi.ComponentResource {
   constructor(name: string, args: TinoServiceArgs, opts?: pulumi.ComponentResourceOptions) {
     super("tino:aws:TinoService", name, {}, opts);
 
-    const hipaaCompliance = args.compliance?.hipaa === true;
+    const hipaaCompliance = args.compliance?.hipaa !== false; // default true
     const tags = {
       ...args.tags,
       "tino:managed": "true",
