@@ -46,22 +46,31 @@ export interface TinoServiceArgs {
   compliance?: {
     /**
      * HIPAA (Health Insurance Portability and Accountability Act). Default: true.
-     * Adds: BAA verification check, "compliance:hipaa" tags, Container Insights.
+     * Adds: BAA verification reminder (logged as a Pulumi warning), "compliance:hipaa"
+     * tags, Container Insights.
+     *
+     * The reminder instructs the deployer to verify a signed BAA in AWS Artifact.
+     * There is no programmatic AWS API to confirm BAA status, so the check is
+     * advisory only.
      */
     hipaa?: boolean;
 
     /**
      * SOC 2 Type II. Default: true.
-     * Adds: "compliance:soc2" tags. Recommends VPC Flow Logs (logged as a
-     * Pulumi warning if not detected on the VPC).
+     * Adds: "compliance:soc2" tags. Logs a Pulumi warning reminding the deployer
+     * to enable VPC Flow Logs on the VPC (required for SOC 2 CC6.1 network
+     * monitoring). The Pulumi AWS provider does not expose a read-only flow-log
+     * lookup, so detection is not possible — the warning is always emitted.
      */
     soc2?: boolean;
 
     /**
      * GDPR (General Data Protection Regulation). Default: false.
-     * Adds: "compliance:gdpr" tags, enforces single-region deployment (no
-     * cross-region replication), stricter default TTLs (30 days for history,
-     * 90 days for audit — matching right-to-erasure expectations).
+     * Adds: "compliance:gdpr" tags, restricts the Bedrock IAM policy to the
+     * current region only (preventing cross-region inference calls), reduces
+     * CloudWatch log retention to 30 days (right-to-erasure for application
+     * logs), and logs reminders about cross-region inference profiles and
+     * application-level data retention.
      *
      * Enable if tino processes data from EU users or employees.
      */
@@ -153,11 +162,16 @@ function discoverSubnets(vpcId: pulumi.Input<string>): pulumi.Output<string[]> {
  * - SNS topic is encrypted with the component's KMS key.
  * - Container Insights is always enabled for audit trail depth.
  *
- * VPC Flow Logs recommendation:
- * - When passing an existing VPC (`vpc` arg), ensure that VPC already has
- *   flow logs enabled (required for SOC 2 / HIPAA network audit trails).
- * - When the component creates its own cluster (no `cluster` arg), consider
- *   enabling flow logs on the VPC via a separate aws.ec2.FlowLog resource.
+ * Compliance behaviour (when flags are set):
+ * - HIPAA: logs a Pulumi warning reminding the deployer to verify a signed BAA
+ *   in AWS Artifact. No programmatic BAA check exists in the AWS API.
+ * - SOC 2: logs a Pulumi warning reminding the deployer to enable VPC Flow Logs
+ *   (required for CC6.1 network monitoring). Detection is not possible via the
+ *   Pulumi AWS provider, so the reminder is always emitted.
+ * - GDPR: restricts the Bedrock IAM policy to the current region (prevents
+ *   cross-region inference calls), reduces CloudWatch log retention to 30 days
+ *   (right-to-erasure for application logs), and logs reminders about
+ *   cross-region inference profiles and application-level data retention.
  */
 export class TinoService extends pulumi.ComponentResource {
   /** The DynamoDB table name. */
@@ -212,6 +226,55 @@ export class TinoService extends pulumi.ComponentResource {
     if (hitrustCompliance) complianceTags["compliance:hitrust"] = "true";
 
     const tags = { ...args?.tags, "tino:managed": "true", ...complianceTags };
+
+    // ── Compliance warnings ───────────────────────────────────────────────
+    // These run during `pulumi preview` and `pulumi up`.
+
+    // HIPAA: remind the deployer to verify a signed BAA.
+    // There is no AWS API that confirms BAA status programmatically; the
+    // reminder is the most honest implementation possible.
+    if (effectiveHipaa) {
+      pulumi.log.warn(
+        `HIPAA compliance is enabled. Verify that your AWS account has a signed BAA:\n` +
+        `  AWS Console → Artifact → Agreements → AWS Business Associate Addendum\n` +
+        `  https://console.aws.amazon.com/artifact/\n` +
+        `  Without a BAA, this deployment may violate HIPAA requirements.`,
+        this,
+      );
+    }
+
+    // SOC 2: remind the deployer to enable VPC Flow Logs.
+    // The Pulumi AWS provider does not expose a read-only flow-log lookup
+    // (aws.ec2.getFlowLogs does not exist), so we always emit the reminder.
+    if (soc2Compliance) {
+      pulumi.log.warn(
+        `SOC 2 compliance is enabled. Ensure VPC Flow Logs are enabled on your VPC.\n` +
+        `  Required for SOC 2 CC6.1 (network monitoring).\n` +
+        `  If using an existing VPC, verify flow logs are already configured.\n` +
+        `  To add flow logs: aws.ec2.FlowLog or your existing IaC.`,
+        this,
+      );
+    }
+
+    // GDPR: warn about cross-region Bedrock inference profiles.
+    // The IAM policy below enforces single-region Bedrock access when GDPR is
+    // on, but the model ID itself is configured at runtime — remind the deployer.
+    if (gdprCompliance) {
+      pulumi.log.warn(
+        `GDPR compliance is enabled. Ensure your Bedrock model uses a single-region inference profile\n` +
+        `  (e.g., us.anthropic.claude-sonnet-4-6), NOT a global profile (e.g., global.anthropic.claude-sonnet-4-6).\n` +
+        `  Global profiles route requests across regions, which may violate GDPR data residency requirements.\n` +
+        `  Configure the model ID in tino's console after deployment.`,
+        this,
+      );
+      pulumi.log.warn(
+        `GDPR compliance is enabled. Ensure tino's application-level data retention is configured:\n` +
+        `  - Conversation history: 30 days (right to erasure)\n` +
+        `  - Audit logs: 90 days\n` +
+        `  Configure via tino's console → Compliance section after deployment.`,
+        this,
+      );
+    }
 
     // ── VPC ──────────────────────────────────────────────────────────────
     // Use provided VPC (object or ID string), or discover the default VPC.
@@ -281,9 +344,12 @@ export class TinoService extends pulumi.ComponentResource {
     this.tableName = table.name;
 
     // ── CloudWatch log group ─────────────────────────────────────────────
+    // GDPR right-to-erasure: application logs are retained for 30 days.
+    // Non-GDPR deployments retain logs for 90 days.
+    const logRetentionDays = gdprCompliance ? 30 : 90;
     const logGroup = new aws.cloudwatch.LogGroup(`${name}-logs`, {
       name: `/ecs/tino-${name}`,
-      retentionInDays: 90,
+      retentionInDays: logRetentionDays,
       kmsKeyId: kmsKey.arn,
       tags,
     }, { parent: this });
@@ -419,7 +485,19 @@ export class TinoService extends pulumi.ComponentResource {
 
     // Task role: DynamoDB (config store + app data), Bedrock, KMS, CloudWatch Logs.
     // All resources are scoped — no wildcards except where AWS requires it.
+    // GDPR: Bedrock resources are restricted to the current region only, preventing
+    // cross-region inference calls that could violate data residency requirements.
     const extraLogGroupArns: pulumi.Input<string>[] = args?.cloudwatchLogGroupArns ?? [];
+    const region = aws.config.region ?? "us-east-1";
+    const bedrockResources = gdprCompliance
+      ? [
+          `arn:aws:bedrock:${region}:*:inference-profile/*`,
+          `arn:aws:bedrock:${region}::foundation-model/*`,
+        ]
+      : [
+          "arn:aws:bedrock:*:*:inference-profile/*",
+          "arn:aws:bedrock:*::foundation-model/*",
+        ];
     new aws.iam.RolePolicy(`${name}-task-policy`, {
       role: taskRole.name,
       policy: pulumi.all([table.arn, kmsKey.arn, logGroup.arn, ...extraLogGroupArns]).apply(
@@ -449,16 +527,13 @@ export class TinoService extends pulumi.ComponentResource {
               Resource: [tableArn, `${tableArn}/index/*`],
             },
             // Bedrock — scoped to inference profiles and foundation models.
-            // Model IDs are configured at runtime (not known at deploy time),
-            // so we allow any inference profile or foundation model ARN.
-            // Custom models, model customization jobs, etc. are NOT allowed.
+            // Model IDs are configured at runtime (not known at deploy time).
+            // When GDPR is enabled, resources are restricted to the current
+            // region to prevent cross-region inference calls.
             {
               Effect: "Allow",
               Action: ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
-              Resource: [
-                "arn:aws:bedrock:*:*:inference-profile/*",
-                "arn:aws:bedrock:*::foundation-model/*",
-              ],
+              Resource: bedrockResources,
             },
             // CloudWatch Logs — for CloudWatch tool queries.
             // Scoped to tino's own log group + any user-provided log groups.
