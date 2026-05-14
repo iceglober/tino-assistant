@@ -1,17 +1,16 @@
 /**
  * tino deploy — Build the Docker image, push to ECR, and update the ECS service.
  *
- * Wraps scripts/deploy.sh with a friendlier interface.
+ * Placeholder command — full implementation in Dispatch B.
  */
-import { execSync } from 'node:child_process';
-import { resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { command } from 'cmd-ts';
 
-const __dirname = fileURLToPath(new URL('.', import.meta.url));
-const repoRoot = resolve(__dirname, '../../../../');
-
-export async function deploy(_args: string[]): Promise<void> {
-  const scriptPath = resolve(repoRoot, 'scripts/deploy.sh');
-  console.log(`Running ${scriptPath}...`);
-  execSync(`bash "${scriptPath}"`, { stdio: 'inherit' });
-}
+export const deploy = command({
+  name: 'deploy',
+  description: 'Build, push, and deploy tino to ECS (coming in Dispatch B)',
+  args: {},
+  handler: async () => {
+    console.log('tino deploy: not yet implemented.');
+    console.log('Run `tino init` first to generate tino.deploy.json, then re-run `tino deploy`.');
+  },
+});

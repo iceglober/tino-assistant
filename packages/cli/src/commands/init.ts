@@ -1,12 +1,37 @@
 /**
- * tino init — Bootstrap a new tino deployment.
+ * tino init — Bootstrap a new HIPAA-compliant tino deployment.
  *
- * Guides the user through:
- * 1. Creating AWS SSM parameters for secrets
- * 2. Running CDK deploy for the infrastructure stack
- * 3. Building and pushing the Docker image
+ * Chains 8 interactive steps to collect a full DeployConfig,
+ * then writes tino.deploy.json and prints a dry-run deploy plan.
  */
-export async function init(_args: string[]): Promise<void> {
-  console.log('tino init: bootstrap flow not yet implemented');
-  console.log('See scripts/setup-secrets.sh for manual setup instructions.');
-}
+import { command } from 'cmd-ts';
+import { displayBanner } from '../utils/display.js';
+import { stepCompliance } from './init/compliance.js';
+import { stepProvider } from './init/provider.js';
+import { stepBaa } from './init/baa.js';
+import { stepModel } from './init/model.js';
+import { stepInfrastructure } from './init/infrastructure.js';
+import { stepSlack } from './init/slack.js';
+import { stepCapabilities } from './init/capabilities.js';
+import { stepReview } from './init/review.js';
+import type { DeployConfig } from './init/types.js';
+
+export const init = command({
+  name: 'init',
+  description: 'Set up a new HIPAA-compliant tino deployment',
+  args: {},
+  handler: async () => {
+    displayBanner();
+
+    let config: Partial<DeployConfig> = {};
+
+    config = await stepCompliance(config);
+    config = await stepProvider(config);
+    config = await stepBaa(config);
+    config = await stepModel(config);
+    config = await stepInfrastructure(config);
+    config = await stepSlack(config);
+    config = await stepCapabilities(config);
+    await stepReview(config as DeployConfig);
+  },
+});
