@@ -1,16 +1,26 @@
 /**
  * tino deploy — Build the Docker image, push to ECR, and update the ECS service.
- *
- * Placeholder command — full implementation in Dispatch B.
  */
 import { command } from 'cmd-ts';
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import type { DeployConfig } from './init/types.js';
+import { displayError } from '../utils/display.js';
+import { executeDeploy } from './deploy-executor.js';
 
 export const deploy = command({
   name: 'deploy',
-  description: 'Build, push, and deploy tino to ECS (coming in Dispatch B)',
+  description: 'Deploy tino to AWS (ECS Fargate)',
   args: {},
   handler: async () => {
-    console.log('tino deploy: not yet implemented.');
-    console.log('Run `tino init` first to generate tino.deploy.json, then re-run `tino deploy`.');
+    // Read tino.deploy.json from the repo root (cwd when the user runs `tino deploy`)
+    const configPath = resolve(process.cwd(), 'tino.deploy.json');
+    if (!existsSync(configPath)) {
+      displayError('tino.deploy.json not found. Run `tino init` first.');
+      process.exit(1);
+    }
+
+    const config = JSON.parse(readFileSync(configPath, 'utf8')) as DeployConfig;
+    await executeDeploy(config);
   },
 });

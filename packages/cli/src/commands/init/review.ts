@@ -3,7 +3,7 @@ import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { DeployConfig } from './types.js';
-import { displaySuccess, displayInfo, displayWarning, displaySummary } from '../../utils/display.js';
+import { displaySuccess, displayInfo, displaySummary } from '../../utils/display.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 // Repo root is 5 levels up from packages/cli/src/commands/init/
@@ -37,21 +37,18 @@ export async function stepReview(config: DeployConfig): Promise<void> {
   displayInfo('  Credentials are NOT in this file — they are in Secrets Manager.');
 
   if (choice === 'deploy') {
-    printDryRunPlan(config);
-    displayInfo('');
-    displayInfo('  Run `tino deploy` to execute these steps.');
-    displayInfo('  (Full deploy implementation coming in Dispatch B)');
+    const { executeDeploy } = await import('../deploy-executor.js');
+    await executeDeploy(config);
   } else {
     displayInfo('');
     displayInfo('  Run `tino deploy` when you are ready to deploy.');
+    displayInfo('');
+    displaySuccess('tino init complete!');
+    displayInfo('  Next steps:');
+    displayInfo('  • Run `tino deploy` to deploy the infrastructure');
+    displayInfo('  • DM tino in Slack once deployed');
+    displayInfo('  • Logs: aws logs tail /ecs/tino --follow');
   }
-
-  displayInfo('');
-  displaySuccess('tino init complete!');
-  displayInfo('  Next steps:');
-  displayInfo('  • Run `tino deploy` to deploy the infrastructure');
-  displayInfo('  • DM tino in Slack once deployed');
-  displayInfo('  • Logs: aws logs tail /ecs/tino --follow');
 }
 
 /**
@@ -81,53 +78,3 @@ function buildSafeConfig(config: DeployConfig): Record<string, unknown> {
   };
 }
 
-/**
- * Print what the deploy step WOULD do (dry-run).
- */
-function printDryRunPlan(config: DeployConfig): void {
-  const enabledCaps = Object.entries(config.capabilities)
-    .filter(([, v]) => v.enabled)
-    .map(([k]) => k);
-
-  const secretNames = [
-    '/tino/SLACK_BOT_TOKEN',
-    '/tino/SLACK_APP_TOKEN',
-    '/tino/BEDROCK_MODEL_ID',
-    ...enabledCaps.flatMap((cap) => {
-      switch (cap) {
-        case 'github':
-          return ['/tino/GITHUB_PAT'];
-        case 'linear':
-          return ['/tino/LINEAR_TOKEN'];
-        case 'google-calendar':
-        case 'gmail':
-          return ['/tino/GOOGLE_CLIENT_ID', '/tino/GOOGLE_CLIENT_SECRET'];
-        case 'slack-reading':
-          return ['/tino/SLACK_USER_TOKEN'];
-        default:
-          return [];
-      }
-    }),
-  ];
-
-  // Deduplicate
-  const uniqueSecrets = [...new Set(secretNames)];
-
-  displayInfo('');
-  displayInfo('  Dry-run deploy plan:');
-  displayInfo(`  [dry-run] would run: cd packages/aws && npx cdk deploy`);
-  displayInfo(
-    `  [dry-run] would push ${uniqueSecrets.length} secrets to Secrets Manager (${uniqueSecrets.join(', ')})`
-  );
-  displayInfo(`  [dry-run] would run: docker build -t tino:latest .`);
-  displayInfo(`  [dry-run] would run: docker push <ecr-repo>/tino:latest`);
-  displayInfo(
-    `  [dry-run] would run: aws ecs update-service --cluster tino --service tino --force-new-deployment --region ${config.region}`
-  );
-
-  if (config.iac === 'terraform') {
-    displayWarning('  Terraform IaC selected — CDK deploy step will be replaced with terraform apply.');
-  } else if (config.iac === 'pulumi') {
-    displayWarning('  Pulumi IaC selected — CDK deploy step will be replaced with pulumi up.');
-  }
-}
