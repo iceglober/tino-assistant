@@ -51,42 +51,45 @@ export interface TinoServiceArgs {
   secrets?: Record<string, pulumi.Input<string>>;
 
   /**
-   * HIPAA compliance mode. Default: true.
+   * Regulatory compliance configuration. Optional.
    *
-   * When true (default):
-   * - Customer-managed KMS key for all encryption (DynamoDB, Secrets Manager, CloudWatch Logs)
-   * - DynamoDB point-in-time recovery enabled
-   * - DynamoDB TTL enabled (audit: 90 days, history: 30 days)
-   * - CloudWatch metric filter + alarm for security events
-   * - SNS topic for security alert notifications
-   * - Least-privilege IAM (no wildcard resource ARNs)
-   * - BAA verification check during deployment
-   * - Encrypted CloudWatch log group
+   * Security controls (CMK encryption, PITR, audit alarms, least-privilege IAM,
+   * encrypted logs, image scanning) are ALWAYS enabled regardless of this setting.
+   * They're just good security practice.
    *
-   * When false:
-   * - AWS-managed encryption (default, no CMK)
-   * - No PITR
-   * - No audit alarms
-   * - No BAA check
-   * - Still creates the same resources, just without the HIPAA hardening
-   *
-   * Set to false ONLY for non-PHI workloads or development environments.
+   * The `compliance` field adds regulatory-specific checks on top:
+   * - hipaa: verifies AWS BAA is signed before deploying, adds HIPAA compliance
+   *   tags to all resources, enables Container Insights for audit trail depth.
    */
-  hipaa?: boolean;
+  compliance?: {
+    /**
+     * Enable HIPAA compliance checks. Default: false.
+     *
+     * When true:
+     * - Verifies AWS BAA is signed (fails deployment if not)
+     * - Adds "compliance:hipaa" tag to all resources
+     * - Enables Container Insights for deeper audit trail
+     *
+     * When false or omitted:
+     * - No BAA check
+     * - No compliance-specific tags
+     * - All security controls still apply (encryption, PITR, alarms, etc.)
+     */
+    hipaa?: boolean;
+  };
 
   /**
-   * Audit log retention in days. Default: 90. Only applies when hipaa=true.
+   * Audit log retention in days. Default: 90.
    */
   auditRetentionDays?: number;
 
   /**
-   * Conversation history retention in days. Default: 30. Only applies when hipaa=true.
+   * Conversation history retention in days. Default: 30.
    */
   historyRetentionDays?: number;
 
   /**
    * Email address for security alert notifications (SNS subscription).
-   * Only applies when hipaa=true.
    */
   alertEmail?: pulumi.Input<string>;
 
@@ -135,12 +138,12 @@ export class TinoService extends pulumi.ComponentResource {
   public readonly ecrRepoUri?: pulumi.Output<string>;
 
   /**
-   * The KMS key ARN (if hipaa=true).
+   * The KMS key ARN.
    */
-  public readonly kmsKeyArn?: pulumi.Output<string>;
+  public readonly kmsKeyArn: pulumi.Output<string>;
 
   /**
-   * The SNS topic ARN for security alerts (if hipaa=true).
+   * The SNS topic ARN for security alerts (if alertEmail is provided).
    */
   public readonly alertTopicArn?: pulumi.Output<string>;
 
@@ -152,14 +155,18 @@ export class TinoService extends pulumi.ComponentResource {
   constructor(name: string, args: TinoServiceArgs, opts?: pulumi.ComponentResourceOptions) {
     super("tino:aws:TinoService", name, {}, opts);
 
-    const hipaa = args.hipaa !== false; // default true
-    const tags = { ...args.tags, "tino:managed": "true", "tino:hipaa": String(hipaa) };
+    const hipaaCompliance = args.compliance?.hipaa === true;
+    const tags = {
+      ...args.tags,
+      "tino:managed": "true",
+      ...(hipaaCompliance ? { "compliance:hipaa": "true" } : {}),
+    };
     const bedrockModelId = args.bedrockModelId ?? "global.anthropic.claude-sonnet-4-6";
 
-    // ── BAA check (hipaa=true only) ──────────────────────────────────────
+    // ── BAA check (compliance.hipaa=true only) ───────────────────────────
     // Use a Pulumi dynamic provider that runs during planning.
     // Calls AWS to verify the BAA is signed. If not, fails the deployment.
-    if (hipaa) {
+    if (hipaaCompliance) {
       // Create a dynamic resource that checks BAA status.
       // Implementation: call `aws organizations describe-organization` or
       // check for the artifact agreement. If the check fails or is
@@ -171,22 +178,19 @@ export class TinoService extends pulumi.ComponentResource {
       // The check runs during `pulumi preview` and `pulumi up`.
     }
 
-    // ── KMS key (hipaa=true only) ────────────────────────────────────────
-    let kmsKey: aws.kms.Key | undefined;
-    if (hipaa) {
-      kmsKey = new aws.kms.Key(`${name}-kms`, {
-        description: `tino encryption key (${name})`,
-        enableKeyRotation: true,
-        tags,
-      }, { parent: this });
+    // ── KMS key (always) ─────────────────────────────────────────────────
+    const kmsKey = new aws.kms.Key(`${name}-kms`, {
+      description: `tino encryption key (${name})`,
+      enableKeyRotation: true,
+      tags,
+    }, { parent: this });
 
-      new aws.kms.Alias(`${name}-kms-alias`, {
-        name: `alias/tino-${name}`,
-        targetKeyId: kmsKey.id,
-      }, { parent: this });
+    new aws.kms.Alias(`${name}-kms-alias`, {
+      name: `alias/tino-${name}`,
+      targetKeyId: kmsKey.id,
+    }, { parent: this });
 
-      this.kmsKeyArn = kmsKey.arn;
-    }
+    this.kmsKeyArn = kmsKey.arn;
 
     // ── DynamoDB table ───────────────────────────────────────────────────
     const table = new aws.dynamodb.Table(`${name}-table`, {
@@ -206,11 +210,9 @@ export class TinoService extends pulumi.ComponentResource {
         rangeKey: "gsi1sk",
         projectionType: "ALL",
       }],
-      pointInTimeRecovery: hipaa ? { enabled: true } : undefined,
-      ttl: hipaa ? { attributeName: "ttl", enabled: true } : undefined,
-      serverSideEncryption: kmsKey
-        ? { enabled: true, kmsKeyArn: kmsKey.arn }
-        : { enabled: true },
+      pointInTimeRecovery: { enabled: true },
+      ttl: { attributeName: "ttl", enabled: true },
+      serverSideEncryption: { enabled: true, kmsKeyArn: kmsKey.arn },
       tags,
     }, { parent: this });
 
@@ -219,54 +221,51 @@ export class TinoService extends pulumi.ComponentResource {
     // ── CloudWatch log group ─────────────────────────────────────────────
     const logGroup = new aws.cloudwatch.LogGroup(`${name}-logs`, {
       name: `/ecs/tino-${name}`,
-      retentionInDays: hipaa ? (args.auditRetentionDays ?? 90) : 30,
-      kmsKeyId: kmsKey?.arn,
+      retentionInDays: args.auditRetentionDays ?? 90,
+      kmsKeyId: kmsKey.arn,
       tags,
     }, { parent: this });
 
     this.logGroupName = logGroup.name;
 
-    // ── Security alarms (hipaa=true only) ────────────────────────────────
-    let snsTopic: aws.sns.Topic | undefined;
-    if (hipaa) {
-      snsTopic = new aws.sns.Topic(`${name}-alerts`, {
-        name: `tino-${name}-security-alerts`,
-        tags,
+    // ── Security alarms (always) ─────────────────────────────────────────
+    const snsTopic = new aws.sns.Topic(`${name}-alerts`, {
+      name: `tino-${name}-security-alerts`,
+      tags,
+    }, { parent: this });
+
+    if (args.alertEmail) {
+      new aws.sns.TopicSubscription(`${name}-alert-email`, {
+        topic: snsTopic.arn,
+        protocol: "email",
+        endpoint: args.alertEmail,
       }, { parent: this });
-
-      if (args.alertEmail) {
-        new aws.sns.TopicSubscription(`${name}-alert-email`, {
-          topic: snsTopic.arn,
-          protocol: "email",
-          endpoint: args.alertEmail,
-        }, { parent: this });
-      }
-
-      const metricFilter = new aws.cloudwatch.LogMetricFilter(`${name}-security-events`, {
-        logGroupName: logGroup.name,
-        pattern: '"access_denied" OR "auth_error" OR "permission_denied" OR "injection_suspected"',
-        metricTransformation: {
-          name: `tino-${name}-security-events`,
-          namespace: "Tino/Security",
-          value: "1",
-        },
-      }, { parent: this });
-
-      new aws.cloudwatch.MetricAlarm(`${name}-security-alarm`, {
-        name: `tino-${name}-security-events`,
-        comparisonOperator: "GreaterThanThreshold",
-        evaluationPeriods: 1,
-        metricName: metricFilter.metricTransformation.name,
-        namespace: "Tino/Security",
-        period: 900, // 15 minutes
-        statistic: "Sum",
-        threshold: 5,
-        alarmActions: [snsTopic.arn],
-        tags,
-      }, { parent: this });
-
-      this.alertTopicArn = snsTopic.arn;
     }
+
+    const metricFilter = new aws.cloudwatch.LogMetricFilter(`${name}-security-events`, {
+      logGroupName: logGroup.name,
+      pattern: '"access_denied" OR "auth_error" OR "permission_denied" OR "injection_suspected"',
+      metricTransformation: {
+        name: `tino-${name}-security-events`,
+        namespace: "Tino/Security",
+        value: "1",
+      },
+    }, { parent: this });
+
+    new aws.cloudwatch.MetricAlarm(`${name}-security-alarm`, {
+      name: `tino-${name}-security-events`,
+      comparisonOperator: "GreaterThanThreshold",
+      evaluationPeriods: 1,
+      metricName: metricFilter.metricTransformation.name,
+      namespace: "Tino/Security",
+      period: 900, // 15 minutes
+      statistic: "Sum",
+      threshold: 5,
+      alarmActions: [snsTopic.arn],
+      tags,
+    }, { parent: this });
+
+    this.alertTopicArn = snsTopic.arn;
 
     // ── ECR repository ───────────────────────────────────────────────────
     let ecrRepo: aws.ecr.Repository | undefined;
@@ -274,7 +273,7 @@ export class TinoService extends pulumi.ComponentResource {
       ecrRepo = new aws.ecr.Repository(`${name}-ecr`, {
         name: `tino-${name}`,
         forceDelete: false,
-        imageScanningConfiguration: { scanOnPush: hipaa },
+        imageScanningConfiguration: { scanOnPush: true },
         tags,
       }, { parent: this });
       this.ecrRepoUri = ecrRepo.repositoryUrl;
@@ -314,7 +313,7 @@ export class TinoService extends pulumi.ComponentResource {
     // Task role: DynamoDB, Bedrock, KMS, CloudWatch Logs
     new aws.iam.RolePolicy(`${name}-task-policy`, {
       role: taskRole.name,
-      policy: pulumi.all([table.arn, kmsKey?.arn, logGroup.arn]).apply(([tableArn, kmsArn, logArn]) => {
+      policy: pulumi.all([table.arn, kmsKey.arn, logGroup.arn]).apply(([tableArn, kmsArn, logArn]) => {
         const statements: object[] = [
           // DynamoDB
           {
@@ -335,15 +334,13 @@ export class TinoService extends pulumi.ComponentResource {
             Action: ["logs:StartQuery", "logs:GetQueryResults", "logs:StopQuery"],
             Resource: ["*"], // scoped by the tool's allowlist, not IAM
           },
-        ];
-
-        if (kmsArn) {
-          statements.push({
+          // KMS
+          {
             Effect: "Allow",
             Action: ["kms:Encrypt", "kms:Decrypt", "kms:GenerateDataKey"],
             Resource: [kmsArn],
-          });
-        }
+          },
+        ];
 
         // logArn is referenced to satisfy the pulumi.all dependency for
         // CloudWatch log group creation ordering; not used in policy directly.
@@ -356,7 +353,9 @@ export class TinoService extends pulumi.ComponentResource {
     // ── ECS cluster (create or reuse) ────────────────────────────────────
     const cluster = args.cluster ?? new aws.ecs.Cluster(`${name}-cluster`, {
       name: `tino-${name}`,
-      settings: [{ name: "containerInsights", value: hipaa ? "enabled" : "disabled" }],
+      // Container Insights: enabled for HIPAA (audit trail depth), disabled otherwise.
+      // Security controls are unconditional; this is a cost/audit-depth tradeoff.
+      settings: [{ name: "containerInsights", value: hipaaCompliance ? "enabled" : "disabled" }],
       tags,
     }, { parent: this });
 
