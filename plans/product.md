@@ -10,16 +10,78 @@ it runs on your AWS infrastructure, uses BAA-backed models on Bedrock, and is co
 
 ## deployment model
 
-tino is open-source software that orgs deploy on their own infrastructure. there is no hosted version, no SaaS, no data leaving the org's AWS account.
+tino is distributed as npm packages and deployed on your own infrastructure. there is no hosted version, no SaaS, no data leaving your AWS account.
+
+### two installation modes
+
+**standalone (default):** clone the repo, run `tino init`, get a running instance. the repo includes a ready-to-deploy CDK stack. this is the fastest path for teams without existing infrastructure-as-code.
+
+```bash
+git clone https://github.com/iceglober/tino-assistant
+cd tino-assistant
+bun install
+bun run tino init    # walks through setup + deploys
+```
+
+**npm install (existing monorepo):** add tino as a dependency in your existing project. `tino init` detects it's inside an existing project and adapts — generates IaC components for your tool (Pulumi, CDK, Terraform) instead of deploying a standalone stack.
+
+```bash
+# in your existing monorepo
+pnpm add -D @tino/core @tino/aws @tino/cli
+npx tino init
+```
+
+### npm packages
+
+| package | what it is | who uses it |
+|---------|-----------|-------------|
+| `@tino/core` | agent loop, tools, Slack bot, console, persistence interfaces, scheduler | everyone — this is the runtime |
+| `@tino/aws` | DynamoDB adapters, CDK construct, Pulumi component, Secrets Manager, KMS encryption | AWS deployers |
+| `@tino/cli` | `tino init`, `tino deploy` commands | deployers (dev dependency) |
+
+packages are published to npm. the standalone repo (`iceglober/tino-assistant`) uses them as workspace packages during development.
+
+### IaC flexibility
+
+the deployment has two separable phases:
+
+1. **infrastructure provisioning** (DynamoDB, ECS, KMS, etc.) — IaC-tool-dependent
+2. **application deployment** (Docker build, ECR push, ECS rolling update) — same regardless of IaC
+
+`@tino/aws` exports both a **CDK construct** and a **Pulumi component** that create identical resources. `tino init` asks which IaC tool you use:
 
 ```
-iceglober/tino-assistant (public repo, MIT)
-  └── your-org deploys to your-org's AWS account
-        ├── ECS Fargate (compute)
-        ├── DynamoDB (persistence)
-        ├── Secrets Manager (credentials)
-        ├── Bedrock (model inference — BAA-backed)
-        └── your Slack workspace (Socket Mode — no public endpoint)
+? Do you have an existing IaC project?
+  ❯ No, deploy standalone with CDK (recommended)
+    Yes, I use Pulumi — generate a Pulumi component
+    Yes, I use CDK — generate a CDK construct to import
+    Yes, I use Terraform — generate a Terraform module (coming soon)
+    Yes, I'll manage infrastructure myself — give me the resource spec
+```
+
+**standalone (CDK):** `tino init` runs `cdk deploy` directly. zero IaC knowledge needed.
+
+**existing Pulumi monorepo:** `tino init` generates a Pulumi component at a path you specify (e.g., `infra/tino/`). you import it into your existing stack and run `pulumi up` through your normal pipeline. the component creates the same resources as the CDK stack and exports the same outputs.
+
+**existing CDK project:** `tino init` generates a CDK construct you add to your existing app. same pattern.
+
+**manual:** `tino init` prints the resource spec (what DynamoDB table, what KMS key, what IAM policies, etc.) and you create them however you want. `tino deploy` just needs the resource ARNs.
+
+`tino deploy` reads outputs from whatever IaC tool was used (CloudFormation stack outputs, Pulumi stack outputs, Terraform state, or a manual `tino.deploy.json` with ARNs) and handles the application deployment.
+
+### what gets deployed
+
+```
+your AWS account
+  ├── ECS Fargate task (tino runtime — @tino/core)
+  ├── DynamoDB table (persistence — encrypted, PITR, TTL)
+  ├── KMS key (envelope encryption for personal tokens)
+  ├── Secrets Manager (org credentials)
+  ├── ECR repository (Docker images)
+  ├── CloudWatch Logs (encrypted, metric filters + alarms)
+  ├── SNS topic (security alert notifications)
+  ├── IAM roles (least-privilege, scoped to specific resources)
+  └── your Slack workspace (Socket Mode — no public endpoint, no ALB)
 ```
 
 this means:
@@ -1193,13 +1255,24 @@ these metrics are visible to the admin. if time-to-first-useful-answer exceeds 1
 - update the console to manage instances
 - migrate existing capabilities to single-instance format
 
-### v2.2: MCP integration
+### v2.2: npm distribution + Pulumi support
+- build step for all three packages (TypeScript → JavaScript + .d.ts)
+- proper `exports` maps in each package.json (subpath exports for `@tino/aws/persistence`, etc.)
+- `@tino/cli` bin field so `npx tino init` works
+- CDK stack refactored into an importable CDK construct (not just a standalone app)
+- Pulumi component in `@tino/aws` that creates identical resources to the CDK construct
+- `tino deploy` reads outputs from CloudFormation OR Pulumi stack state
+- `tino init` detects standalone vs npm-install mode and adapts
+- publish to npm under `@tino/` scope (or `@iceglober/tino-*`)
+- README updated with both installation paths
+
+### v2.3: MCP integration
 - add MCP server connection support (tier 1: external only)
 - implement tool discovery from MCP servers
 - wire permission filtering on MCP-discovered tools
 - build the Atlassian Jira capability type as the first MCP consumer
 
-### v2.3: multi-user
+### v2.4: multi-user
 - better-auth integration (Google SSO, session management, account linking)
 - user table in DynamoDB (tino-generated UUID as PK, linked identities)
 - per-user conversation history, preferences, tasks (partition key isolation)
@@ -1208,19 +1281,19 @@ these metrics are visible to the admin. if time-to-first-useful-answer exceeds 1
 - allowlist/domain-based access control
 - admin vs member roles
 
-### v2.4: console auth + admin UI
+### v2.5: console auth + admin UI
 - better-auth mounted on console HTTP server
 - Google Workspace SSO for the console
 - admin console (users, org capabilities, audit logs, usage, compliance dashboard)
 - user console (personal capabilities, preferences, usage)
 - move console from localhost-only to SSO-protected
 
-### v2.5: security hardening
+### v2.6: security hardening
 - budget alerts and usage tracking
 - credential rotation detection + notification
 - security policy enforcement (org-level: which capability types are allowed, max findWork frequency, etc.)
 
-### v2.6: onboarding flow
+### v2.7: onboarding flow
 - guided setup in the console (first-time experience)
 - "test connection" for each capability
 - nudge loop in the system prompt
@@ -1228,7 +1301,7 @@ these metrics are visible to the admin. if time-to-first-useful-answer exceeds 1
 - weekly usage digest DMs
 - see "onboarding: closing the activation gap" section below
 
-### v2.7: data isolation (hard enforcement)
+### v2.8: data isolation (hard enforcement)
 - tag tool results with instance isolation labels
 - filter data in prompt assembly based on sharing rules
 - separate conversation contexts per isolation group

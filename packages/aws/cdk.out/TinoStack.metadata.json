@@ -1,0 +1,462 @@
+{
+  "/TinoStack": [
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "<anonymous> (/Users/austinhess/repos/iceglober/tino-assistant/packages/aws/src/infra/bin.ts:6:1)",
+        "...node internals..."
+      ]
+    }
+  ],
+  "/TinoStack/TinoTable": [
+    {
+      "type": "aws:cdk:hasPhysicalName",
+      "data": {
+        "Ref": "TinoTable2857731A"
+      }
+    }
+  ],
+  "/TinoStack/TinoService": [
+    {
+      "type": "aws:cdk:warning",
+      "data": "Enable the 'circuitBreaker' property to trigger a quicker deployment failure if tasks are failing to come start (without this setting deployments may take up to 3 hours to fail). [ack: @aws-cdk/aws-ecs:shouldUseCircuitBreaker]",
+      "trace": [
+        "Annotations.addMessage (/Users/austinhess/repos/iceglober/tino-assistant/node_modules/.bun/aws-cdk-lib@2.254.0+e7139fb0f4384fd5/node_modules/aws-cdk-lib/core/lib/annotations.js:1:2399)",
+        "Annotations.addWarningV2 (/Users/austinhess/repos/iceglober/tino-assistant/node_modules/.bun/aws-cdk-lib@2.254.0+e7139fb0f4384fd5/node_modules/aws-cdk-lib/core/lib/annotations.js:1:1087)",
+        "new BaseService2 (/Users/austinhess/repos/iceglober/tino-assistant/node_modules/.bun/aws-cdk-lib@2.254.0+e7139fb0f4384fd5/node_modules/aws-cdk-lib/aws-ecs/lib/base/base-service.js:1:13563)",
+        "new BaseService2 (/Users/austinhess/repos/iceglober/tino-assistant/node_modules/.bun/aws-cdk-lib@2.254.0+e7139fb0f4384fd5/node_modules/aws-cdk-lib/core/lib/no-box-stack-traces.js:1:345)",
+        "new FargateService2 (/Users/austinhess/repos/iceglober/tino-assistant/node_modules/.bun/aws-cdk-lib@2.254.0+e7139fb0f4384fd5/node_modules/aws-cdk-lib/aws-ecs/lib/fargate/fargate-service.js:1:6805)",
+        "new FargateService2 (/Users/austinhess/repos/iceglober/tino-assistant/node_modules/.bun/aws-cdk-lib@2.254.0+e7139fb0f4384fd5/node_modules/aws-cdk-lib/core/lib/prop-injectable.js:1:855)",
+        "new TinoStack (/Users/austinhess/repos/iceglober/tino-assistant/packages/aws/src/infra/tino-stack.ts:390:21)",
+        "<anonymous> (/Users/austinhess/repos/iceglober/tino-assistant/packages/aws/src/infra/bin.ts:6:1)",
+        "ModuleJob.run (node:internal/modules/esm/module_job:430:25)",
+        "async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:661:26)",
+        "async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)"
+      ]
+    },
+    {
+      "type": "aws:cdk:warning",
+      "data": "minHealthyPercent has not been configured so the default value of 50% is used. The number of running tasks will decrease below the desired count during deployments etc. See https://github.com/aws/aws-cdk/issues/31705 [ack: @aws-cdk/aws-ecs:minHealthyPercent]",
+      "trace": [
+        "Annotations.addMessage (/Users/austinhess/repos/iceglober/tino-assistant/node_modules/.bun/aws-cdk-lib@2.254.0+e7139fb0f4384fd5/node_modules/aws-cdk-lib/core/lib/annotations.js:1:2399)",
+        "Annotations.addWarningV2 (/Users/austinhess/repos/iceglober/tino-assistant/node_modules/.bun/aws-cdk-lib@2.254.0+e7139fb0f4384fd5/node_modules/aws-cdk-lib/core/lib/annotations.js:1:1087)",
+        "new BaseService2 (/Users/austinhess/repos/iceglober/tino-assistant/node_modules/.bun/aws-cdk-lib@2.254.0+e7139fb0f4384fd5/node_modules/aws-cdk-lib/aws-ecs/lib/base/base-service.js:1:14478)",
+        "new BaseService2 (/Users/austinhess/repos/iceglober/tino-assistant/node_modules/.bun/aws-cdk-lib@2.254.0+e7139fb0f4384fd5/node_modules/aws-cdk-lib/core/lib/no-box-stack-traces.js:1:345)",
+        "new FargateService2 (/Users/austinhess/repos/iceglober/tino-assistant/node_modules/.bun/aws-cdk-lib@2.254.0+e7139fb0f4384fd5/node_modules/aws-cdk-lib/aws-ecs/lib/fargate/fargate-service.js:1:6805)",
+        "new FargateService2 (/Users/austinhess/repos/iceglober/tino-assistant/node_modules/.bun/aws-cdk-lib@2.254.0+e7139fb0f4384fd5/node_modules/aws-cdk-lib/core/lib/prop-injectable.js:1:855)",
+        "new TinoStack (/Users/austinhess/repos/iceglober/tino-assistant/packages/aws/src/infra/tino-stack.ts:390:21)",
+        "<anonymous> (/Users/austinhess/repos/iceglober/tino-assistant/packages/aws/src/infra/bin.ts:6:1)",
+        "ModuleJob.run (node:internal/modules/esm/module_job:430:25)",
+        "async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:661:26)",
+        "async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)"
+      ]
+    }
+  ],
+  "/TinoStack/KmsKeyArn": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "KmsKeyArn"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "new TinoStack (/Users/austinhess/repos/iceglober/tino-assistant/packages/aws/src/infra/tino-stack.ts:401:5)",
+        "<anonymous> (/Users/austinhess/repos/iceglober/tino-assistant/packages/aws/src/infra/bin.ts:6:1)",
+        "...node internals..."
+      ]
+    }
+  ],
+  "/TinoStack/EcrRepoUri": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "EcrRepoUri"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "new TinoStack (/Users/austinhess/repos/iceglober/tino-assistant/packages/aws/src/infra/tino-stack.ts:407:5)",
+        "<anonymous> (/Users/austinhess/repos/iceglober/tino-assistant/packages/aws/src/infra/bin.ts:6:1)",
+        "...node internals..."
+      ]
+    }
+  ],
+  "/TinoStack/ClusterName": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "ClusterName"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "new TinoStack (/Users/austinhess/repos/iceglober/tino-assistant/packages/aws/src/infra/tino-stack.ts:413:5)",
+        "<anonymous> (/Users/austinhess/repos/iceglober/tino-assistant/packages/aws/src/infra/bin.ts:6:1)",
+        "...node internals..."
+      ]
+    }
+  ],
+  "/TinoStack/ServiceName": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "ServiceName"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "new TinoStack (/Users/austinhess/repos/iceglober/tino-assistant/packages/aws/src/infra/tino-stack.ts:419:5)",
+        "<anonymous> (/Users/austinhess/repos/iceglober/tino-assistant/packages/aws/src/infra/bin.ts:6:1)",
+        "...node internals..."
+      ]
+    }
+  ],
+  "/TinoStack/LogGroupName": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "LogGroupName"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "new TinoStack (/Users/austinhess/repos/iceglober/tino-assistant/packages/aws/src/infra/tino-stack.ts:425:5)",
+        "<anonymous> (/Users/austinhess/repos/iceglober/tino-assistant/packages/aws/src/infra/bin.ts:6:1)",
+        "...node internals..."
+      ]
+    }
+  ],
+  "/TinoStack/DynamoTableName": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "DynamoTableName"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "new TinoStack (/Users/austinhess/repos/iceglober/tino-assistant/packages/aws/src/infra/tino-stack.ts:431:5)",
+        "<anonymous> (/Users/austinhess/repos/iceglober/tino-assistant/packages/aws/src/infra/bin.ts:6:1)",
+        "...node internals..."
+      ]
+    }
+  ],
+  "/TinoStack/AlarmTopicArn": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "AlarmTopicArn"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "new TinoStack (/Users/austinhess/repos/iceglober/tino-assistant/packages/aws/src/infra/tino-stack.ts:437:5)",
+        "<anonymous> (/Users/austinhess/repos/iceglober/tino-assistant/packages/aws/src/infra/bin.ts:6:1)",
+        "...node internals..."
+      ]
+    }
+  ],
+  "/TinoStack/BootstrapVersion": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "BootstrapVersion"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "....bun, node internals, .pnpm...",
+        "(no user code in 9007199254740991 frames, use --stack-trace-limit to capture more)"
+      ]
+    }
+  ],
+  "/TinoStack/CheckBootstrapVersion": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "CheckBootstrapVersion"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "....bun, node internals, .pnpm...",
+        "(no user code in 9007199254740991 frames, use --stack-trace-limit to capture more)"
+      ]
+    }
+  ],
+  "/TinoStack/TinoRepo/Resource": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "TinoRepoC22FD759"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...new Repository2 in .bun...",
+        "new TinoStack (/Users/austinhess/repos/iceglober/tino-assistant/packages/aws/src/infra/tino-stack.ts:53:21)",
+        "<anonymous> (/Users/austinhess/repos/iceglober/tino-assistant/packages/aws/src/infra/bin.ts:6:1)",
+        "...node internals..."
+      ]
+    }
+  ],
+  "/TinoStack/TinoKey/Resource": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "TinoKey738F1479"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...new Key2 in .bun...",
+        "new TinoStack (/Users/austinhess/repos/iceglober/tino-assistant/packages/aws/src/infra/tino-stack.ts:61:21)",
+        "<anonymous> (/Users/austinhess/repos/iceglober/tino-assistant/packages/aws/src/infra/bin.ts:6:1)",
+        "...node internals..."
+      ]
+    }
+  ],
+  "/TinoStack/TinoTable/Resource": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "TinoTable2857731A"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...new Table2 in .bun...",
+        "new TinoStack (/Users/austinhess/repos/iceglober/tino-assistant/packages/aws/src/infra/tino-stack.ts:73:19)",
+        "<anonymous> (/Users/austinhess/repos/iceglober/tino-assistant/packages/aws/src/infra/bin.ts:6:1)",
+        "...node internals..."
+      ]
+    }
+  ],
+  "/TinoStack/TinoLogGroup/Resource": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "TinoLogGroup4D2496A9"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...new LogGroup2 in .bun...",
+        "new TinoStack (/Users/austinhess/repos/iceglober/tino-assistant/packages/aws/src/infra/tino-stack.ts:117:22)",
+        "<anonymous> (/Users/austinhess/repos/iceglober/tino-assistant/packages/aws/src/infra/bin.ts:6:1)",
+        "...node internals..."
+      ]
+    }
+  ],
+  "/TinoStack/TinoAlarmTopic/Resource": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "TinoAlarmTopicA440EDD6"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...new Topic2 in .bun...",
+        "new TinoStack (/Users/austinhess/repos/iceglober/tino-assistant/packages/aws/src/infra/tino-stack.ts:126:24)",
+        "<anonymous> (/Users/austinhess/repos/iceglober/tino-assistant/packages/aws/src/infra/bin.ts:6:1)",
+        "...node internals..."
+      ]
+    }
+  ],
+  "/TinoStack/TinoSecurityMetricFilter/Resource": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "TinoSecurityMetricFilterA856033B"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...new MetricFilter2 in .bun...",
+        "new TinoStack (/Users/austinhess/repos/iceglober/tino-assistant/packages/aws/src/infra/tino-stack.ts:137:34)",
+        "<anonymous> (/Users/austinhess/repos/iceglober/tino-assistant/packages/aws/src/infra/bin.ts:6:1)",
+        "...node internals..."
+      ]
+    }
+  ],
+  "/TinoStack/TinoSecurityAlarm/Resource": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "TinoSecurityAlarm8594C372"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...new Alarm2 in .bun...",
+        "new TinoStack (/Users/austinhess/repos/iceglober/tino-assistant/packages/aws/src/infra/tino-stack.ts:156:27)",
+        "<anonymous> (/Users/austinhess/repos/iceglober/tino-assistant/packages/aws/src/infra/bin.ts:6:1)",
+        "...node internals..."
+      ]
+    }
+  ],
+  "/TinoStack/TinoCluster/Resource": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "TinoClusterE414FA3F"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...new Cluster2 in .bun...",
+        "new TinoStack (/Users/austinhess/repos/iceglober/tino-assistant/packages/aws/src/infra/tino-stack.ts:176:21)",
+        "<anonymous> (/Users/austinhess/repos/iceglober/tino-assistant/packages/aws/src/infra/bin.ts:6:1)",
+        "...node internals..."
+      ]
+    }
+  ],
+  "/TinoStack/TinoTaskRole/Resource": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "TinoTaskRoleA5D3B6BA"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...new Role2 in .bun...",
+        "new TinoStack (/Users/austinhess/repos/iceglober/tino-assistant/packages/aws/src/infra/tino-stack.ts:179:22)",
+        "<anonymous> (/Users/austinhess/repos/iceglober/tino-assistant/packages/aws/src/infra/bin.ts:6:1)",
+        "...node internals..."
+      ]
+    }
+  ],
+  "/TinoStack/TinoExecutionRole/Resource": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "TinoExecutionRole5F6391A1"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...new Role2 in .bun...",
+        "new TinoStack (/Users/austinhess/repos/iceglober/tino-assistant/packages/aws/src/infra/tino-stack.ts:246:27)",
+        "<anonymous> (/Users/austinhess/repos/iceglober/tino-assistant/packages/aws/src/infra/bin.ts:6:1)",
+        "...node internals..."
+      ]
+    }
+  ],
+  "/TinoStack/SlackBotTokenSecret/Resource": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "SlackBotTokenSecret134E8F53"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...new Secret2 in .bun...",
+        "new TinoStack (/Users/austinhess/repos/iceglober/tino-assistant/packages/aws/src/infra/tino-stack.ts:298:33)",
+        "<anonymous> (/Users/austinhess/repos/iceglober/tino-assistant/packages/aws/src/infra/bin.ts:6:1)",
+        "...node internals..."
+      ]
+    }
+  ],
+  "/TinoStack/SlackAppTokenSecret/Resource": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "SlackAppTokenSecret78D471E2"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...new Secret2 in .bun...",
+        "new TinoStack (/Users/austinhess/repos/iceglober/tino-assistant/packages/aws/src/infra/tino-stack.ts:309:33)",
+        "<anonymous> (/Users/austinhess/repos/iceglober/tino-assistant/packages/aws/src/infra/bin.ts:6:1)",
+        "...node internals..."
+      ]
+    }
+  ],
+  "/TinoStack/TinoTaskDef/Resource": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "TinoTaskDef994BC277"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...new FargateTaskDefinition2 in .bun...",
+        "new TinoStack (/Users/austinhess/repos/iceglober/tino-assistant/packages/aws/src/infra/tino-stack.ts:350:28)",
+        "<anonymous> (/Users/austinhess/repos/iceglober/tino-assistant/packages/aws/src/infra/bin.ts:6:1)",
+        "...node internals..."
+      ]
+    }
+  ],
+  "/TinoStack/TinoService/Service": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "TinoServiceD59A05F2"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...new FargateService2 in .bun...",
+        "new TinoStack (/Users/austinhess/repos/iceglober/tino-assistant/packages/aws/src/infra/tino-stack.ts:390:21)",
+        "<anonymous> (/Users/austinhess/repos/iceglober/tino-assistant/packages/aws/src/infra/bin.ts:6:1)",
+        "...node internals..."
+      ]
+    }
+  ],
+  "/TinoStack/CDKMetadata/Default": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "CDKMetadata"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "....bun, node internals, .pnpm...",
+        "(no user code in 9007199254740991 frames, use --stack-trace-limit to capture more)"
+      ]
+    }
+  ],
+  "/TinoStack/TinoKey/Alias/Resource": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "TinoKeyAliasCAB2DAD1"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...new Key2 in .bun...",
+        "new TinoStack (/Users/austinhess/repos/iceglober/tino-assistant/packages/aws/src/infra/tino-stack.ts:61:21)",
+        "<anonymous> (/Users/austinhess/repos/iceglober/tino-assistant/packages/aws/src/infra/bin.ts:6:1)",
+        "...node internals..."
+      ]
+    }
+  ],
+  "/TinoStack/TinoTaskRole/DefaultPolicy/Resource": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "TinoTaskRoleDefaultPolicy20BFF043"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...WrappedClass.<anonymous> in .bun...",
+        "new TinoStack (/Users/austinhess/repos/iceglober/tino-assistant/packages/aws/src/infra/tino-stack.ts:185:14)",
+        "<anonymous> (/Users/austinhess/repos/iceglober/tino-assistant/packages/aws/src/infra/bin.ts:6:1)",
+        "...node internals..."
+      ]
+    }
+  ],
+  "/TinoStack/TinoExecutionRole/DefaultPolicy/Resource": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "TinoExecutionRoleDefaultPolicyA7CCD6E6"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...WrappedClass.<anonymous> in .bun...",
+        "new TinoStack (/Users/austinhess/repos/iceglober/tino-assistant/packages/aws/src/infra/tino-stack.ts:257:19)",
+        "<anonymous> (/Users/austinhess/repos/iceglober/tino-assistant/packages/aws/src/infra/bin.ts:6:1)",
+        "...node internals..."
+      ]
+    }
+  ],
+  "/TinoStack/TinoService/SecurityGroup/Resource": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "TinoServiceSecurityGroupCBFE5D0C"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...new FargateService2 in .bun...",
+        "new TinoStack (/Users/austinhess/repos/iceglober/tino-assistant/packages/aws/src/infra/tino-stack.ts:390:21)",
+        "<anonymous> (/Users/austinhess/repos/iceglober/tino-assistant/packages/aws/src/infra/bin.ts:6:1)",
+        "...node internals..."
+      ]
+    }
+  ]
+}

@@ -1,0 +1,1358 @@
+{
+ "Resources": {
+  "TinoRepoC22FD759": {
+   "Type": "AWS::ECR::Repository",
+   "Properties": {
+    "RepositoryName": "tino"
+   },
+   "UpdateReplacePolicy": "Retain",
+   "DeletionPolicy": "Retain",
+   "Metadata": {
+    "aws:cdk:path": "TinoStack/TinoRepo/Resource"
+   }
+  },
+  "TinoKey738F1479": {
+   "Type": "AWS::KMS::Key",
+   "Properties": {
+    "Description": "tino HIPAA CMK — encrypts DynamoDB, Secrets Manager, CloudWatch Logs",
+    "EnableKeyRotation": true,
+    "KeyPolicy": {
+     "Statement": [
+      {
+       "Action": "kms:*",
+       "Effect": "Allow",
+       "Principal": {
+        "AWS": {
+         "Fn::Join": [
+          "",
+          [
+           "arn:",
+           {
+            "Ref": "AWS::Partition"
+           },
+           ":iam::997948076145:root"
+          ]
+         ]
+        }
+       },
+       "Resource": "*"
+      },
+      {
+       "Action": [
+        "kms:Decrypt",
+        "kms:Encrypt",
+        "kms:ReEncrypt*",
+        "kms:GenerateDataKey*"
+       ],
+       "Condition": {
+        "StringEquals": {
+         "kms:ViaService": "secretsmanager.us-east-1.amazonaws.com"
+        }
+       },
+       "Effect": "Allow",
+       "Principal": {
+        "AWS": {
+         "Fn::Join": [
+          "",
+          [
+           "arn:",
+           {
+            "Ref": "AWS::Partition"
+           },
+           ":iam::997948076145:root"
+          ]
+         ]
+        }
+       },
+       "Resource": "*"
+      },
+      {
+       "Action": [
+        "kms:CreateGrant",
+        "kms:DescribeKey"
+       ],
+       "Condition": {
+        "StringEquals": {
+         "kms:ViaService": "secretsmanager.us-east-1.amazonaws.com"
+        }
+       },
+       "Effect": "Allow",
+       "Principal": {
+        "AWS": {
+         "Fn::Join": [
+          "",
+          [
+           "arn:",
+           {
+            "Ref": "AWS::Partition"
+           },
+           ":iam::997948076145:root"
+          ]
+         ]
+        }
+       },
+       "Resource": "*"
+      }
+     ],
+     "Version": "2012-10-17"
+    }
+   },
+   "UpdateReplacePolicy": "Retain",
+   "DeletionPolicy": "Retain",
+   "Metadata": {
+    "aws:cdk:path": "TinoStack/TinoKey/Resource"
+   }
+  },
+  "TinoKeyAliasCAB2DAD1": {
+   "Type": "AWS::KMS::Alias",
+   "Properties": {
+    "AliasName": "alias/tino",
+    "TargetKeyId": {
+     "Fn::GetAtt": [
+      "TinoKey738F1479",
+      "Arn"
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "TinoStack/TinoKey/Alias/Resource"
+   }
+  },
+  "TinoTable2857731A": {
+   "Type": "AWS::DynamoDB::Table",
+   "Properties": {
+    "AttributeDefinitions": [
+     {
+      "AttributeName": "pk",
+      "AttributeType": "S"
+     },
+     {
+      "AttributeName": "sk",
+      "AttributeType": "S"
+     },
+     {
+      "AttributeName": "gsi1pk",
+      "AttributeType": "S"
+     },
+     {
+      "AttributeName": "gsi1sk",
+      "AttributeType": "S"
+     }
+    ],
+    "BillingMode": "PAY_PER_REQUEST",
+    "GlobalSecondaryIndexes": [
+     {
+      "IndexName": "gsi1",
+      "KeySchema": [
+       {
+        "AttributeName": "gsi1pk",
+        "KeyType": "HASH"
+       },
+       {
+        "AttributeName": "gsi1sk",
+        "KeyType": "RANGE"
+       }
+      ],
+      "Projection": {
+       "ProjectionType": "ALL"
+      }
+     }
+    ],
+    "KeySchema": [
+     {
+      "AttributeName": "pk",
+      "KeyType": "HASH"
+     },
+     {
+      "AttributeName": "sk",
+      "KeyType": "RANGE"
+     }
+    ],
+    "PointInTimeRecoverySpecification": {
+     "PointInTimeRecoveryEnabled": true
+    },
+    "SSESpecification": {
+     "KMSMasterKeyId": {
+      "Fn::GetAtt": [
+       "TinoKey738F1479",
+       "Arn"
+      ]
+     },
+     "SSEEnabled": true,
+     "SSEType": "KMS"
+    },
+    "TableName": "tino",
+    "TimeToLiveSpecification": {
+     "AttributeName": "ttl",
+     "Enabled": true
+    }
+   },
+   "UpdateReplacePolicy": "Retain",
+   "DeletionPolicy": "Retain",
+   "Metadata": {
+    "aws:cdk:path": "TinoStack/TinoTable/Resource"
+   }
+  },
+  "TinoLogGroup4D2496A9": {
+   "Type": "AWS::Logs::LogGroup",
+   "Properties": {
+    "KmsKeyId": {
+     "Fn::GetAtt": [
+      "TinoKey738F1479",
+      "Arn"
+     ]
+    },
+    "LogGroupName": "/ecs/tino",
+    "RetentionInDays": 90
+   },
+   "UpdateReplacePolicy": "Delete",
+   "DeletionPolicy": "Delete",
+   "Metadata": {
+    "aws:cdk:path": "TinoStack/TinoLogGroup/Resource"
+   }
+  },
+  "TinoAlarmTopicA440EDD6": {
+   "Type": "AWS::SNS::Topic",
+   "Properties": {
+    "DisplayName": "tino Security Alarms",
+    "TopicName": "tino-security-alarms"
+   },
+   "Metadata": {
+    "aws:cdk:path": "TinoStack/TinoAlarmTopic/Resource"
+   }
+  },
+  "TinoSecurityMetricFilterA856033B": {
+   "Type": "AWS::Logs::MetricFilter",
+   "Properties": {
+    "FilterPattern": "?\"access_denied\" ?\"auth_error\" ?\"permission_denied\"",
+    "LogGroupName": {
+     "Ref": "TinoLogGroup4D2496A9"
+    },
+    "MetricTransformations": [
+     {
+      "DefaultValue": 0,
+      "MetricName": "SecurityEvents",
+      "MetricNamespace": "Tino/Security",
+      "MetricValue": "1"
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "TinoStack/TinoSecurityMetricFilter/Resource"
+   }
+  },
+  "TinoSecurityAlarm8594C372": {
+   "Type": "AWS::CloudWatch::Alarm",
+   "Properties": {
+    "AlarmActions": [
+     {
+      "Ref": "TinoAlarmTopicA440EDD6"
+     }
+    ],
+    "AlarmDescription": "Fires when >5 access_denied/auth_error/permission_denied events occur in 15 minutes",
+    "AlarmName": "tino-security-events",
+    "ComparisonOperator": "GreaterThanThreshold",
+    "EvaluationPeriods": 1,
+    "MetricName": "SecurityEvents",
+    "Namespace": "Tino/Security",
+    "Period": 900,
+    "Statistic": "Sum",
+    "Threshold": 5,
+    "TreatMissingData": "notBreaching"
+   },
+   "Metadata": {
+    "aws:cdk:path": "TinoStack/TinoSecurityAlarm/Resource"
+   }
+  },
+  "TinoClusterE414FA3F": {
+   "Type": "AWS::ECS::Cluster",
+   "Metadata": {
+    "aws:cdk:path": "TinoStack/TinoCluster/Resource"
+   }
+  },
+  "TinoTaskRoleA5D3B6BA": {
+   "Type": "AWS::IAM::Role",
+   "Properties": {
+    "AssumeRolePolicyDocument": {
+     "Statement": [
+      {
+       "Action": "sts:AssumeRole",
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "ecs-tasks.amazonaws.com"
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "Description": "tino ECS task role — scoped to specific resource ARNs"
+   },
+   "Metadata": {
+    "aws:cdk:path": "TinoStack/TinoTaskRole/Resource"
+   }
+  },
+  "TinoTaskRoleDefaultPolicy20BFF043": {
+   "Type": "AWS::IAM::Policy",
+   "Properties": {
+    "PolicyDocument": {
+     "Statement": [
+      {
+       "Action": [
+        "bedrock:InvokeModel",
+        "bedrock:InvokeModelWithResponseStream"
+       ],
+       "Effect": "Allow",
+       "Resource": [
+        "arn:aws:bedrock:us-east-1::foundation-model/*",
+        "arn:aws:bedrock:us-east-1:997948076145:inference-profile/*"
+       ],
+       "Sid": "BedrockInvokeModel"
+      },
+      {
+       "Action": [
+        "dynamodb:GetItem",
+        "dynamodb:PutItem",
+        "dynamodb:UpdateItem",
+        "dynamodb:DeleteItem",
+        "dynamodb:Query",
+        "dynamodb:Scan"
+       ],
+       "Effect": "Allow",
+       "Resource": [
+        {
+         "Fn::GetAtt": [
+          "TinoTable2857731A",
+          "Arn"
+         ]
+        },
+        {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Fn::GetAtt": [
+             "TinoTable2857731A",
+             "Arn"
+            ]
+           },
+           "/index/*"
+          ]
+         ]
+        }
+       ],
+       "Sid": "DynamoDBCrud"
+      },
+      {
+       "Action": [
+        "kms:Encrypt",
+        "kms:Decrypt",
+        "kms:GenerateDataKey"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "TinoKey738F1479",
+         "Arn"
+        ]
+       },
+       "Sid": "KmsEnvelopeEncryption"
+      },
+      {
+       "Action": [
+        "logs:StartQuery",
+        "logs:GetQueryResults",
+        "logs:StopQuery",
+        "logs:DescribeLogGroups",
+        "logs:FilterLogEvents"
+       ],
+       "Effect": "Allow",
+       "Resource": [
+        {
+         "Fn::GetAtt": [
+          "TinoLogGroup4D2496A9",
+          "Arn"
+         ]
+        },
+        {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Fn::GetAtt": [
+             "TinoLogGroup4D2496A9",
+             "Arn"
+            ]
+           },
+           ":*"
+          ]
+         ]
+        }
+       ],
+       "Sid": "CloudWatchLogsQuery"
+      },
+      {
+       "Action": [
+        "kms:Decrypt",
+        "kms:Encrypt",
+        "kms:ReEncrypt*",
+        "kms:GenerateDataKey*"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "TinoKey738F1479",
+         "Arn"
+        ]
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "PolicyName": "TinoTaskRoleDefaultPolicy20BFF043",
+    "Roles": [
+     {
+      "Ref": "TinoTaskRoleA5D3B6BA"
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "TinoStack/TinoTaskRole/DefaultPolicy/Resource"
+   }
+  },
+  "TinoExecutionRole5F6391A1": {
+   "Type": "AWS::IAM::Role",
+   "Properties": {
+    "AssumeRolePolicyDocument": {
+     "Statement": [
+      {
+       "Action": "sts:AssumeRole",
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "ecs-tasks.amazonaws.com"
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "Description": "tino ECS execution role — ECR pull + SSM/Secrets Manager read + CW Logs write",
+    "ManagedPolicyArns": [
+     {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+       ]
+      ]
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "TinoStack/TinoExecutionRole/Resource"
+   }
+  },
+  "TinoExecutionRoleDefaultPolicyA7CCD6E6": {
+   "Type": "AWS::IAM::Policy",
+   "Properties": {
+    "PolicyDocument": {
+     "Statement": [
+      {
+       "Action": [
+        "ssm:GetParameters",
+        "ssm:GetParameter"
+       ],
+       "Effect": "Allow",
+       "Resource": [
+        "arn:aws:ssm:us-east-1:997948076145:parameter/tino/SLACK_BOT_TOKEN",
+        "arn:aws:ssm:us-east-1:997948076145:parameter/tino/SLACK_APP_TOKEN",
+        "arn:aws:ssm:us-east-1:997948076145:parameter/tino/SLACK_USER_TOKEN",
+        "arn:aws:ssm:us-east-1:997948076145:parameter/tino/ALLOWED_SLACK_USER_ID",
+        "arn:aws:ssm:us-east-1:997948076145:parameter/tino/GITHUB_TOKEN",
+        "arn:aws:ssm:us-east-1:997948076145:parameter/tino/GITHUB_DEFAULT_REPO",
+        "arn:aws:ssm:us-east-1:997948076145:parameter/tino/GOOGLE_OAUTH_CLIENT_ID",
+        "arn:aws:ssm:us-east-1:997948076145:parameter/tino/GOOGLE_OAUTH_CLIENT_SECRET",
+        "arn:aws:ssm:us-east-1:997948076145:parameter/tino/GOOGLE_OAUTH_REFRESH_TOKEN",
+        "arn:aws:ssm:us-east-1:997948076145:parameter/tino/BEDROCK_MODEL_ID"
+       ],
+       "Sid": "SsmReadTinoParams"
+      },
+      {
+       "Action": "kms:Decrypt",
+       "Condition": {
+        "StringEquals": {
+         "kms:ViaService": "ssm.us-east-1.amazonaws.com"
+        }
+       },
+       "Effect": "Allow",
+       "Resource": "arn:aws:kms:us-east-1:997948076145:key/*",
+       "Sid": "KmsDecryptSsmParams"
+      },
+      {
+       "Action": [
+        "logs:CreateLogStream",
+        "logs:PutLogEvents",
+        "logs:DescribeLogStreams"
+       ],
+       "Effect": "Allow",
+       "Resource": [
+        {
+         "Fn::GetAtt": [
+          "TinoLogGroup4D2496A9",
+          "Arn"
+         ]
+        },
+        {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Fn::GetAtt": [
+             "TinoLogGroup4D2496A9",
+             "Arn"
+            ]
+           },
+           ":*"
+          ]
+         ]
+        }
+       ],
+       "Sid": "CloudWatchLogsWrite"
+      },
+      {
+       "Action": [
+        "secretsmanager:GetSecretValue",
+        "secretsmanager:DescribeSecret"
+       ],
+       "Effect": "Allow",
+       "Resource": [
+        {
+         "Ref": "SlackBotTokenSecret134E8F53"
+        },
+        {
+         "Ref": "SlackAppTokenSecret78D471E2"
+        }
+       ],
+       "Sid": "SecretsManagerReadTinoSecrets"
+      },
+      {
+       "Action": [
+        "kms:Decrypt",
+        "kms:GenerateDataKey"
+       ],
+       "Condition": {
+        "StringEquals": {
+         "kms:ViaService": "secretsmanager.us-east-1.amazonaws.com"
+        }
+       },
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "TinoKey738F1479",
+         "Arn"
+        ]
+       },
+       "Sid": "KmsDecryptSecretsManager"
+      },
+      {
+       "Action": [
+        "ecr:BatchCheckLayerAvailability",
+        "ecr:GetDownloadUrlForLayer",
+        "ecr:BatchGetImage"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "TinoRepoC22FD759",
+         "Arn"
+        ]
+       }
+      },
+      {
+       "Action": "ecr:GetAuthorizationToken",
+       "Effect": "Allow",
+       "Resource": "*"
+      },
+      {
+       "Action": [
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "TinoLogGroup4D2496A9",
+         "Arn"
+        ]
+       }
+      },
+      {
+       "Action": [
+        "ssm:DescribeParameters",
+        "ssm:GetParameters",
+        "ssm:GetParameter",
+        "ssm:GetParameterHistory"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::Join": [
+         "",
+         [
+          "arn:",
+          {
+           "Ref": "AWS::Partition"
+          },
+          ":ssm:us-east-1:997948076145:parameter/tino/SLACK_BOT_TOKEN"
+         ]
+        ]
+       }
+      },
+      {
+       "Action": [
+        "ssm:DescribeParameters",
+        "ssm:GetParameters",
+        "ssm:GetParameter",
+        "ssm:GetParameterHistory"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::Join": [
+         "",
+         [
+          "arn:",
+          {
+           "Ref": "AWS::Partition"
+          },
+          ":ssm:us-east-1:997948076145:parameter/tino/SLACK_APP_TOKEN"
+         ]
+        ]
+       }
+      },
+      {
+       "Action": [
+        "ssm:DescribeParameters",
+        "ssm:GetParameters",
+        "ssm:GetParameter",
+        "ssm:GetParameterHistory"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::Join": [
+         "",
+         [
+          "arn:",
+          {
+           "Ref": "AWS::Partition"
+          },
+          ":ssm:us-east-1:997948076145:parameter/tino/SLACK_USER_TOKEN"
+         ]
+        ]
+       }
+      },
+      {
+       "Action": [
+        "ssm:DescribeParameters",
+        "ssm:GetParameters",
+        "ssm:GetParameter",
+        "ssm:GetParameterHistory"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::Join": [
+         "",
+         [
+          "arn:",
+          {
+           "Ref": "AWS::Partition"
+          },
+          ":ssm:us-east-1:997948076145:parameter/tino/ALLOWED_SLACK_USER_ID"
+         ]
+        ]
+       }
+      },
+      {
+       "Action": [
+        "ssm:DescribeParameters",
+        "ssm:GetParameters",
+        "ssm:GetParameter",
+        "ssm:GetParameterHistory"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::Join": [
+         "",
+         [
+          "arn:",
+          {
+           "Ref": "AWS::Partition"
+          },
+          ":ssm:us-east-1:997948076145:parameter/tino/GITHUB_TOKEN"
+         ]
+        ]
+       }
+      },
+      {
+       "Action": [
+        "ssm:DescribeParameters",
+        "ssm:GetParameters",
+        "ssm:GetParameter",
+        "ssm:GetParameterHistory"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::Join": [
+         "",
+         [
+          "arn:",
+          {
+           "Ref": "AWS::Partition"
+          },
+          ":ssm:us-east-1:997948076145:parameter/tino/GITHUB_DEFAULT_REPO"
+         ]
+        ]
+       }
+      },
+      {
+       "Action": [
+        "ssm:DescribeParameters",
+        "ssm:GetParameters",
+        "ssm:GetParameter",
+        "ssm:GetParameterHistory"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::Join": [
+         "",
+         [
+          "arn:",
+          {
+           "Ref": "AWS::Partition"
+          },
+          ":ssm:us-east-1:997948076145:parameter/tino/GOOGLE_OAUTH_CLIENT_ID"
+         ]
+        ]
+       }
+      },
+      {
+       "Action": [
+        "ssm:DescribeParameters",
+        "ssm:GetParameters",
+        "ssm:GetParameter",
+        "ssm:GetParameterHistory"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::Join": [
+         "",
+         [
+          "arn:",
+          {
+           "Ref": "AWS::Partition"
+          },
+          ":ssm:us-east-1:997948076145:parameter/tino/GOOGLE_OAUTH_CLIENT_SECRET"
+         ]
+        ]
+       }
+      },
+      {
+       "Action": [
+        "ssm:DescribeParameters",
+        "ssm:GetParameters",
+        "ssm:GetParameter",
+        "ssm:GetParameterHistory"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::Join": [
+         "",
+         [
+          "arn:",
+          {
+           "Ref": "AWS::Partition"
+          },
+          ":ssm:us-east-1:997948076145:parameter/tino/GOOGLE_OAUTH_REFRESH_TOKEN"
+         ]
+        ]
+       }
+      },
+      {
+       "Action": [
+        "ssm:DescribeParameters",
+        "ssm:GetParameters",
+        "ssm:GetParameter",
+        "ssm:GetParameterHistory"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::Join": [
+         "",
+         [
+          "arn:",
+          {
+           "Ref": "AWS::Partition"
+          },
+          ":ssm:us-east-1:997948076145:parameter/tino/BEDROCK_MODEL_ID"
+         ]
+        ]
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "PolicyName": "TinoExecutionRoleDefaultPolicyA7CCD6E6",
+    "Roles": [
+     {
+      "Ref": "TinoExecutionRole5F6391A1"
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "TinoStack/TinoExecutionRole/DefaultPolicy/Resource"
+   }
+  },
+  "SlackBotTokenSecret134E8F53": {
+   "Type": "AWS::SecretsManager::Secret",
+   "Properties": {
+    "Description": "tino Slack bot token (xoxb-)",
+    "GenerateSecretString": {},
+    "KmsKeyId": {
+     "Fn::GetAtt": [
+      "TinoKey738F1479",
+      "Arn"
+     ]
+    },
+    "Name": "/tino/secrets/slack-bot-token"
+   },
+   "UpdateReplacePolicy": "Retain",
+   "DeletionPolicy": "Retain",
+   "Metadata": {
+    "aws:cdk:path": "TinoStack/SlackBotTokenSecret/Resource"
+   }
+  },
+  "SlackAppTokenSecret78D471E2": {
+   "Type": "AWS::SecretsManager::Secret",
+   "Properties": {
+    "Description": "tino Slack app token (xapp-)",
+    "GenerateSecretString": {},
+    "KmsKeyId": {
+     "Fn::GetAtt": [
+      "TinoKey738F1479",
+      "Arn"
+     ]
+    },
+    "Name": "/tino/secrets/slack-app-token"
+   },
+   "UpdateReplacePolicy": "Retain",
+   "DeletionPolicy": "Retain",
+   "Metadata": {
+    "aws:cdk:path": "TinoStack/SlackAppTokenSecret/Resource"
+   }
+  },
+  "TinoTaskDef994BC277": {
+   "Type": "AWS::ECS::TaskDefinition",
+   "Properties": {
+    "ContainerDefinitions": [
+     {
+      "Environment": [
+       {
+        "Name": "NODE_ENV",
+        "Value": "production"
+       },
+       {
+        "Name": "LOG_LEVEL",
+        "Value": "info"
+       },
+       {
+        "Name": "PERSISTENCE_ADAPTER",
+        "Value": "dynamodb"
+       },
+       {
+        "Name": "DYNAMODB_TABLE_NAME",
+        "Value": {
+         "Ref": "TinoTable2857731A"
+        }
+       },
+       {
+        "Name": "KMS_KEY_ID",
+        "Value": {
+         "Fn::GetAtt": [
+          "TinoKey738F1479",
+          "Arn"
+         ]
+        }
+       }
+      ],
+      "Essential": true,
+      "Image": {
+       "Fn::Join": [
+        "",
+        [
+         {
+          "Fn::Select": [
+           4,
+           {
+            "Fn::Split": [
+             ":",
+             {
+              "Fn::GetAtt": [
+               "TinoRepoC22FD759",
+               "Arn"
+              ]
+             }
+            ]
+           }
+          ]
+         },
+         ".dkr.ecr.",
+         {
+          "Fn::Select": [
+           3,
+           {
+            "Fn::Split": [
+             ":",
+             {
+              "Fn::GetAtt": [
+               "TinoRepoC22FD759",
+               "Arn"
+              ]
+             }
+            ]
+           }
+          ]
+         },
+         ".",
+         {
+          "Ref": "AWS::URLSuffix"
+         },
+         "/",
+         {
+          "Ref": "TinoRepoC22FD759"
+         },
+         ":latest"
+        ]
+       ]
+      },
+      "LogConfiguration": {
+       "LogDriver": "awslogs",
+       "Options": {
+        "awslogs-group": {
+         "Ref": "TinoLogGroup4D2496A9"
+        },
+        "awslogs-stream-prefix": "tino",
+        "awslogs-region": "us-east-1"
+       }
+      },
+      "Name": "tino",
+      "Secrets": [
+       {
+        "Name": "SLACK_BOT_TOKEN",
+        "ValueFrom": {
+         "Fn::Join": [
+          "",
+          [
+           "arn:",
+           {
+            "Ref": "AWS::Partition"
+           },
+           ":ssm:us-east-1:997948076145:parameter/tino/SLACK_BOT_TOKEN"
+          ]
+         ]
+        }
+       },
+       {
+        "Name": "SLACK_APP_TOKEN",
+        "ValueFrom": {
+         "Fn::Join": [
+          "",
+          [
+           "arn:",
+           {
+            "Ref": "AWS::Partition"
+           },
+           ":ssm:us-east-1:997948076145:parameter/tino/SLACK_APP_TOKEN"
+          ]
+         ]
+        }
+       },
+       {
+        "Name": "SLACK_USER_TOKEN",
+        "ValueFrom": {
+         "Fn::Join": [
+          "",
+          [
+           "arn:",
+           {
+            "Ref": "AWS::Partition"
+           },
+           ":ssm:us-east-1:997948076145:parameter/tino/SLACK_USER_TOKEN"
+          ]
+         ]
+        }
+       },
+       {
+        "Name": "ALLOWED_SLACK_USER_ID",
+        "ValueFrom": {
+         "Fn::Join": [
+          "",
+          [
+           "arn:",
+           {
+            "Ref": "AWS::Partition"
+           },
+           ":ssm:us-east-1:997948076145:parameter/tino/ALLOWED_SLACK_USER_ID"
+          ]
+         ]
+        }
+       },
+       {
+        "Name": "GITHUB_TOKEN",
+        "ValueFrom": {
+         "Fn::Join": [
+          "",
+          [
+           "arn:",
+           {
+            "Ref": "AWS::Partition"
+           },
+           ":ssm:us-east-1:997948076145:parameter/tino/GITHUB_TOKEN"
+          ]
+         ]
+        }
+       },
+       {
+        "Name": "GITHUB_DEFAULT_REPO",
+        "ValueFrom": {
+         "Fn::Join": [
+          "",
+          [
+           "arn:",
+           {
+            "Ref": "AWS::Partition"
+           },
+           ":ssm:us-east-1:997948076145:parameter/tino/GITHUB_DEFAULT_REPO"
+          ]
+         ]
+        }
+       },
+       {
+        "Name": "GOOGLE_OAUTH_CLIENT_ID",
+        "ValueFrom": {
+         "Fn::Join": [
+          "",
+          [
+           "arn:",
+           {
+            "Ref": "AWS::Partition"
+           },
+           ":ssm:us-east-1:997948076145:parameter/tino/GOOGLE_OAUTH_CLIENT_ID"
+          ]
+         ]
+        }
+       },
+       {
+        "Name": "GOOGLE_OAUTH_CLIENT_SECRET",
+        "ValueFrom": {
+         "Fn::Join": [
+          "",
+          [
+           "arn:",
+           {
+            "Ref": "AWS::Partition"
+           },
+           ":ssm:us-east-1:997948076145:parameter/tino/GOOGLE_OAUTH_CLIENT_SECRET"
+          ]
+         ]
+        }
+       },
+       {
+        "Name": "GOOGLE_OAUTH_REFRESH_TOKEN",
+        "ValueFrom": {
+         "Fn::Join": [
+          "",
+          [
+           "arn:",
+           {
+            "Ref": "AWS::Partition"
+           },
+           ":ssm:us-east-1:997948076145:parameter/tino/GOOGLE_OAUTH_REFRESH_TOKEN"
+          ]
+         ]
+        }
+       },
+       {
+        "Name": "BEDROCK_MODEL_ID",
+        "ValueFrom": {
+         "Fn::Join": [
+          "",
+          [
+           "arn:",
+           {
+            "Ref": "AWS::Partition"
+           },
+           ":ssm:us-east-1:997948076145:parameter/tino/BEDROCK_MODEL_ID"
+          ]
+         ]
+        }
+       }
+      ]
+     }
+    ],
+    "Cpu": "256",
+    "ExecutionRoleArn": {
+     "Fn::GetAtt": [
+      "TinoExecutionRole5F6391A1",
+      "Arn"
+     ]
+    },
+    "Family": "TinoStackTinoTaskDefC21ABA8F",
+    "Memory": "512",
+    "NetworkMode": "awsvpc",
+    "RequiresCompatibilities": [
+     "FARGATE"
+    ],
+    "TaskRoleArn": {
+     "Fn::GetAtt": [
+      "TinoTaskRoleA5D3B6BA",
+      "Arn"
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "TinoStack/TinoTaskDef/Resource"
+   }
+  },
+  "TinoServiceD59A05F2": {
+   "Type": "AWS::ECS::Service",
+   "Properties": {
+    "Cluster": {
+     "Ref": "TinoClusterE414FA3F"
+    },
+    "DeploymentConfiguration": {
+     "Alarms": {
+      "AlarmNames": [],
+      "Enable": false,
+      "Rollback": false
+     },
+     "MaximumPercent": 200,
+     "MinimumHealthyPercent": 50
+    },
+    "DesiredCount": 1,
+    "EnableECSManagedTags": false,
+    "LaunchType": "FARGATE",
+    "NetworkConfiguration": {
+     "AwsvpcConfiguration": {
+      "AssignPublicIp": "ENABLED",
+      "SecurityGroups": [
+       {
+        "Fn::GetAtt": [
+         "TinoServiceSecurityGroupCBFE5D0C",
+         "GroupId"
+        ]
+       }
+      ],
+      "Subnets": [
+       "subnet-0de014be323f643fb",
+       "subnet-04744a091463126f5",
+       "subnet-0a657e775017eb3e2",
+       "subnet-0a3635d366acc0389",
+       "subnet-0d0c292f26d85b868",
+       "subnet-0540b687116379e86"
+      ]
+     }
+    },
+    "TaskDefinition": {
+     "Ref": "TinoTaskDef994BC277"
+    }
+   },
+   "DependsOn": [
+    "TinoTaskRoleDefaultPolicy20BFF043",
+    "TinoTaskRoleA5D3B6BA"
+   ],
+   "Metadata": {
+    "aws:cdk:path": "TinoStack/TinoService/Service"
+   }
+  },
+  "TinoServiceSecurityGroupCBFE5D0C": {
+   "Type": "AWS::EC2::SecurityGroup",
+   "Properties": {
+    "GroupDescription": "TinoStack/TinoService/SecurityGroup",
+    "SecurityGroupEgress": [
+     {
+      "CidrIp": "0.0.0.0/0",
+      "Description": "Allow all outbound traffic by default",
+      "IpProtocol": "-1"
+     }
+    ],
+    "VpcId": "vpc-00fba3f0fc68a9dd9"
+   },
+   "DependsOn": [
+    "TinoTaskRoleDefaultPolicy20BFF043",
+    "TinoTaskRoleA5D3B6BA"
+   ],
+   "Metadata": {
+    "aws:cdk:path": "TinoStack/TinoService/SecurityGroup/Resource"
+   }
+  },
+  "CDKMetadata": {
+   "Type": "AWS::CDK::Metadata",
+   "Properties": {
+    "Analytics": "v2:deflate64:H4sIAAAAAAAA/1WQ0W7CMAxFv2XvwRsV+wDExB62aVPhfTKp6UzTpIpTEIry71NSxuDJ517L1rUrqJ4X8PSAJ5npppsZ3kHcBNSdqknc6DUpPMl3JO0h1jQ44eD8Wa329l8l1fUC8Y2Kn8vSMEoWBZJqzhZ71+wgbnFnKHcKJGVcKxDfXfvq3TjkxpU/KHjWazaBfG7c6qTECsStG1iXbRmS0saNzQmD/oG4NOj7KQP6PinSAnFlRrms+8M1+hYDbVG6F9qz5cDOTgnvHWcDsiV/411mN+SPrMtZF0yKsYdYu+nYUr+cYV1eNFFSQtpTkB4ttuQhboqe1mTKoatij57D+fqiOyOlbH2OYRhDUtY1BAd5PFYLmC9g/nAQ5pkfbeCeoJ7qL1k/6Mb3AQAA"
+   },
+   "Metadata": {
+    "aws:cdk:path": "TinoStack/CDKMetadata/Default"
+   }
+  }
+ },
+ "Outputs": {
+  "KmsKeyArn": {
+   "Description": "tino KMS CMK ARN (alias/tino)",
+   "Value": {
+    "Fn::GetAtt": [
+     "TinoKey738F1479",
+     "Arn"
+    ]
+   },
+   "Export": {
+    "Name": "TinoKmsKeyArn"
+   }
+  },
+  "EcrRepoUri": {
+   "Description": "ECR repository URI for the tino container image",
+   "Value": {
+    "Fn::Join": [
+     "",
+     [
+      {
+       "Fn::Select": [
+        4,
+        {
+         "Fn::Split": [
+          ":",
+          {
+           "Fn::GetAtt": [
+            "TinoRepoC22FD759",
+            "Arn"
+           ]
+          }
+         ]
+        }
+       ]
+      },
+      ".dkr.ecr.",
+      {
+       "Fn::Select": [
+        3,
+        {
+         "Fn::Split": [
+          ":",
+          {
+           "Fn::GetAtt": [
+            "TinoRepoC22FD759",
+            "Arn"
+           ]
+          }
+         ]
+        }
+       ]
+      },
+      ".",
+      {
+       "Ref": "AWS::URLSuffix"
+      },
+      "/",
+      {
+       "Ref": "TinoRepoC22FD759"
+      }
+     ]
+    ]
+   },
+   "Export": {
+    "Name": "TinoEcrRepoUri"
+   }
+  },
+  "ClusterName": {
+   "Description": "ECS cluster name",
+   "Value": {
+    "Ref": "TinoClusterE414FA3F"
+   },
+   "Export": {
+    "Name": "TinoClusterName"
+   }
+  },
+  "ServiceName": {
+   "Description": "ECS service name",
+   "Value": {
+    "Fn::GetAtt": [
+     "TinoServiceD59A05F2",
+     "Name"
+    ]
+   },
+   "Export": {
+    "Name": "TinoServiceName"
+   }
+  },
+  "LogGroupName": {
+   "Description": "CloudWatch log group for tino container logs",
+   "Value": {
+    "Ref": "TinoLogGroup4D2496A9"
+   },
+   "Export": {
+    "Name": "TinoLogGroupName"
+   }
+  },
+  "DynamoTableName": {
+   "Description": "DynamoDB table name for tino persistence",
+   "Value": {
+    "Ref": "TinoTable2857731A"
+   },
+   "Export": {
+    "Name": "TinoDynamoTableName"
+   }
+  },
+  "AlarmTopicArn": {
+   "Description": "SNS topic ARN for tino security alarms",
+   "Value": {
+    "Ref": "TinoAlarmTopicA440EDD6"
+   },
+   "Export": {
+    "Name": "TinoAlarmTopicArn"
+   }
+  }
+ },
+ "Parameters": {
+  "BootstrapVersion": {
+   "Type": "AWS::SSM::Parameter::Value<String>",
+   "Default": "/cdk-bootstrap/hnb659fds/version",
+   "Description": "Version of the CDK Bootstrap resources in this environment, automatically retrieved from SSM Parameter Store. [cdk:skip]"
+  }
+ },
+ "Rules": {
+  "CheckBootstrapVersion": {
+   "Assertions": [
+    {
+     "Assert": {
+      "Fn::Not": [
+       {
+        "Fn::Contains": [
+         [
+          "1",
+          "2",
+          "3",
+          "4",
+          "5"
+         ],
+         {
+          "Ref": "BootstrapVersion"
+         }
+        ]
+       }
+      ]
+     },
+     "AssertDescription": "CDK bootstrap stack version 6 required. Please run 'cdk bootstrap' with a recent version of the CDK CLI."
+    }
+   ]
+  }
+ }
+}

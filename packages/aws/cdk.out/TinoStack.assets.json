@@ -1,0 +1,21 @@
+{
+  "version": "53.0.0",
+  "files": {
+    "b6bb60383891da928edb626b95c0e3421bc4a3d55fb01775ac37ba3f119f7081": {
+      "displayName": "TinoStack Template",
+      "source": {
+        "path": "TinoStack.template.json",
+        "packaging": "file"
+      },
+      "destinations": {
+        "997948076145-us-east-1-ca758fe6": {
+          "bucketName": "cdk-hnb659fds-assets-997948076145-us-east-1",
+          "objectKey": "b6bb60383891da928edb626b95c0e3421bc4a3d55fb01775ac37ba3f119f7081.json",
+          "region": "us-east-1",
+          "assumeRoleArn": "arn:${AWS::Partition}:iam::997948076145:role/cdk-hnb659fds-file-publishing-role-997948076145-us-east-1"
+        }
+      }
+    }
+  },
+  "dockerImages": {}
+}
