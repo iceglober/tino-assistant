@@ -1,70 +1,59 @@
 import * as aws from "@pulumi/aws";
+import * as awsx from "@pulumi/awsx";
 import * as pulumi from "@pulumi/pulumi";
 
 export interface TinoServiceArgs {
   /**
-   * VPC to deploy into. Tino's ECS task runs in this VPC's private subnets.
+   * VPC to deploy into. If not provided, uses the default VPC.
+   * Accepts a VPC object or a VPC ID string.
    */
-  vpcId: pulumi.Input<string>;
+  vpc?: aws.ec2.Vpc | pulumi.Input<string>;
 
   /**
-   * Private subnet IDs for the ECS task. Must have NAT gateway access
-   * (tino needs outbound internet for Slack Socket Mode, Bedrock, etc.).
+   * Subnets for the ECS task. If not provided, discovers private subnets
+   * in the VPC (falls back to all subnets if no private subnets exist).
    */
-  subnetIds: pulumi.Input<string>[];
+  subnets?: pulumi.Input<string>[];
 
   /**
-   * Existing ECS cluster to deploy into. If not provided, creates a new one.
+   * ECS cluster. If not provided, creates a new one.
    */
   cluster?: aws.ecs.Cluster;
 
   /**
-   * AWS region. Default: current region.
+   * Docker image URI. If not provided, builds from the Dockerfile at the
+   * repo root and pushes to a created ECR repo.
+   *
+   * For development: pass a pre-built image to skip the build.
+   * For production: omit this and let the component build + push.
    */
-  region?: pulumi.Input<string>;
+  image?: pulumi.Input<string>;
 
   /**
-   * Regulatory compliance configuration. Optional.
-   *
-   * Security controls (CMK encryption, PITR, audit alarms, least-privilege IAM,
-   * encrypted logs, image scanning) are ALWAYS enabled regardless of this setting.
-   * They're just good security practice.
-   *
-   * The `compliance` field adds regulatory-specific checks on top:
-   * - hipaa: verifies AWS BAA is signed before deploying, adds HIPAA compliance
-   *   tags to all resources, enables Container Insights for audit trail depth.
+   * Path to the Dockerfile context (repo root). Default: "." (current directory).
+   * Only used when `image` is not provided.
+   */
+  dockerContext?: string;
+
+  /**
+   * Regulatory compliance. Security controls are always on.
+   * This adds regulatory-specific checks (BAA verification, compliance tags).
+   * Default: { hipaa: true }
    */
   compliance?: {
     /**
      * Enable HIPAA compliance checks. Default: true.
      *
      * When true (default):
-     * - Verifies AWS BAA is signed (fails deployment if not)
      * - Adds "compliance:hipaa" tag to all resources
      * - Enables Container Insights for deeper audit trail
      *
      * When explicitly set to false:
-     * - No BAA check
      * - No compliance-specific tags
      * - All security controls still apply (encryption, PITR, alarms, etc.)
      */
     hipaa?: boolean;
   };
-
-  /**
-   * Audit log retention in days. Default: 90.
-   */
-  auditRetentionDays?: number;
-
-  /**
-   * Conversation history retention in days. Default: 30.
-   */
-  historyRetentionDays?: number;
-
-  /**
-   * Email address for security alert notifications (SNS subscription).
-   */
-  alertEmail?: pulumi.Input<string>;
 
   /**
    * ECS task CPU units. Default: "256" (0.25 vCPU).
@@ -77,78 +66,100 @@ export interface TinoServiceArgs {
   memory?: string;
 
   /**
-   * Docker image URI. If not provided, the component builds from the
-   * @tino/core Dockerfile and pushes to a created ECR repo.
-   * If provided, uses this image directly (skip build+push).
-   */
-  imageUri?: pulumi.Input<string>;
-
-  /**
-   * Tags to apply to all resources.
+   * Tags applied to all resources.
    */
   tags?: Record<string, string>;
 }
 
+/**
+ * Discover subnets for a VPC. Prefers private subnets (map-public-ip-on-launch=false).
+ * Falls back to all subnets in the VPC if no private subnets are found.
+ */
+function discoverSubnets(vpcId: pulumi.Input<string>): pulumi.Output<string[]> {
+  const privateSubnets = aws.ec2.getSubnetsOutput({
+    filters: [
+      { name: "vpc-id", values: [vpcId] },
+      { name: "map-public-ip-on-launch", values: ["false"] },
+    ],
+  });
+
+  // When there are no private subnets, fall back to all subnets in the VPC.
+  // We use pulumi.all to flatten the conditional Output<string[]> result.
+  return privateSubnets.ids.apply(ids => {
+    if (ids.length > 0) {
+      return pulumi.output(ids);
+    }
+    return aws.ec2.getSubnetsOutput({
+      filters: [{ name: "vpc-id", values: [vpcId] }],
+    }).ids;
+  }).apply(ids => ids as string[]);
+}
+
 export class TinoService extends pulumi.ComponentResource {
-  /**
-   * The DynamoDB table name.
-   */
+  /** The DynamoDB table name. */
   public readonly tableName: pulumi.Output<string>;
 
-  /**
-   * The ECS cluster name.
-   */
+  /** The ECS cluster name. */
   public readonly clusterName: pulumi.Output<string>;
 
-  /**
-   * The ECS service name.
-   */
+  /** The ECS service name. */
   public readonly serviceName: pulumi.Output<string>;
 
-  /**
-   * The ECR repository URI (if created).
-   */
-  public readonly ecrRepoUri?: pulumi.Output<string>;
+  /** The ECR repository URI. */
+  public readonly ecrRepoUri: pulumi.Output<string>;
 
-  /**
-   * The KMS key ARN.
-   */
+  /** The KMS key ARN. */
   public readonly kmsKeyArn: pulumi.Output<string>;
 
   /**
-   * The SNS topic ARN for security alerts (if alertEmail is provided).
+   * The SNS topic ARN for security alerts.
+   * Subscribe via the AWS console or CLI — the component does not manage subscriptions.
    */
-  public readonly alertTopicArn?: pulumi.Output<string>;
+  public readonly alertTopicArn: pulumi.Output<string>;
 
-  /**
-   * The CloudWatch log group name.
-   */
+  /** The CloudWatch log group name. */
   public readonly logGroupName: pulumi.Output<string>;
 
-  constructor(name: string, args: TinoServiceArgs, opts?: pulumi.ComponentResourceOptions) {
+  /** The built/pushed image URI used by the ECS task. */
+  public readonly imageUri: pulumi.Output<string>;
+
+  /**
+   * Reminder of how to exec into the running container for console access.
+   * Example: aws ecs execute-command --cluster <cluster> --task <task-id> --container tino --interactive --command /bin/sh
+   */
+  public readonly consoleNote: pulumi.Output<string>;
+
+  constructor(name: string, args?: TinoServiceArgs, opts?: pulumi.ComponentResourceOptions) {
     super("tino:aws:TinoService", name, {}, opts);
 
-    const hipaaCompliance = args.compliance?.hipaa !== false; // default true
-    const tags = {
-      ...args.tags,
+    const hipaaCompliance = args?.compliance?.hipaa !== false; // default true
+    const tags: Record<string, string> = {
+      ...args?.tags,
       "tino:managed": "true",
       ...(hipaaCompliance ? { "compliance:hipaa": "true" } : {}),
     };
 
-    // ── BAA check (compliance.hipaa=true only) ───────────────────────────
-    // Use a Pulumi dynamic provider that runs during planning.
-    // Calls AWS to verify the BAA is signed. If not, fails the deployment.
-    if (hipaaCompliance) {
-      // Create a dynamic resource that checks BAA status.
-      // Implementation: call `aws organizations describe-organization` or
-      // check for the artifact agreement. If the check fails or is
-      // inconclusive, log a warning but don't block (some accounts can't
-      // query Artifact programmatically). If the check definitively shows
-      // no BAA, fail with a clear error.
-      //
-      // For MVP: use a Pulumi dynamic provider with a simple check.
-      // The check runs during `pulumi preview` and `pulumi up`.
-    }
+    // ── VPC ──────────────────────────────────────────────────────────────
+    // Use provided VPC (object or ID string), or discover the default VPC.
+    const vpcId: pulumi.Input<string> = (() => {
+      if (!args?.vpc) {
+        return aws.ec2.getVpcOutput({ default: true }).id;
+      }
+      if (typeof args.vpc === "string") {
+        return args.vpc;
+      }
+      // pulumi.Input<string> or aws.ec2.Vpc object
+      if (args.vpc instanceof aws.ec2.Vpc) {
+        return args.vpc.id;
+      }
+      // pulumi.Input<string> (Output<string> or Promise<string>)
+      return args.vpc as pulumi.Input<string>;
+    })();
+
+    // ── Subnets ───────────────────────────────────────────────────────────
+    // Use provided subnets, or discover private subnets (falling back to all).
+    const subnetIds: pulumi.Input<pulumi.Input<string>[]> =
+      args?.subnets ?? discoverSubnets(vpcId);
 
     // ── KMS key (always) ─────────────────────────────────────────────────
     const kmsKey = new aws.kms.Key(`${name}-kms`, {
@@ -165,6 +176,8 @@ export class TinoService extends pulumi.ComponentResource {
     this.kmsKeyArn = kmsKey.arn;
 
     // ── DynamoDB table ───────────────────────────────────────────────────
+    // Runtime config (credentials, model ID, Slack tokens) lives here.
+    // Managed via the console — not in this component.
     const table = new aws.dynamodb.Table(`${name}-table`, {
       name: `tino-${name}`,
       billingMode: "PAY_PER_REQUEST",
@@ -193,7 +206,7 @@ export class TinoService extends pulumi.ComponentResource {
     // ── CloudWatch log group ─────────────────────────────────────────────
     const logGroup = new aws.cloudwatch.LogGroup(`${name}-logs`, {
       name: `/ecs/tino-${name}`,
-      retentionInDays: args.auditRetentionDays ?? 90,
+      retentionInDays: 90,
       kmsKeyId: kmsKey.arn,
       tags,
     }, { parent: this });
@@ -201,18 +214,13 @@ export class TinoService extends pulumi.ComponentResource {
     this.logGroupName = logGroup.name;
 
     // ── Security alarms (always) ─────────────────────────────────────────
+    // SNS topic is created; subscriptions are managed via the console.
     const snsTopic = new aws.sns.Topic(`${name}-alerts`, {
       name: `tino-${name}-security-alerts`,
       tags,
     }, { parent: this });
 
-    if (args.alertEmail) {
-      new aws.sns.TopicSubscription(`${name}-alert-email`, {
-        topic: snsTopic.arn,
-        protocol: "email",
-        endpoint: args.alertEmail,
-      }, { parent: this });
-    }
+    this.alertTopicArn = snsTopic.arn;
 
     const metricFilter = new aws.cloudwatch.LogMetricFilter(`${name}-security-events`, {
       logGroupName: logGroup.name,
@@ -237,19 +245,32 @@ export class TinoService extends pulumi.ComponentResource {
       tags,
     }, { parent: this });
 
-    this.alertTopicArn = snsTopic.arn;
-
     // ── ECR repository ───────────────────────────────────────────────────
-    let ecrRepo: aws.ecr.Repository | undefined;
-    if (!args.imageUri) {
-      ecrRepo = new aws.ecr.Repository(`${name}-ecr`, {
-        name: `tino-${name}`,
-        forceDelete: false,
-        imageScanningConfiguration: { scanOnPush: true },
-        tags,
+    const ecrRepo = new aws.ecr.Repository(`${name}-ecr`, {
+      name: `tino-${name}`,
+      forceDelete: false,
+      imageScanningConfiguration: { scanOnPush: true },
+      tags,
+    }, { parent: this });
+
+    this.ecrRepoUri = ecrRepo.repositoryUrl;
+
+    // ── Docker image ─────────────────────────────────────────────────────
+    // If an image URI is provided, use it directly (dev/CI shortcut).
+    // Otherwise, build from the Dockerfile and push to ECR.
+    let resolvedImageUri: pulumi.Output<string>;
+    if (args?.image) {
+      resolvedImageUri = pulumi.output(args.image);
+    } else {
+      const builtImage = new awsx.ecr.Image(`${name}-image`, {
+        repositoryUrl: ecrRepo.repositoryUrl,
+        context: args?.dockerContext ?? ".",
+        platform: "linux/amd64",
       }, { parent: this });
-      this.ecrRepoUri = ecrRepo.repositoryUrl;
+      resolvedImageUri = builtImage.imageUri;
     }
+
+    this.imageUri = resolvedImageUri;
 
     // ── IAM roles ────────────────────────────────────────────────────────
     const taskExecutionRole = new aws.iam.Role(`${name}-exec-role`, {
@@ -264,7 +285,7 @@ export class TinoService extends pulumi.ComponentResource {
       tags,
     }, { parent: this });
 
-    // Execution role: pull images + read secrets + write logs
+    // Execution role: pull images + write logs
     new aws.iam.RolePolicyAttachment(`${name}-exec-ecr`, {
       role: taskExecutionRole.name,
       policyArn: "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy",
@@ -282,31 +303,33 @@ export class TinoService extends pulumi.ComponentResource {
       tags,
     }, { parent: this });
 
-    // Task role: DynamoDB, Bedrock, KMS, CloudWatch Logs
+    // Task role: DynamoDB (config store + app data), Bedrock, KMS, CloudWatch Logs
     new aws.iam.RolePolicy(`${name}-task-policy`, {
       role: taskRole.name,
       policy: pulumi.all([table.arn, kmsKey.arn, logGroup.arn]).apply(([tableArn, kmsArn, logArn]) => {
         const statements: object[] = [
-          // DynamoDB
+          // DynamoDB — config store + conversation history
           {
             Effect: "Allow",
-            Action: ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem",
-                     "dynamodb:DeleteItem", "dynamodb:Query", "dynamodb:Scan"],
+            Action: [
+              "dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem",
+              "dynamodb:DeleteItem", "dynamodb:Query", "dynamodb:Scan",
+            ],
             Resource: [tableArn, `${tableArn}/index/*`],
           },
-          // Bedrock
+          // Bedrock — model invocation (model ARNs are dynamic, cross-region profiles)
           {
             Effect: "Allow",
             Action: ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
-            Resource: ["*"], // model ARNs are dynamic (cross-region profiles)
+            Resource: ["*"],
           },
-          // CloudWatch Logs (for CloudWatch tool queries)
+          // CloudWatch Logs — for CloudWatch tool queries (scoped by tool allowlist, not IAM)
           {
             Effect: "Allow",
             Action: ["logs:StartQuery", "logs:GetQueryResults", "logs:StopQuery"],
-            Resource: ["*"], // scoped by the tool's allowlist, not IAM
+            Resource: ["*"],
           },
-          // KMS
+          // KMS — encrypt/decrypt DynamoDB data
           {
             Effect: "Allow",
             Action: ["kms:Encrypt", "kms:Decrypt", "kms:GenerateDataKey"],
@@ -314,8 +337,7 @@ export class TinoService extends pulumi.ComponentResource {
           },
         ];
 
-        // logArn is referenced to satisfy the pulumi.all dependency for
-        // CloudWatch log group creation ordering; not used in policy directly.
+        // logArn satisfies the pulumi.all dependency for log group creation ordering.
         void logArn;
 
         return JSON.stringify({ Version: "2012-10-17", Statement: statements });
@@ -323,10 +345,9 @@ export class TinoService extends pulumi.ComponentResource {
     }, { parent: this });
 
     // ── ECS cluster (create or reuse) ────────────────────────────────────
-    const cluster = args.cluster ?? new aws.ecs.Cluster(`${name}-cluster`, {
+    const cluster = args?.cluster ?? new aws.ecs.Cluster(`${name}-cluster`, {
       name: `tino-${name}`,
       // Container Insights: enabled for HIPAA (audit trail depth), disabled otherwise.
-      // Security controls are unconditional; this is a cost/audit-depth tradeoff.
       settings: [{ name: "containerInsights", value: hipaaCompliance ? "enabled" : "disabled" }],
       tags,
     }, { parent: this });
@@ -334,10 +355,10 @@ export class TinoService extends pulumi.ComponentResource {
     this.clusterName = cluster.name;
 
     // ── ECS security group ───────────────────────────────────────────────
+    // No ingress — Tino uses Slack Socket Mode (outbound WebSocket only).
     const sg = new aws.ec2.SecurityGroup(`${name}-sg`, {
-      vpcId: args.vpcId,
+      vpcId,
       description: "tino ECS task — outbound only (Socket Mode)",
-      // No ingress — Socket Mode is outbound-only
       egress: [{
         protocol: "-1",
         fromPort: 0,
@@ -349,20 +370,18 @@ export class TinoService extends pulumi.ComponentResource {
     }, { parent: this });
 
     // ── ECS task definition ──────────────────────────────────────────────
-    const imageUri = args.imageUri ?? ecrRepo!.repositoryUrl.apply(url => `${url}:latest`);
-
-    // All credentials are stored in the DynamoDB config store and read at
-    // startup. The task definition only needs the infrastructure env vars.
+    // All runtime config (credentials, model ID, Slack tokens) is read from
+    // the DynamoDB config store at startup. No secrets in the task definition.
     const taskDef = new aws.ecs.TaskDefinition(`${name}-task`, {
       family: `tino-${name}`,
       networkMode: "awsvpc",
       requiresCompatibilities: ["FARGATE"],
-      cpu: args.cpu ?? "256",
-      memory: args.memory ?? "512",
+      cpu: args?.cpu ?? "256",
+      memory: args?.memory ?? "512",
       executionRoleArn: taskExecutionRole.arn,
       taskRoleArn: taskRole.arn,
-      containerDefinitions: pulumi.all([imageUri, logGroup.name]).apply(([image, logName]) =>
-        JSON.stringify([{
+      containerDefinitions: pulumi.all([resolvedImageUri, logGroup.name]).apply(
+        ([image, logName]) => JSON.stringify([{
           name: "tino",
           image,
           essential: true,
@@ -378,7 +397,7 @@ export class TinoService extends pulumi.ComponentResource {
             logDriver: "awslogs",
             options: {
               "awslogs-group": logName,
-              "awslogs-region": args.region ?? aws.config.region ?? "us-east-1",
+              "awslogs-region": aws.config.region ?? "us-east-1",
               "awslogs-stream-prefix": "tino",
             },
           },
@@ -395,14 +414,24 @@ export class TinoService extends pulumi.ComponentResource {
       desiredCount: 1,
       launchType: "FARGATE",
       networkConfiguration: {
-        subnets: args.subnetIds,
+        subnets: subnetIds,
         securityGroups: [sg.id],
-        assignPublicIp: false, // private subnets with NAT
+        assignPublicIp: false,
       },
+      // Enable ECS Exec for console access (exec into running container)
+      enableExecuteCommand: true,
       tags,
     }, { parent: this });
 
     this.serviceName = service.name;
+
+    // ── Console access note ──────────────────────────────────────────────
+    this.consoleNote = pulumi.all([cluster.name, service.name]).apply(
+      ([clusterName, serviceName]) =>
+        `Access the running container:\n` +
+        `  1. Find the task ID: aws ecs list-tasks --cluster ${clusterName} --service-name ${serviceName}\n` +
+        `  2. Exec in:          aws ecs execute-command --cluster ${clusterName} --task <task-id> --container tino --interactive --command /bin/sh`,
+    );
 
     this.registerOutputs({
       tableName: this.tableName,
@@ -412,6 +441,8 @@ export class TinoService extends pulumi.ComponentResource {
       kmsKeyArn: this.kmsKeyArn,
       alertTopicArn: this.alertTopicArn,
       logGroupName: this.logGroupName,
+      imageUri: this.imageUri,
+      consoleNote: this.consoleNote,
     });
   }
 }

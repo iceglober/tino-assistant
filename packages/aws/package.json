@@ -39,13 +39,15 @@
   "peerDependencies": {
     "@tino/core": "workspace:*",
     "@pulumi/aws": ">=6.0.0",
-    "@pulumi/pulumi": ">=3.0.0"
+    "@pulumi/pulumi": ">=3.0.0",
+    "@pulumi/awsx": ">=2.0.0"
   },
   "devDependencies": {
     "typescript": "^6.0.3",
     "vitest": "^4.1.6",
     "@types/node": "^25.7.0",
     "@pulumi/aws": "^6.0.0",
-    "@pulumi/pulumi": "^3.0.0"
+    "@pulumi/pulumi": "^3.0.0",
+    "@pulumi/awsx": "^3.1.0"
   }
 }
