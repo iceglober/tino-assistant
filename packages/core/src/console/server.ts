@@ -291,12 +291,25 @@ export function startConsole(
 
     // ── GET /assets/tino-logo.png ──────────────────────────────────────────
     if (method === 'GET' && path === '/assets/tino-logo.png') {
-      const logoPath = new URL('../../assets/tino-logo.png', import.meta.url);
-      try {
-        const data = fs.readFileSync(logoPath);
-        res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=86400' });
-        res.end(data);
-      } catch {
+      // Try multiple paths: monorepo root (local dev), app root (Docker container)
+      const candidates = [
+        new URL('../../assets/tino-logo.png', import.meta.url),
+        new URL('../../../../assets/tino-logo.png', import.meta.url),
+        new URL(`file://${process.cwd()}/assets/tino-logo.png`),
+      ];
+      let served = false;
+      for (const logoPath of candidates) {
+        try {
+          const data = fs.readFileSync(logoPath);
+          res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=86400' });
+          res.end(data);
+          served = true;
+          break;
+        } catch {
+          continue;
+        }
+      }
+      if (!served) {
         res.writeHead(404, { 'Content-Type': 'text/plain' });
         res.end('Logo not found');
       }

@@ -29,6 +29,7 @@ COPY packages/core/src ./packages/core/src
 COPY packages/aws/src ./packages/aws/src
 COPY --from=builder /app/packages/core/dist ./packages/core/dist
 COPY --from=builder /app/packages/aws/dist ./packages/aws/dist
+COPY assets ./assets
 COPY scripts ./scripts
 
 # Ensure workspace packages are resolvable via node_modules/@tino/*
