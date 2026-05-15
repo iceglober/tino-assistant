@@ -34,7 +34,7 @@ function buildPackageJson(infraDir: string): string {
     type: 'module',
     dependencies: {
       '@pulumi/aws': '^7.0.0',
-      '@pulumi/awsx': '^3.0.0',
+      '@pulumi/docker-build': '^0.0.17',
       '@pulumi/pulumi': '^3.0.0',
       '@tino/aws': `file:${awsRelPath}`,
       '@tino/core': `file:${coreRelPath}`,

@@ -3,6 +3,7 @@
  */
 import { execaCommandSync } from 'execa';
 import { resolve } from 'node:path';
+import { readFileSync } from 'node:fs';
 import type { DeployConfig } from './init/types.js';
 import { displaySuccess, displayError, displayInfo, displayStep } from '../utils/display.js';
 
@@ -10,20 +11,24 @@ function run(cmd: string, cwd?: string): void {
   execaCommandSync(cmd, { stdio: 'inherit', cwd });
 }
 
-function readPulumiOutputs(
-  infraDir: string,
-  stack: string
-): { ecrRepoUri: string; clusterName: string; serviceName: string } {
-  const get = (outputName: string) =>
-    execaCommandSync(`pulumi stack output ${outputName} --stack ${stack}`, {
-      cwd: infraDir,
-    }).stdout.trim();
-
-  return {
-    ecrRepoUri: get('EcrRepoUri'),
-    clusterName: get('ClusterName'),
-    serviceName: get('ServiceName'),
-  };
+/**
+ * Detect the tino-assistant repo root from the infra project's package.json.
+ * Looks for a `file:` link to `@tino/aws` and resolves two levels up
+ * (packages/aws → packages → tino-assistant).
+ */
+function detectTinoRepoRoot(infraDir: string): string | null {
+  try {
+    const pkgJson = JSON.parse(readFileSync(resolve(infraDir, 'package.json'), 'utf8'));
+    const awsPath = pkgJson.dependencies?.['@tino/aws'];
+    if (awsPath?.startsWith('file:')) {
+      // file:../path/to/tino-assistant/packages/aws → resolve to repo root (2 levels up)
+      const awsAbsPath = resolve(infraDir, awsPath.replace('file:', ''));
+      return resolve(awsAbsPath, '..', '..');  // packages/aws → packages → tino-assistant
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 export async function executeDeploy(config: DeployConfig): Promise<void> {
@@ -44,8 +49,8 @@ export async function executeDeploy(config: DeployConfig): Promise<void> {
   }
 
   try {
-    // Step 0: Set Pulumi config values
-    displayStep(1, 5, 'Configuring Pulumi stack');
+    // Step 1: Set Pulumi config values
+    displayStep(1, 2, 'Configuring Pulumi stack');
     run(`pulumi config set aws:region ${region} --stack ${stack}`, infraDir);
     if (config.googleOAuthClientId) {
       run(`pulumi config set tino:googleOAuthClientId ${config.googleOAuthClientId} --stack ${stack}`, infraDir);
@@ -59,31 +64,20 @@ export async function executeDeploy(config: DeployConfig): Promise<void> {
     // BAA acknowledgment (required when HIPAA compliance is on)
     run(`pulumi config set tino:baaAcknowledged true --stack ${stack}`, infraDir);
 
-    // Step 1: pulumi up
-    displayStep(2, 5, 'Deploying infrastructure (pulumi up)');
+    // Detect the tino-assistant repo root from the file: link in infra package.json
+    // and set it as the Docker build context. @pulumi/docker-build reads this during
+    // `pulumi up` to locate the Dockerfile at the repo root.
+    const tinoRepoRoot = detectTinoRepoRoot(infraDir);
+    if (tinoRepoRoot) {
+      run(`pulumi config set tino:dockerContext ${tinoRepoRoot} --stack ${stack}`, infraDir);
+    }
+
+    // Step 2: pulumi up — creates infra, builds + pushes Docker image, deploys service
+    displayStep(2, 2, 'Deploying (pulumi up — builds image, pushes to ECR, deploys service)');
     run(`pulumi up --yes --stack ${stack}`, infraDir);
 
-    // Step 2: Read Pulumi stack outputs
-    displayStep(2, 5, 'Reading stack outputs');
-    const outputs = readPulumiOutputs(infraDir, stack);
-
-    // Step 3: Docker build
-    displayStep(3, 5, 'Building Docker image');
-    run('docker build -t tino:latest .', cwd);
-
-    // Step 4: ECR login + push
-    displayStep(4, 5, 'Pushing to ECR');
-    const ecrRepo = outputs.ecrRepoUri;
-    run(`aws ecr get-login-password --region ${region} | docker login --username AWS --password-stdin ${ecrRepo}`);
-    run(`docker tag tino:latest ${ecrRepo}:latest`);
-    run(`docker push ${ecrRepo}:latest`, cwd);
-
-    // Step 5: ECS force new deployment
-    displayStep(5, 5, 'Deploying to ECS');
-    run(`aws ecs update-service --cluster ${outputs.clusterName} --service ${outputs.serviceName} --force-new-deployment --region ${region} --no-cli-pager`);
-
     displaySuccess('tino is deployed!');
-    displayInfo(`  Open the console URL from: pulumi stack output consoleUrl --stack ${stack} --cwd ${infraDir}`);
+    displayInfo(`  Console URL: pulumi stack output consoleUrl --stack ${stack}`, );
     displayInfo(`  Logs: aws logs tail /ecs/tino --follow --region ${region}`);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

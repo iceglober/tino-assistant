@@ -1,6 +1,6 @@
 import * as aws from "@pulumi/aws";
-import * as awsx from "@pulumi/awsx";
 import * as pulumi from "@pulumi/pulumi";
+import * as dockerBuild from "@pulumi/docker-build";
 
 export interface TinoServiceArgs {
   /**
@@ -54,21 +54,6 @@ export interface TinoServiceArgs {
    * ECS cluster. If not provided, creates a new one.
    */
   cluster?: aws.ecs.Cluster;
-
-  /**
-   * Docker image URI. If not provided, builds from the Dockerfile at the
-   * repo root and pushes to a created ECR repo.
-   *
-   * For development: pass a pre-built image to skip the build.
-   * For production: omit this and let the component build + push.
-   */
-  image?: pulumi.Input<string>;
-
-  /**
-   * Path to the Dockerfile context (repo root). Default: "." (current directory).
-   * Only used when `image` is not provided.
-   */
-  dockerContext?: string;
 
   /**
    * Regulatory compliance configuration. Security controls (encryption, PITR,
@@ -182,8 +167,9 @@ function discoverSubnets(vpcId: pulumi.Input<string>): pulumi.Output<string[]> {
  *   AWS requires it, e.g. ecr:GetAuthorizationToken).
  * - DynamoDB deletion protection is enabled — `pulumi destroy` will fail on
  *   the table until you manually disable it.
- * - ECR image tags are immutable — use digest-addressed image URIs in the
- *   task definition (the built image URI already includes the digest).
+ * - ECR image tags are immutable — use digest-addressed image URIs when
+ *   pushing (the CLI handles this). The task definition starts with a
+ *   placeholder image; the CLI replaces it after `pulumi up`.
  * - ECS Exec is disabled by default — enable via `enableExec: true` for
  *   debugging only.
  * - Container root filesystem is read-only; /tmp is mounted as an ephemeral
@@ -486,24 +472,43 @@ export class TinoService extends pulumi.ComponentResource {
     this.ecrRepoUri = ecrRepo.repositoryUrl;
 
     // ── Docker image ─────────────────────────────────────────────────────
-    // If an image URI is provided, use it directly (dev/CI shortcut).
-    // Otherwise, build from the Dockerfile and push to ECR.
-    // The awsx.ecr.Image resource returns a digest-addressed URI
-    // (e.g. 123456789.dkr.ecr.us-east-1.amazonaws.com/tino@sha256:abc123),
-    // which is compatible with IMMUTABLE tag enforcement.
-    let resolvedImageUri: pulumi.Output<string>;
-    if (args.image) {
-      resolvedImageUri = pulumi.output(args.image);
-    } else {
-      const builtImage = new awsx.ecr.Image(`${name}-image`, {
-        repositoryUrl: ecrRepo.repositoryUrl,
-        context: args.dockerContext ?? ".",
-        platform: "linux/amd64",
-      }, { parent: this });
-      resolvedImageUri = builtImage.imageUri;
-    }
+    // @pulumi/docker-build builds and pushes the image as part of `pulumi up`.
+    // The build context is read from `tino:dockerContext` Pulumi config (set by
+    // the CLI to the tino-assistant repo root). Falls back to "." if not set.
+    const tinoConfig = new pulumi.Config("tino");
+    const dockerContext = tinoConfig.get("dockerContext") ?? ".";
 
-    this.imageUri = resolvedImageUri;
+    const builtImage = new dockerBuild.Image(`${name}-image`, {
+      tags: [pulumi.interpolate`${ecrRepo.repositoryUrl}:latest`],
+      context: {
+        location: dockerContext,
+      },
+      // Push to ECR after build
+      push: true,
+      // ECR auth — AWS credentials come from the environment (same as pulumi up)
+      registries: [{
+        address: ecrRepo.repositoryUrl,
+        username: "AWS",
+        password: aws.ecr.getAuthorizationTokenOutput({
+          registryId: ecrRepo.registryId,
+        }).password,
+      }],
+      // Build for linux/amd64 (Fargate)
+      platforms: [dockerBuild.Platform.Linux_amd64],
+      // Layer cache via ECR — avoids full rebuilds on unchanged layers
+      cacheTo: [{
+        registry: {
+          ref: pulumi.interpolate`${ecrRepo.repositoryUrl}:cache`,
+        },
+      }],
+      cacheFrom: [{
+        registry: {
+          ref: pulumi.interpolate`${ecrRepo.repositoryUrl}:cache`,
+        },
+      }],
+    }, { parent: this });
+
+    this.imageUri = builtImage.ref;
 
     // ── IAM roles ────────────────────────────────────────────────────────
     const taskExecutionRole = new aws.iam.Role(`${name}-exec-role`, {
@@ -809,15 +814,15 @@ export class TinoService extends pulumi.ComponentResource {
         // Fargate ephemeral storage — no host path needed.
       }],
       containerDefinitions: pulumi.all([
-        resolvedImageUri,
         logGroup.name,
         this.consoleUrl,
         pulumi.output(args.googleOAuthClientId),
         pulumi.output(args.googleOAuthClientSecret),
+        builtImage.ref,
       ]).apply(
-        ([image, logName, consoleBaseUrl, googleClientId, googleClientSecret]) => JSON.stringify([{
+        ([logName, consoleBaseUrl, googleClientId, googleClientSecret, imageRef]) => JSON.stringify([{
           name: "tino",
-          image,
+          image: imageRef,
           essential: true,
           readonlyRootFilesystem: true,
           mountPoints: [{
