@@ -1,14 +1,15 @@
 import { betterAuth, type Auth } from "better-auth";
+import { getMigrations } from "better-auth/db/migration";
 import Database from "better-sqlite3";
 
-export function createAuth(opts: {
+export async function createAuth(opts: {
   googleClientId: string;
   googleClientSecret: string;
   allowedDomain?: string;
   baseUrl: string;
   dbPath?: string;
-}): Auth {
-  return betterAuth({
+}): Promise<Auth> {
+  const auth = betterAuth({
     baseURL: opts.baseUrl,
     secret: process.env['BETTER_AUTH_SECRET'] ?? crypto.randomUUID(),
     database: new Database(opts.dbPath ?? "./tino-auth.db"),
@@ -22,4 +23,10 @@ export function createAuth(opts: {
       expiresIn: 60 * 60 * 24, // 24 hours
     },
   }) as unknown as Auth;
+
+  // Auto-create tables on first run
+  const { runMigrations } = await getMigrations((auth as any).options);
+  await runMigrations();
+
+  return auth;
 }

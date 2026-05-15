@@ -27,14 +27,14 @@ import { toNodeHandler, fromNodeHeaders } from 'better-auth/node';
  *   require a valid Google OAuth session. /api/auth/* is handled by better-auth.
  *   When those env vars are absent (local dev), auth is skipped entirely.
  */
-export function startConsole(
+export async function startConsole(
   config: ConfigStore,
   logger: AppLogger,
   tools: Record<string, unknown>,
   registry?: CapabilityRegistry,
   port = 3001,
   auditLogger?: AuditLogger,
-): http.Server {
+): Promise<http.Server> {
   const startTime = Date.now();
 
   // ── Auth setup ─────────────────────────────────────────────────────────────
@@ -44,12 +44,12 @@ export function startConsole(
   const baseUrl = process.env['CONSOLE_BASE_URL'] ?? `http://localhost:${port}`;
   const authEnabled = !!(googleClientId && googleClientSecret);
 
-  let auth: ReturnType<typeof createAuth> | null = null;
+  let auth: Awaited<ReturnType<typeof createAuth>> | null = null;
   let authHandler: ReturnType<typeof toNodeHandler> | null = null;
 
   if (authEnabled) {
     try {
-      auth = createAuth({
+      auth = await createAuth({
         googleClientId: googleClientId!,
         googleClientSecret: googleClientSecret!,
         allowedDomain,

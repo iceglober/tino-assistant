@@ -94,7 +94,7 @@ logger.info({ toolCount: Object.keys(tools).length, estimatedTokens: toolTokenEs
 let postDm: (text: string) => Promise<void> = async () => { /* no-op: Slack not connected */ };
 
 // Config console — always starts, regardless of Slack status
-const consoleServer = startConsole(configStore, logger, tools, registry, 3001, auditLogger);
+const consoleServer = await startConsole(configStore, logger, tools, registry, 3001, auditLogger);
 
 let stopScheduler: () => void = () => { /* no-op */ };
 
