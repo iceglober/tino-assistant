@@ -850,6 +850,10 @@ export class TinoService extends pulumi.ComponentResource {
           image: imageRef,
           essential: true,
           readonlyRootFilesystem: true,
+          portMappings: [{
+            containerPort: 3001,
+            protocol: "tcp",
+          }],
           mountPoints: [{
             sourceVolume: "tmp",
             containerPath: "/tmp",
