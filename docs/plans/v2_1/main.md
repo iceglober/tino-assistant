@@ -13,8 +13,9 @@ v2.0 got tino deployed on ECS with Google OAuth, DynamoDB persistence, and the c
 
 ## waves
 
-the work is split into 4 waves, ordered by dependency and user impact:
+the work is split into 5 waves, ordered by dependency and user impact:
 
+- **wave 0: web framework foundation** — set up Vike (SSR + SPA) before touching anything else. the 2000-line inline HTML string and raw `node:http` routing are why we keep shipping broken code. framework first, then fixes.
 - **wave 1: make it work** — fix the bugs that prevent basic functionality
 - **wave 2: make it configurable** — the console can configure all capabilities
 - **wave 3: make it seamless** — hot-reload, one-command deploy, no restarts
