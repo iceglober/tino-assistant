@@ -1,7 +1,7 @@
 /**
- * Shared deployment logic used by both `tino deploy` and `tino init` step 8.
+ * Shared deployment logic used by both `tino deploy` and `tino init` step 7.
  */
-import { execSync, spawn } from 'node:child_process';
+import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import type { DeployConfig } from './init/types.js';
@@ -9,18 +9,8 @@ import { displaySuccess, displayError, displayInfo, displayStep } from '../utils
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 
-function runCommand(cmd: string, args: string[], cwd?: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const proc = spawn(cmd, args, {
-      cwd,
-      stdio: 'inherit',
-      shell: true,
-    });
-    proc.on('close', (code) => {
-      if (code === 0) resolve();
-      else reject(new Error(`Command failed with exit code ${code}`));
-    });
-  });
+function run(cmd: string, cwd?: string): void {
+  execSync(cmd, { stdio: 'inherit', cwd, env: { ...process.env } });
 }
 
 function readPulumiOutputs(
@@ -53,7 +43,7 @@ export async function executeDeploy(config: DeployConfig): Promise<void> {
   try {
     // Step 1: pulumi up
     displayStep(1, 5, 'Deploying infrastructure (pulumi up)');
-    await runCommand('pulumi', ['up', '--yes', '--stack', stack], infraDir);
+    run(`pulumi up --yes --stack ${stack}`, infraDir);
 
     // Step 2: Read Pulumi stack outputs
     displayStep(2, 5, 'Reading stack outputs');
@@ -61,24 +51,18 @@ export async function executeDeploy(config: DeployConfig): Promise<void> {
 
     // Step 3: Docker build
     displayStep(3, 5, 'Building Docker image');
-    await runCommand('docker', ['build', '-t', 'tino:latest', '.'], repoRoot);
+    run('docker build -t tino:latest .', repoRoot);
 
     // Step 4: ECR login + push
     displayStep(4, 5, 'Pushing to ECR');
     const ecrRepo = outputs.ecrRepoUri;
-    execSync(
-      `aws ecr get-login-password --region ${region} | docker login --username AWS --password-stdin ${ecrRepo}`,
-      { stdio: 'inherit' }
-    );
-    execSync(`docker tag tino:latest ${ecrRepo}:latest`, { stdio: 'inherit' });
-    await runCommand('docker', ['push', `${ecrRepo}:latest`], repoRoot);
+    run(`aws ecr get-login-password --region ${region} | docker login --username AWS --password-stdin ${ecrRepo}`);
+    run(`docker tag tino:latest ${ecrRepo}:latest`);
+    run(`docker push ${ecrRepo}:latest`, repoRoot);
 
     // Step 5: ECS force new deployment
     displayStep(5, 5, 'Deploying to ECS');
-    execSync(
-      `aws ecs update-service --cluster ${outputs.clusterName} --service ${outputs.serviceName} --force-new-deployment --region ${region} --no-cli-pager`,
-      { stdio: 'inherit' }
-    );
+    run(`aws ecs update-service --cluster ${outputs.clusterName} --service ${outputs.serviceName} --force-new-deployment --region ${region} --no-cli-pager`);
 
     displaySuccess('tino is deployed!');
     displayInfo(`  DM tino in Slack to get started.`);

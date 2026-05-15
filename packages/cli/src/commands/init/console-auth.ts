@@ -1,4 +1,4 @@
-import { select, input } from '@inquirer/prompts';
+import { select, input, password } from '@inquirer/prompts';
 import type { DeployConfig } from './types.js';
 import { displayStep, displaySuccess, displayInfo } from '../../utils/display.js';
 
@@ -40,8 +40,9 @@ export async function stepConsoleAuth(config: Partial<DeployConfig>): Promise<Pa
     validate: (v) => v.includes('.apps.googleusercontent.com') ? true : 'Should end with .apps.googleusercontent.com',
   });
 
-  const clientSecret = await input({
+  const clientSecret = await password({
     message: 'Google OAuth Client Secret:',
+    mask: '*',
     validate: (v) => v.trim().length > 0 ? true : 'Required',
   });
 
