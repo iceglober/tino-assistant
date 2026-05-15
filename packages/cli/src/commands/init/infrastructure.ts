@@ -1,6 +1,7 @@
 import { select, input } from '@inquirer/prompts';
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { execaCommandSync } from 'execa';
 import type { DeployConfig } from './types.js';
 import { displayStep, displaySuccess, displayInfo } from '../../utils/display.js';
 
@@ -20,8 +21,10 @@ const STANDALONE_PACKAGE_JSON = `{
   "type": "module",
   "dependencies": {
     "@pulumi/aws": "^7.0.0",
+    "@pulumi/awsx": "^3.0.0",
     "@pulumi/pulumi": "^3.0.0",
-    "@tino/aws": "workspace:*"
+    "@tino/aws": "*",
+    "@tino/core": "*"
   }
 }
 `;
@@ -135,6 +138,45 @@ export async function stepInfrastructure(
     writeFileSync(resolve(infraDir, 'Pulumi.yaml'), STANDALONE_PULUMI_YAML);
     writeFileSync(resolve(infraDir, 'index.ts'), STANDALONE_INDEX_TS);
     displaySuccess('Generated infra/package.json, infra/Pulumi.yaml, infra/index.ts');
+
+    // Install dependencies
+    displayInfo('  Installing dependencies...');
+    try {
+      execaCommandSync('pnpm install', { cwd: infraDir, stdio: 'inherit' });
+      displaySuccess('Dependencies installed.');
+    } catch {
+      displayInfo('  pnpm install failed — trying npm install...');
+      try {
+        execaCommandSync('npm install', { cwd: infraDir, stdio: 'inherit' });
+        displaySuccess('Dependencies installed.');
+      } catch {
+        displayInfo('  ⚠ Could not install dependencies. Run `pnpm install` in infra/ manually.');
+      }
+    }
+
+    // Link @tino/aws if it's available globally (from pnpm link --global)
+    try {
+      execaCommandSync('pnpm link --global @tino/aws @tino/core', { cwd: infraDir, stdio: 'pipe' });
+      displaySuccess('Linked @tino/aws and @tino/core from global.');
+    } catch {
+      // Not linked globally — that's fine if they're published to npm
+    }
+
+    // Ask for stack name
+    const rawStack = await input({
+      message: 'Pulumi stack name:',
+      default: 'dev',
+    });
+    pulumiStack = rawStack.trim();
+
+    // Init the Pulumi stack
+    try {
+      execaCommandSync(`pulumi stack init ${pulumiStack}`, { cwd: infraDir, stdio: 'pipe' });
+      displaySuccess(`Pulumi stack '${pulumiStack}' created.`);
+    } catch {
+      // Stack might already exist — that's fine
+      displayInfo(`  Stack '${pulumiStack}' may already exist — continuing.`);
+    }
   } else {
     const rawPath = await input({
       message: 'Path to your Pulumi project:',

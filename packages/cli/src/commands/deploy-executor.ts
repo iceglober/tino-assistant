@@ -46,8 +46,23 @@ export async function executeDeploy(config: DeployConfig): Promise<void> {
   }
 
   try {
+    // Step 0: Set Pulumi config values
+    displayStep(1, 5, 'Configuring Pulumi stack');
+    run(`pulumi config set aws:region ${region} --stack ${stack}`, infraDir);
+    if (config.googleOAuthClientId) {
+      run(`pulumi config set tino:googleOAuthClientId ${config.googleOAuthClientId} --stack ${stack}`, infraDir);
+    }
+    if (config.googleOAuthClientSecret) {
+      run(`pulumi config set --secret tino:googleOAuthClientSecret ${config.googleOAuthClientSecret} --stack ${stack}`, infraDir);
+    }
+    if (config.allowedDomain) {
+      run(`pulumi config set tino:allowedDomain ${config.allowedDomain} --stack ${stack}`, infraDir);
+    }
+    // BAA acknowledgment (required when HIPAA compliance is on)
+    run(`pulumi config set tino:baaAcknowledged true --stack ${stack}`, infraDir);
+
     // Step 1: pulumi up
-    displayStep(1, 5, 'Deploying infrastructure (pulumi up)');
+    displayStep(2, 5, 'Deploying infrastructure (pulumi up)');
     run(`pulumi up --yes --stack ${stack}`, infraDir);
 
     // Step 2: Read Pulumi stack outputs
