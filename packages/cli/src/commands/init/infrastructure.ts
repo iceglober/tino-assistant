@@ -136,7 +136,7 @@ export async function stepInfrastructure(
     writeFileSync(resolve(infraDir, 'package.json'), STANDALONE_PACKAGE_JSON);
     writeFileSync(resolve(infraDir, 'Pulumi.yaml'), STANDALONE_PULUMI_YAML);
     writeFileSync(resolve(infraDir, 'index.ts'), STANDALONE_INDEX_TS);
-    displaySuccess('Generated infra/package.json, infra/Pulumi.yaml, infra/index.ts');
+    displaySuccess(`Generated ${infraPath}/package.json, ${infraPath}/Pulumi.yaml, ${infraPath}/index.ts`);
 
     // Install dependencies
     displayInfo('  Installing dependencies...');
