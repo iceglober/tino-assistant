@@ -13,8 +13,8 @@ COPY packages/core/src ./packages/core/src
 COPY packages/aws/tsconfig.json packages/aws/tsconfig.build.json ./packages/aws/
 COPY packages/aws/src ./packages/aws/src
 # Build both packages (core first, aws depends on core types)
-RUN cd packages/core && npx tsc -p tsconfig.build.json && \
-    cd ../aws && npx tsc -p tsconfig.build.json
+RUN cd packages/core && ./node_modules/.bin/tsc -p tsconfig.build.json && \
+    cd ../aws && ./node_modules/.bin/tsc -p tsconfig.build.json
 
 FROM node:22-slim AS runner
 WORKDIR /app
@@ -37,4 +37,4 @@ RUN mkdir -p node_modules/@tino && \
     ln -s /app/packages/aws node_modules/@tino/aws
 
 ENV NODE_ENV=production
-CMD ["bun", "run", "--filter", "@tino/core", "start"]
+CMD ["node", "packages/core/dist/index.js"]
