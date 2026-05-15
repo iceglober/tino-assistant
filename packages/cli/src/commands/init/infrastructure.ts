@@ -151,19 +151,16 @@ export async function stepInfrastructure(
     writeFileSync(resolve(infraDir, 'index.ts'), STANDALONE_INDEX_TS);
     displaySuccess(`Generated ${infraPath}/package.json, ${infraPath}/Pulumi.yaml, ${infraPath}/index.ts`);
 
-    // Install dependencies (file: links resolve to local tino packages)
+    // Install dependencies (file: links resolve to local tino packages).
+    // Use npm (not pnpm) because the infra dir may be inside a pnpm workspace
+    // that doesn't include it — pnpm would hoist deps to the workspace root
+    // or skip them entirely. npm installs independently.
     displayInfo('  Installing dependencies...');
     try {
-      execaCommandSync('pnpm install', { cwd: infraDir, stdio: 'inherit' });
+      execaCommandSync('npm install', { cwd: infraDir, stdio: 'inherit' });
       displaySuccess('Dependencies installed.');
-    } catch {
-      displayInfo('  pnpm install failed — trying npm install...');
-      try {
-        execaCommandSync('npm install', { cwd: infraDir, stdio: 'inherit' });
-        displaySuccess('Dependencies installed.');
-      } catch {
-        displayInfo('  ⚠ Could not install dependencies. Run `pnpm install` in the infra directory manually.');
-      }
+    } catch (err) {
+      displayInfo(`  ⚠ npm install failed. Run \`cd ${infraPath} && npm install\` manually.`);
     }
 
     // Ask for stack name
