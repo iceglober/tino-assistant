@@ -1,11 +1,7 @@
 ---
 name: design-for-ai
 description: |
-  Apply visual design principles when building or reviewing UI/frontend code.
-  Based on Design for Hackers by David Kadavy. Use when: choosing fonts, colors,
-  or layout proportions; reviewing designs for visual issues; establishing visual
-  hierarchy; creating color palettes or type scales; adding motion or interaction;
-  making responsive design decisions; building any user-facing interface.
+  Use when generating any frontend code (HTML, CSS, React, Tailwind, SwiftUI, etc.); building or reviewing any user-facing interface; choosing fonts, colors, or layout proportions; establishing visual hierarchy; creating color palettes or type scales; adding motion or transitions; making responsive design decisions; critiquing a design that looks off. Symptoms: the default AI aesthetic (purple-blue gradient, Inter, four cards in a grid, faint hover states); "make it look better / more modern / cleaner" with no specific direction; flat hierarchies where everything competes for attention; raw hex values instead of design tokens; type scales that don't ladder cleanly; landing pages and dashboards that look identical; "the design feels generic"; "improve the UX" without a cited principle.
 ---
 
 # Design for AI — Visual Design Principles

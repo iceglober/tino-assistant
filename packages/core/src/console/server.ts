@@ -355,13 +355,21 @@ export function startConsole(
     // When GOOGLE_OAUTH_CLIENT_ID + GOOGLE_OAUTH_CLIENT_SECRET are set, enforce
     // Google OAuth. Otherwise (local dev), serve everything without auth.
     if (authEnabled && auth && authHandler) {
-      // 1. Let better-auth handle its own routes (/api/auth/*)
-      if (url.startsWith('/api/auth/')) {
+      // Paths that bypass auth (health check for ALB, assets, auth routes)
+      const publicPaths = ['/api/health', '/assets/', '/api/auth/'];
+      const isPublic = publicPaths.some(p => url.startsWith(p));
+
+      if (isPublic && url.startsWith('/api/auth/')) {
         void authHandler(req, res);
         return;
       }
 
-      // 2. Check session for all other routes
+      if (isPublic) {
+        handleRoute(req, res, method, routePath);
+        return;
+      }
+
+      // Check session for all protected routes
       void (async () => {
         const session = await auth.api.getSession({
           headers: fromNodeHeaders(req.headers),
