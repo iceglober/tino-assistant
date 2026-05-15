@@ -1,17 +1,12 @@
 import { select } from '@inquirer/prompts';
 import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import type { DeployConfig } from './types.js';
 import { displaySuccess, displayInfo, displaySummary } from '../../utils/display.js';
 
-const __dirname = fileURLToPath(new URL('.', import.meta.url));
-// Repo root is 5 levels up from packages/cli/src/commands/init/
-const repoRoot = resolve(__dirname, '../../../../../');
-
 /**
- * Step 7: Review and deploy.
- * Shows summary box, writes tino.deploy.json, and prints dry-run deploy plan.
+ * Step 6: Review and deploy.
+ * Shows summary box, writes tino.deploy.json, and optionally deploys.
  */
 export async function stepReview(config: DeployConfig): Promise<void> {
   displaySummary(config);
@@ -28,8 +23,8 @@ export async function stepReview(config: DeployConfig): Promise<void> {
     default: 'save',
   });
 
-  // Write tino.deploy.json — credentials are NEVER included
-  const deployConfigPath = resolve(repoRoot, 'tino.deploy.json');
+  // Write tino.deploy.json relative to where tino init was run
+  const deployConfigPath = resolve(process.cwd(), 'tino.deploy.json');
   const safeConfig = buildSafeConfig(config);
 
   writeFileSync(deployConfigPath, JSON.stringify(safeConfig, null, 2) + '\n', 'utf8');
