@@ -1,9 +1,17 @@
 import { select, input } from '@inquirer/prompts';
 import { writeFileSync, mkdirSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { resolve, relative, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { execaCommandSync } from 'execa';
 import type { DeployConfig } from './types.js';
 import { displayStep, displaySuccess, displayInfo } from '../../utils/display.js';
+
+// Resolve the tino packages directory from the CLI's own location.
+// When running via pnpm link, __filename is inside tino-assistant/packages/cli/dist/
+// so we go up to packages/ to find core/ and aws/.
+const cliDir = dirname(fileURLToPath(import.meta.url));
+// dist/commands/init/ → dist/commands/ → dist/ → cli/ → packages/
+const packagesDir = resolve(cliDir, '..', '..', '..', '..');
 
 const REGIONS = [
   {
@@ -15,19 +23,24 @@ const REGIONS = [
   { name: 'Custom region', value: '__custom__' },
 ];
 
-const STANDALONE_PACKAGE_JSON = `{
-  "name": "tino-infra",
-  "private": true,
-  "type": "module",
-  "dependencies": {
-    "@pulumi/aws": "^7.0.0",
-    "@pulumi/awsx": "^3.0.0",
-    "@pulumi/pulumi": "^3.0.0",
-    "@tino/aws": "*",
-    "@tino/core": "*"
-  }
+function buildPackageJson(infraDir: string): string {
+  // Compute relative paths from the infra dir to the tino packages
+  const awsRelPath = relative(infraDir, resolve(packagesDir, 'aws'));
+  const coreRelPath = relative(infraDir, resolve(packagesDir, 'core'));
+
+  return JSON.stringify({
+    name: 'tino-infra',
+    private: true,
+    type: 'module',
+    dependencies: {
+      '@pulumi/aws': '^7.0.0',
+      '@pulumi/awsx': '^3.0.0',
+      '@pulumi/pulumi': '^3.0.0',
+      '@tino/aws': `file:${awsRelPath}`,
+      '@tino/core': `file:${coreRelPath}`,
+    },
+  }, null, 2) + '\n';
 }
-`;
 
 const STANDALONE_PULUMI_YAML = `name: tino-infra
 runtime:
@@ -133,12 +146,12 @@ export async function stepInfrastructure(
     displaySuccess(`Pulumi project will be created at ${infraPath}/`);
     displayInfo('');
     mkdirSync(infraDir, { recursive: true });
-    writeFileSync(resolve(infraDir, 'package.json'), STANDALONE_PACKAGE_JSON);
+    writeFileSync(resolve(infraDir, 'package.json'), buildPackageJson(infraDir));
     writeFileSync(resolve(infraDir, 'Pulumi.yaml'), STANDALONE_PULUMI_YAML);
     writeFileSync(resolve(infraDir, 'index.ts'), STANDALONE_INDEX_TS);
     displaySuccess(`Generated ${infraPath}/package.json, ${infraPath}/Pulumi.yaml, ${infraPath}/index.ts`);
 
-    // Install dependencies
+    // Install dependencies (file: links resolve to local tino packages)
     displayInfo('  Installing dependencies...');
     try {
       execaCommandSync('pnpm install', { cwd: infraDir, stdio: 'inherit' });
@@ -149,16 +162,8 @@ export async function stepInfrastructure(
         execaCommandSync('npm install', { cwd: infraDir, stdio: 'inherit' });
         displaySuccess('Dependencies installed.');
       } catch {
-        displayInfo('  ⚠ Could not install dependencies. Run `pnpm install` in infra/ manually.');
+        displayInfo('  ⚠ Could not install dependencies. Run `pnpm install` in the infra directory manually.');
       }
-    }
-
-    // Link @tino/aws if it's available globally (from pnpm link --global)
-    try {
-      execaCommandSync('pnpm link --global @tino/aws @tino/core', { cwd: infraDir, stdio: 'pipe' });
-      displaySuccess('Linked @tino/aws and @tino/core from global.');
-    } catch {
-      // Not linked globally — that's fine if they're published to npm
     }
 
     // Ask for stack name
