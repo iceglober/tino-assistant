@@ -21,6 +21,11 @@ COPY packages/core/src ./packages/core/src
 COPY packages/aws/src ./packages/aws/src
 COPY scripts ./scripts
 
+# Ensure workspace packages are resolvable via node_modules/@tino/*
+RUN mkdir -p node_modules/@tino && \
+    ln -s /app/packages/core node_modules/@tino/core && \
+    ln -s /app/packages/aws node_modules/@tino/aws
+
 # tsx runs TypeScript directly — no build step needed
 ENV NODE_ENV=production
 CMD ["bun", "run", "--filter", "@tino/core", "start"]

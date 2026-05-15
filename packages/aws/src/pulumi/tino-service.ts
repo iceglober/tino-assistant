@@ -896,7 +896,11 @@ export class TinoService extends pulumi.ComponentResource {
       networkConfiguration: {
         subnets: subnetIds,
         securityGroups: [sg.id],
-        assignPublicIp: false,
+        // assignPublicIp: true when no explicit subnets provided (default VPC
+        // has no NAT gateway, so the task needs a public IP for outbound access
+        // to ECR, Slack, Bedrock, etc.). When the user passes private subnets
+        // from their own VPC (which should have a NAT gateway), this is false.
+        assignPublicIp: !args.subnets,
       },
       loadBalancers: [{
         targetGroupArn: tg.arn,
