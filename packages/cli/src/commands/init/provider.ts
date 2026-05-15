@@ -9,7 +9,7 @@ import { displayStep, displaySuccess } from '../../utils/display.js';
 export async function stepProvider(
   config: Partial<DeployConfig>
 ): Promise<Partial<DeployConfig>> {
-  displayStep(2, 8, 'Cloud Provider');
+  displayStep(2, 7, 'Cloud Provider');
 
   const provider = await select({
     message: 'Which cloud provider will you deploy to?',

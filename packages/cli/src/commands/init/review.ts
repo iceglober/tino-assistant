@@ -10,7 +10,7 @@ const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const repoRoot = resolve(__dirname, '../../../../../');
 
 /**
- * Step 8: Review and deploy.
+ * Step 7: Review and deploy.
  * Shows summary box, writes tino.deploy.json, and prints dry-run deploy plan.
  */
 export async function stepReview(config: DeployConfig): Promise<void> {
@@ -34,7 +34,7 @@ export async function stepReview(config: DeployConfig): Promise<void> {
 
   writeFileSync(deployConfigPath, JSON.stringify(safeConfig, null, 2) + '\n', 'utf8');
   displaySuccess(`Config written to ${deployConfigPath}`);
-  displayInfo('  Credentials are NOT in this file — they are in Secrets Manager.');
+  displayInfo('  Credentials are NOT in this file — they are configured via the console after deploy.');
 
   if (choice === 'deploy') {
     const { executeDeploy } = await import('../deploy-executor.js');
@@ -46,7 +46,7 @@ export async function stepReview(config: DeployConfig): Promise<void> {
     displaySuccess('tino init complete!');
     displayInfo('  Next steps:');
     displayInfo('  • Run `tino deploy` to deploy the infrastructure');
-    displayInfo('  • DM tino in Slack once deployed');
+    displayInfo('  • Open the tino console to configure credentials and capabilities');
     displayInfo('  • Logs: aws logs tail /ecs/tino --follow');
   }
 }
@@ -63,19 +63,10 @@ function buildSafeConfig(config: DeployConfig): Record<string, unknown> {
     iac: config.iac,
     infraPath: config.infraPath,
     pulumiStack: config.pulumiStack,
-    slack: {
-      botTokenSet: config.slack.botTokenSet,
-      appTokenSet: config.slack.appTokenSet,
-      adminUserId: config.slack.adminUserId,
-    },
-    capabilities: Object.fromEntries(
-      Object.entries(config.capabilities).map(([k, v]) => [
-        k,
-        { enabled: v.enabled, baaStatus: v.baaStatus },
-      ])
-    ),
+    googleOAuthClientId: config.googleOAuthClientId,
+    googleOAuthClientSecretSet: config.googleOAuthClientSecret.length > 0,
+    allowedDomain: config.allowedDomain,
     hipaa: config.hipaa,
     generatedAt: new Date().toISOString(),
   };
 }
-

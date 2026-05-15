@@ -9,7 +9,6 @@ export interface DeployConfig {
       aws: 'verified' | 'manual-confirmed' | 'skipped';
       bedrock: 'verified' | 'manual-confirmed' | 'skipped';
       github?: 'confirmed' | 'no-baa' | 'unknown';
-      slack?: 'confirmed' | 'no-baa' | 'unknown';
       google?: 'confirmed' | 'no-baa' | 'unknown';
       linear?: 'confirmed' | 'no-baa' | 'unknown';
     };
@@ -23,17 +22,9 @@ export interface DeployConfig {
   iac: 'standalone' | 'existing';
   infraPath?: string;      // path to existing Pulumi project (only for 'existing')
   pulumiStack?: string;    // stack name (default: 'dev')
-  slack: {
-    botTokenSet: boolean;
-    appTokenSet: boolean;
-    adminUserId: string;
-  };
-  capabilities: {
-    [id: string]: {
-      enabled: boolean;
-      baaStatus: 'confirmed' | 'no-baa' | 'unknown';
-    };
-  };
+  googleOAuthClientId: string;
+  googleOAuthClientSecret: string;
+  allowedDomain: string;
   hipaa: {
     kmsKeyAlias: string;
     auditRetentionDays: number;

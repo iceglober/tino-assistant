@@ -9,7 +9,7 @@ import { displayStep, displaySuccess, displayInfo } from '../../utils/display.js
 export async function stepCompliance(
   config: Partial<DeployConfig>
 ): Promise<Partial<DeployConfig>> {
-  displayStep(1, 8, 'Compliance Framework');
+  displayStep(1, 7, 'Compliance Framework');
 
   const framework = await select({
     message: 'Which compliance frameworks must you adhere to?',

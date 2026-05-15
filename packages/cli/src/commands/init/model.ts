@@ -25,7 +25,7 @@ const PRESET_MODELS = [
  * Bedrock is the only option. Lists available inference profiles and verifies access.
  */
 export async function stepModel(config: Partial<DeployConfig>): Promise<Partial<DeployConfig>> {
-  displayStep(4, 8, 'AI Provider & Model');
+  displayStep(4, 7, 'AI Provider & Model');
 
   // AI provider — Bedrock only
   await select({

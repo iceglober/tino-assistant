@@ -8,7 +8,7 @@ import { checkAwsAccess } from '../../utils/aws.js';
  * Attempts programmatic check first; falls back to manual confirmation.
  */
 export async function stepBaa(config: Partial<DeployConfig>): Promise<Partial<DeployConfig>> {
-  displayStep(3, 8, 'BAA Verification');
+  displayStep(3, 7, 'BAA Verification');
 
   displayInfo('Checking AWS BAA status...');
   displayInfo('Attempting to verify via AWS Artifact API...');

@@ -38,32 +38,26 @@ const STANDALONE_INDEX_TS = `import * as aws from "@pulumi/aws";
 import * as pulumi from "@pulumi/pulumi";
 import { TinoService } from "@tino/aws/pulumi";
 
-const config = new pulumi.Config();
+const config = new pulumi.Config("tino");
 
-// Use the default VPC for standalone deployments
 const defaultVpc = aws.ec2.getVpcOutput({ default: true });
 const subnets = aws.ec2.getSubnetsOutput({
   filters: [{ name: "vpc-id", values: [defaultVpc.id] }],
 });
 
 const tino = new TinoService("tino", {
-  vpcId: defaultVpc.id,
-  subnetIds: subnets.ids,
-  slackBotTokenSecret: config.requireSecret("slackBotTokenSecret"),
-  slackAppTokenSecret: config.requireSecret("slackAppTokenSecret"),
-  adminSlackUserId: config.require("adminSlackUserId"),
-  bedrockModelId: config.get("bedrockModelId") ?? "global.anthropic.claude-sonnet-4-6",
-  alertEmail: config.get("alertEmail"),
-  secrets: {
-    // Additional secrets configured via \`pulumi config set --secret\`
-  },
+  vpc: defaultVpc.id,
+  subnets: subnets.ids,
+  googleOAuthClientId: config.require("googleOAuthClientId"),
+  googleOAuthClientSecret: config.requireSecret("googleOAuthClientSecret"),
+  allowedDomain: config.get("allowedDomain"),
 });
 
-export const EcrRepoUri = tino.ecrRepoUri;
-export const ClusterName = tino.clusterName;
-export const ServiceName = tino.serviceName;
-export const TableName = tino.tableName;
-export const KmsKeyArn = tino.kmsKeyArn;
+export const consoleUrl = tino.consoleUrl;
+export const ecrRepoUri = tino.ecrRepoUri;
+export const clusterName = tino.clusterName;
+export const serviceName = tino.serviceName;
+export const tableName = tino.tableName;
 `;
 
 function generateExistingTinoTs(): string {
@@ -75,27 +69,22 @@ import { TinoService } from "@tino/aws/pulumi";
  *
  * Call this from your main index.ts:
  *   import { createTino } from "./tino.js";
- *   const tino = createTino({ vpcId: network.vpcId, subnetIds: network.privateSubnetIds, cluster: existingCluster });
+ *   const tino = createTino({ vpc: network.vpcId, subnets: network.privateSubnetIds, cluster: existingCluster });
  */
 export function createTino(opts: {
-  vpcId: pulumi.Input<string>;
-  subnetIds: pulumi.Input<string>[];
+  vpc: pulumi.Input<string>;
+  subnets: pulumi.Input<string>[];
   cluster?: import("@pulumi/aws").ecs.Cluster;
 }) {
   const config = new pulumi.Config("tino");
 
   return new TinoService("tino", {
-    vpcId: opts.vpcId,
-    subnetIds: opts.subnetIds,
+    vpc: opts.vpc,
+    subnets: opts.subnets,
     cluster: opts.cluster,
-    slackBotTokenSecret: config.requireSecret("slackBotTokenSecret"),
-    slackAppTokenSecret: config.requireSecret("slackAppTokenSecret"),
-    adminSlackUserId: config.require("adminSlackUserId"),
-    bedrockModelId: config.get("bedrockModelId") ?? "global.anthropic.claude-sonnet-4-6",
-    alertEmail: config.get("alertEmail"),
-    secrets: {
-      // Add your secrets here
-    },
+    googleOAuthClientId: config.require("googleOAuthClientId"),
+    googleOAuthClientSecret: config.requireSecret("googleOAuthClientSecret"),
+    allowedDomain: config.get("allowedDomain"),
   });
 }
 `;
@@ -108,7 +97,7 @@ export function createTino(opts: {
 export async function stepInfrastructure(
   config: Partial<DeployConfig>
 ): Promise<Partial<DeployConfig>> {
-  displayStep(5, 8, 'Infrastructure');
+  displayStep(5, 7, 'Infrastructure');
 
   const iacChoice = await select({
     message: 'Infrastructure setup:',

@@ -16,17 +16,15 @@ export function displaySummary(config: {
   region?: string;
   model?: { modelId?: string };
   iac?: string;
-  capabilities?: Record<string, { enabled: boolean }>;
+  googleOAuthClientId?: string;
+  allowedDomain?: string;
 }): void {
-  const enabledCaps = config.capabilities
-    ? Object.entries(config.capabilities)
-        .filter(([, v]) => v.enabled)
-        .map(([k]) => k)
-        .join(', ') || 'none'
-    : 'none';
-
   const awsBaa = config.compliance?.baaStatus?.aws ?? 'unknown';
   const baaIcon = awsBaa === 'verified' ? '✓' : awsBaa === 'manual-confirmed' ? '✓ (manual)' : '⚠';
+
+  const oauthStatus = config.googleOAuthClientId
+    ? `set (@${config.allowedDomain ?? 'unknown'})`
+    : 'not set';
 
   console.log(chalk.cyan(`
   ╔══════════════════════════════════════════════════╗
@@ -37,12 +35,11 @@ export function displaySummary(config: {
   ║  BAA:         ${padRight(`${baaIcon} AWS BAA ${awsBaa}`, 33)}║
   ║  Model:       ${padRight(config.model?.modelId ?? 'not set', 33)}║
   ║  IaC:         ${padRight(config.iac ?? 'standalone', 33)}║
-  ║  Capabilities:${padRight(` ${enabledCaps}`, 33)}║
+  ║  Console auth:${padRight(` Google OAuth ${oauthStatus}`, 33)}║
   ║                                                 ║
   ║  This will create:                              ║
   ║    • ECS Fargate cluster + service              ║
   ║    • DynamoDB table (encrypted, TTL enabled)    ║
-  ║    • Secrets Manager entries                    ║
   ║    • KMS key (for credential encryption)        ║
   ║    • CloudWatch log group + alarms              ║
   ║    • IAM roles (least-privilege)                ║
