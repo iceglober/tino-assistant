@@ -13,7 +13,7 @@ export interface TinoServiceArgs {
    * Subnets for the ECS task. If not provided, discovers private subnets
    * in the VPC (falls back to all subnets if no private subnets exist).
    */
-  subnets?: pulumi.Input<string>[];
+  subnets?: pulumi.Input<string>[] | pulumi.Input<pulumi.Input<string>[]>;
 
   /**
    * Google OAuth client ID for console authentication.
