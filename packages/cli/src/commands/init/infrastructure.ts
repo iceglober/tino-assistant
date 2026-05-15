@@ -52,7 +52,7 @@ main: index.ts
 
 const STANDALONE_INDEX_TS = `import * as aws from "@pulumi/aws";
 import * as pulumi from "@pulumi/pulumi";
-import { TinoService } from "@tino/aws/pulumi";
+import { TinoService } from "@tino/aws";
 
 const config = new pulumi.Config("tino");
 
@@ -78,7 +78,7 @@ export const tableName = tino.tableName;
 
 function generateExistingTinoTs(): string {
   return `import * as pulumi from "@pulumi/pulumi";
-import { TinoService } from "@tino/aws/pulumi";
+import { TinoService } from "@tino/aws";
 
 /**
  * Deploy tino into your existing infrastructure.
