@@ -1,11 +1,12 @@
 import http from 'node:http';
 import fs from 'node:fs';
-import path from 'node:path';
 import type { ConfigStore } from '../persistence/config.js';
 import type { AppLogger } from '../slack/app.js';
 import type { CapabilityRegistry } from '../capabilities/types.js';
 import type { AuditLogger } from '../audit/logger.js';
 import { getConsoleHtml } from './html.js';
+import { createAuth } from './auth.js';
+import { toNodeHandler, fromNodeHeaders } from 'better-auth/node';
 
 /**
  * HTTP server for the tino config console.
@@ -21,7 +22,10 @@ import { getConsoleHtml } from './html.js';
  *   GET  /api/compliance            → HIPAA compliance status
  *   DELETE /api/users/:userId       → deprovision a user (admin-only)
  *
- * Binds to 127.0.0.1 only — not accessible from outside localhost.
+ * Auth:
+ *   When GOOGLE_OAUTH_CLIENT_ID + GOOGLE_OAUTH_CLIENT_SECRET are set, all routes
+ *   require a valid Google OAuth session. /api/auth/* is handled by better-auth.
+ *   When those env vars are absent (local dev), auth is skipped entirely.
  */
 export function startConsole(
   config: ConfigStore,
@@ -33,22 +37,41 @@ export function startConsole(
 ): http.Server {
   const startTime = Date.now();
 
-  const server = http.createServer((req, res) => {
-    const method = req.method ?? 'GET';
-    const url = req.url ?? '/';
+  // ── Auth setup ─────────────────────────────────────────────────────────────
+  const googleClientId = process.env['GOOGLE_OAUTH_CLIENT_ID'];
+  const googleClientSecret = process.env['GOOGLE_OAUTH_CLIENT_SECRET'];
+  const allowedDomain = process.env['CONSOLE_ALLOWED_DOMAIN'];
+  const baseUrl = process.env['CONSOLE_BASE_URL'] ?? `http://localhost:${port}`;
+  const authEnabled = !!(googleClientId && googleClientSecret);
 
-    // Strip query string for routing
-    const path = url.split('?')[0] ?? '/';
+  const auth = authEnabled
+    ? createAuth({
+        googleClientId,
+        googleClientSecret,
+        allowedDomain,
+        baseUrl,
+        dbPath: '/tmp/tino-auth.db',
+      })
+    : null;
 
-    // ── GET / ──────────────────────────────────────────────────────────────
-    if (method === 'GET' && path === '/') {
+  const authHandler = auth ? toNodeHandler(auth) : null;
+
+  // ── Route handler (called after auth passes) ───────────────────────────────
+  function handleRoute(
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    method: string,
+    routePath: string,
+  ): void {
+    // ── GET / ────────────────────────────────────────────────────────────────
+    if (method === 'GET' && routePath === '/') {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       res.end(getConsoleHtml());
       return;
     }
 
-    // ── GET /api/health ────────────────────────────────────────────────────
-    if (method === 'GET' && path === '/api/health') {
+    // ── GET /api/health ──────────────────────────────────────────────────────
+    if (method === 'GET' && routePath === '/api/health') {
       const capState = registry?.getState() ?? {};
       const body = JSON.stringify({
         ok: true,
@@ -66,8 +89,8 @@ export function startConsole(
       return;
     }
 
-    // ── GET /api/config ────────────────────────────────────────────────────
-    if (method === 'GET' && path === '/api/config') {
+    // ── GET /api/config ──────────────────────────────────────────────────────
+    if (method === 'GET' && routePath === '/api/config') {
       void config.list().then(entries => {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(entries));
@@ -75,9 +98,9 @@ export function startConsole(
       return;
     }
 
-    // ── PUT /api/config/:key ───────────────────────────────────────────────
-    if (method === 'PUT' && path.startsWith('/api/config/')) {
-      const key = decodeURIComponent(path.slice('/api/config/'.length));
+    // ── PUT /api/config/:key ─────────────────────────────────────────────────
+    if (method === 'PUT' && routePath.startsWith('/api/config/')) {
+      const key = decodeURIComponent(routePath.slice('/api/config/'.length));
       if (!key) {
         res.writeHead(400, { 'Content-Type': 'text/plain' });
         res.end('Missing key');
@@ -119,9 +142,9 @@ export function startConsole(
       return;
     }
 
-    // ── DELETE /api/config/:key ────────────────────────────────────────────
-    if (method === 'DELETE' && path.startsWith('/api/config/')) {
-      const key = decodeURIComponent(path.slice('/api/config/'.length));
+    // ── DELETE /api/config/:key ──────────────────────────────────────────────
+    if (method === 'DELETE' && routePath.startsWith('/api/config/')) {
+      const key = decodeURIComponent(routePath.slice('/api/config/'.length));
       if (!key) {
         res.writeHead(400, { 'Content-Type': 'text/plain' });
         res.end('Missing key');
@@ -145,8 +168,8 @@ export function startConsole(
       return;
     }
 
-    // ── GET /api/capabilities ──────────────────────────────────────────────
-    if (method === 'GET' && path === '/api/capabilities') {
+    // ── GET /api/capabilities ────────────────────────────────────────────────
+    if (method === 'GET' && routePath === '/api/capabilities') {
       void config.list().then(entries => {
         const caps = entries
           .filter(e => e.key.startsWith('capability.'))
@@ -161,9 +184,9 @@ export function startConsole(
       return;
     }
 
-    // ── PUT /api/capabilities/:id ──────────────────────────────────────────
-    if (method === 'PUT' && path.startsWith('/api/capabilities/')) {
-      const id = decodeURIComponent(path.slice('/api/capabilities/'.length));
+    // ── PUT /api/capabilities/:id ────────────────────────────────────────────
+    if (method === 'PUT' && routePath.startsWith('/api/capabilities/')) {
+      const id = decodeURIComponent(routePath.slice('/api/capabilities/'.length));
       if (!id) {
         res.writeHead(400, { 'Content-Type': 'text/plain' });
         res.end('Missing capability id');
@@ -193,8 +216,8 @@ export function startConsole(
       return;
     }
 
-    // ── GET /api/compliance ────────────────────────────────────────────────
-    if (method === 'GET' && path === '/api/compliance') {
+    // ── GET /api/compliance ──────────────────────────────────────────────────
+    if (method === 'GET' && routePath === '/api/compliance') {
       void (async () => {
         // BAA status — read from tino.deploy.json if it exists
         let baaStatus: Record<string, string> = {
@@ -251,9 +274,9 @@ export function startConsole(
       return;
     }
 
-    // ── DELETE /api/users/:userId ──────────────────────────────────────────
-    if (method === 'DELETE' && path.startsWith('/api/users/')) {
-      const targetUserId = decodeURIComponent(path.slice('/api/users/'.length));
+    // ── DELETE /api/users/:userId ────────────────────────────────────────────
+    if (method === 'DELETE' && routePath.startsWith('/api/users/')) {
+      const targetUserId = decodeURIComponent(routePath.slice('/api/users/'.length));
       if (!targetUserId) {
         res.writeHead(400, { 'Content-Type': 'text/plain' });
         res.end('Missing userId');
@@ -289,8 +312,8 @@ export function startConsole(
       return;
     }
 
-    // ── GET /assets/tino-logo.png ──────────────────────────────────────────
-    if (method === 'GET' && path === '/assets/tino-logo.png') {
+    // ── GET /assets/tino-logo.png ────────────────────────────────────────────
+    if (method === 'GET' && routePath === '/assets/tino-logo.png') {
       // Try multiple paths: monorepo root (local dev), app root (Docker container)
       const candidates = [
         new URL('../../assets/tino-logo.png', import.meta.url),
@@ -316,9 +339,61 @@ export function startConsole(
       return;
     }
 
-    // ── 404 ────────────────────────────────────────────────────────────────
+    // ── 404 ──────────────────────────────────────────────────────────────────
     res.writeHead(404, { 'Content-Type': 'text/plain' });
     res.end('Not found');
+  }
+
+  const server = http.createServer((req, res) => {
+    const method = req.method ?? 'GET';
+    const url = req.url ?? '/';
+
+    // Strip query string for routing
+    const routePath = url.split('?')[0] ?? '/';
+
+    // ── Auth middleware ────────────────────────────────────────────────────
+    // When GOOGLE_OAUTH_CLIENT_ID + GOOGLE_OAUTH_CLIENT_SECRET are set, enforce
+    // Google OAuth. Otherwise (local dev), serve everything without auth.
+    if (authEnabled && auth && authHandler) {
+      // 1. Let better-auth handle its own routes (/api/auth/*)
+      if (url.startsWith('/api/auth/')) {
+        void authHandler(req, res);
+        return;
+      }
+
+      // 2. Check session for all other routes
+      void (async () => {
+        const session = await auth.api.getSession({
+          headers: fromNodeHeaders(req.headers),
+        });
+
+        if (!session) {
+          // No valid session → redirect to Google login
+          res.writeHead(302, { Location: '/api/auth/sign-in/social?provider=google&callbackURL=/' });
+          res.end();
+          return;
+        }
+
+        // 3. Check allowed domain
+        if (allowedDomain && !session.user.email?.endsWith(`@${allowedDomain}`)) {
+          res.writeHead(403, { 'Content-Type': 'text/html; charset=utf-8' });
+          res.end(
+            `<!DOCTYPE html><html lang="en"><body>` +
+            `<h1>Access denied</h1>` +
+            `<p>Only @${allowedDomain} accounts can access this console.</p>` +
+            `</body></html>`,
+          );
+          return;
+        }
+
+        // 4. Session valid — serve the request
+        handleRoute(req, res, method, routePath);
+      })();
+      return;
+    }
+
+    // Auth not enabled (local dev) — serve everything directly
+    handleRoute(req, res, method, routePath);
   });
 
   // In production (CONSOLE_BASE_URL set), bind to 0.0.0.0 so the ALB can reach

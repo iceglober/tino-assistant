@@ -50,9 +50,9 @@
  *   bg-inset:   #162030  input / inset surface
  *   border:     #2a3a50  structural borders
  *   border-sub: #223040  subtle dividers
- *   text-prim:  #e8ddd0  warm primary text (warm advances, cool recedes)
- *   text-sec:   #8a96a8  cool secondary — recedes
- *   text-dim:   #4a5568  dimmed / placeholder
+ *   text-prim:  #f2ebe3  warm primary text (bumped contrast)
+ *   text-sec:   #9aa6b8  cool secondary — recedes
+ *   text-dim:   #5a6a7e  dimmed / placeholder
  *   accent:     #c8956a  warm amber — butler's glove
  *   accent-dim: #7a4e2a  darker accent for borders
  *   silver:     #a8b0bc  silver cloche — neutral highlights
@@ -79,9 +79,9 @@ export function getConsoleHtml(): string {
       --bg-inset:   #162030;
       --border:     #2a3a50;
       --border-sub: #223040;
-      --text-prim:  #e8ddd0;
-      --text-sec:   #8a96a8;
-      --text-dim:   #4a5568;
+     --text-prim:  #f2ebe3;
+     --text-sec:   #9aa6b8;
+     --text-dim:   #5a6a7e;
       --accent:     #c8956a;
       --accent-dim: #7a4e2a;
       --silver:     #a8b0bc;
@@ -945,6 +945,40 @@ export function getConsoleHtml(): string {
     .status-dim  { background: rgba(168, 176, 188, 0.1);  color: var(--silver); }
     .compliance-loading { color: var(--text-dim); font-size: 0.857rem; font-style: italic; padding: 8px 0; }
 
+    /* ── Signed-in user indicator ──────────────────────────────────────── */
+    .header-user {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.786rem;
+      color: var(--text-dim);
+      margin-left: auto;
+    }
+    .header-user-email {
+      color: var(--text-sec);
+      max-width: 180px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .header-user-sep {
+      color: var(--border);
+    }
+    .header-signout {
+      background: none;
+      border: none;
+      color: var(--text-dim);
+      font-size: 0.786rem;
+      font-family: var(--sans);
+      cursor: pointer;
+      padding: 0;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+      transition: color 100ms;
+    }
+    .header-signout:hover { color: var(--text-sec); }
+    .header-signout:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+
     /* ── Health footer ──────────────────────────────────────────────────── */
     .health-footer {
       margin-top: 28px;
@@ -1180,6 +1214,12 @@ export function getConsoleHtml(): string {
         <div class="header-status" id="header-status" aria-live="polite">
           <div class="status-dot" id="status-dot"></div>
           <span id="status-text">checking…</span>
+        </div>
+        <!-- Signed-in user indicator — populated by JS if session info is available -->
+        <div class="header-user" id="header-user" style="display:none" aria-live="polite">
+          <span class="header-user-email" id="header-user-email"></span>
+          <span class="header-user-sep">·</span>
+          <button class="header-signout" onclick="signOut()" type="button">sign out</button>
         </div>
       </header>
 
@@ -2000,10 +2040,34 @@ export function getConsoleHtml(): string {
       .replace(/'/g, '&#39;');
   }
 
+  /* ── Auth / session ─────────────────────────────────────────────────── */
+  async function loadSession() {
+    try {
+      const res = await fetch('/api/auth/get-session', { credentials: 'include' });
+      if (!res.ok) return;
+      const data = await res.json();
+      const email = data?.user?.email;
+      if (email) {
+        const userEl = document.getElementById('header-user');
+        const emailEl = document.getElementById('header-user-email');
+        if (userEl) userEl.style.display = 'flex';
+        if (emailEl) emailEl.textContent = email;
+      }
+    } catch { /* session endpoint unavailable — auth may be disabled */ }
+  }
+
+  async function signOut() {
+    try {
+      await fetch('/api/auth/sign-out', { method: 'POST', credentials: 'include' });
+    } catch { /* ignore */ }
+    window.location.href = '/api/auth/sign-in/social?provider=google&callbackURL=/';
+  }
+
   /* ── Init ───────────────────────────────────────────────────────────── */
   async function initConsole() {
     loadHealth();
     loadCapabilities();
+    loadSession();
   }
 
   async function init() {
