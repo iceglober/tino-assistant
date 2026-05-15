@@ -531,17 +531,6 @@ export class TinoService extends pulumi.ComponentResource {
       }],
       // Build for linux/amd64 (Fargate)
       platforms: [dockerBuild.Platform.Linux_amd64],
-      // Layer cache via ECR — avoids full rebuilds on unchanged layers
-      cacheTo: [{
-        registry: {
-          ref: pulumi.interpolate`${ecrRepo.repositoryUrl}:cache`,
-        },
-      }],
-      cacheFrom: [{
-        registry: {
-          ref: pulumi.interpolate`${ecrRepo.repositoryUrl}:cache`,
-        },
-      }],
     }, { parent: this });
 
     this.imageUri = builtImage.ref;
