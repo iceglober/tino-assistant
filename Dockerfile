@@ -5,8 +5,16 @@ COPY package.json bun.lock* ./
 COPY packages/core/package.json ./packages/core/
 COPY packages/aws/package.json ./packages/aws/
 COPY packages/cli/package.json ./packages/cli/
-# Install all workspace dependencies (including native modules like better-sqlite3)
 RUN bun install --frozen-lockfile
+
+FROM deps AS builder
+COPY packages/core/tsconfig.json packages/core/tsconfig.build.json ./packages/core/
+COPY packages/core/src ./packages/core/src
+COPY packages/aws/tsconfig.json packages/aws/tsconfig.build.json ./packages/aws/
+COPY packages/aws/src ./packages/aws/src
+# Build both packages (core first, aws depends on core types)
+RUN cd packages/core && npx tsc -p tsconfig.build.json && \
+    cd ../aws && npx tsc -p tsconfig.build.json
 
 FROM node:22-slim AS runner
 WORKDIR /app
@@ -19,6 +27,8 @@ COPY packages/core/package.json ./packages/core/
 COPY packages/aws/package.json ./packages/aws/
 COPY packages/core/src ./packages/core/src
 COPY packages/aws/src ./packages/aws/src
+COPY --from=builder /app/packages/core/dist ./packages/core/dist
+COPY --from=builder /app/packages/aws/dist ./packages/aws/dist
 COPY scripts ./scripts
 
 # Ensure workspace packages are resolvable via node_modules/@tino/*
@@ -26,6 +36,5 @@ RUN mkdir -p node_modules/@tino && \
     ln -s /app/packages/core node_modules/@tino/core && \
     ln -s /app/packages/aws node_modules/@tino/aws
 
-# tsx runs TypeScript directly — no build step needed
 ENV NODE_ENV=production
 CMD ["bun", "run", "--filter", "@tino/core", "start"]
