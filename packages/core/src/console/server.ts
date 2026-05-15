@@ -308,8 +308,11 @@ export function startConsole(
     res.end('Not found');
   });
 
-  server.listen(port, '127.0.0.1', () => {
-    logger.info({ port }, 'config console listening (localhost only)');
+  // In production (CONSOLE_BASE_URL set), bind to 0.0.0.0 so the ALB can reach
+  // the container. In development, bind to 127.0.0.1 (localhost only).
+  const host = process.env['CONSOLE_BASE_URL'] ? '0.0.0.0' : '127.0.0.1';
+  server.listen(port, host, () => {
+    logger.info({ port, host }, 'config console listening');
   });
 
   return server;

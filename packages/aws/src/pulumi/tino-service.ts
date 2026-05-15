@@ -16,6 +16,41 @@ export interface TinoServiceArgs {
   subnets?: pulumi.Input<string>[];
 
   /**
+   * Google OAuth client ID for console authentication.
+   * Required — the console is protected by Google Sign-In.
+   * Get this from the GCP console (OAuth 2.0 Client ID, Web application type).
+   */
+  googleOAuthClientId: pulumi.Input<string>;
+
+  /**
+   * Google OAuth client secret.
+   */
+  googleOAuthClientSecret: pulumi.Input<string>;
+
+  /**
+   * Allowed email domain for console access (e.g., "kayn.ai").
+   * Only Google accounts from this domain can sign in.
+   * If not provided, any Google account can sign in (not recommended for production).
+   */
+  allowedDomain?: string;
+
+  /**
+   * Custom domain for the console (e.g., "tino.kayn.ai").
+   * If provided: creates an ACM certificate and expects a Route53 hosted zone
+   * for the domain. The console is accessible at https://<domain>.
+   *
+   * If not provided: the console is accessible at the ALB's auto-generated
+   * DNS name over HTTP. Fine for initial setup; add a domain later.
+   */
+  consoleDomain?: string;
+
+  /**
+   * Route53 hosted zone ID for the custom domain.
+   * Required when consoleDomain is provided.
+   */
+  hostedZoneId?: pulumi.Input<string>;
+
+  /**
    * ECS cluster. If not provided, creates a new one.
    */
   cluster?: aws.ecs.Cluster;
@@ -202,13 +237,20 @@ export class TinoService extends pulumi.ComponentResource {
    */
   public readonly consoleNote: pulumi.Output<string>;
 
-  constructor(name: string, args?: TinoServiceArgs, opts?: pulumi.ComponentResourceOptions) {
+  /**
+   * The URL of the console.
+   * "https://tino.kayn.ai" when consoleDomain is set, or
+   * "http://<alb-dns>" when no custom domain is provided.
+   */
+  public readonly consoleUrl: pulumi.Output<string>;
+
+  constructor(name: string, args: TinoServiceArgs, opts?: pulumi.ComponentResourceOptions) {
     super("tino:aws:TinoService", name, {}, opts);
 
-    const hipaaCompliance = args?.compliance?.hipaa !== false; // default true
-    const soc2Compliance = args?.compliance?.soc2 !== false;   // default true
-    const gdprCompliance = args?.compliance?.gdpr === true;    // default false
-    const hitrustCompliance = args?.compliance?.hitrust === true; // default false
+    const hipaaCompliance = args.compliance?.hipaa !== false; // default true
+    const soc2Compliance = args.compliance?.soc2 !== false;   // default true
+    const gdprCompliance = args.compliance?.gdpr === true;    // default false
+    const hitrustCompliance = args.compliance?.hitrust === true; // default false
 
     // HITRUST is a superset of HIPAA — if HITRUST is on, HIPAA is on
     const effectiveHipaa = hipaaCompliance || hitrustCompliance;
@@ -219,7 +261,7 @@ export class TinoService extends pulumi.ComponentResource {
     if (gdprCompliance) complianceTags["compliance:gdpr"] = "true";
     if (hitrustCompliance) complianceTags["compliance:hitrust"] = "true";
 
-    const tags = { ...args?.tags, "tino:managed": "true", ...complianceTags };
+    const tags = { ...args.tags, "tino:managed": "true", ...complianceTags };
 
     // ── Compliance enforcement ────────────────────────────────────────────
     // These run during `pulumi preview` and `pulumi up`.
@@ -254,7 +296,7 @@ export class TinoService extends pulumi.ComponentResource {
     // ── VPC ──────────────────────────────────────────────────────────────
     // Use provided VPC (object or ID string), or discover the default VPC.
     const vpcId: pulumi.Input<string> = (() => {
-      if (!args?.vpc) {
+      if (!args.vpc) {
         return aws.ec2.getVpcOutput({ default: true }).id;
       }
       if (typeof args.vpc === "string") {
@@ -269,9 +311,17 @@ export class TinoService extends pulumi.ComponentResource {
     })();
 
     // ── Subnets ───────────────────────────────────────────────────────────
-    // Use provided subnets, or discover private subnets (falling back to all).
+    // Private subnets for ECS task (existing logic).
     const subnetIds: pulumi.Input<pulumi.Input<string>[]> =
-      args?.subnets ?? discoverSubnets(vpcId);
+      args.subnets ?? discoverSubnets(vpcId);
+
+    // Public subnets for ALB (internet-facing).
+    const publicSubnetIds = aws.ec2.getSubnetsOutput({
+      filters: [
+        { name: "vpc-id", values: [vpcId] },
+        { name: "map-public-ip-on-launch", values: ["true"] },
+      ],
+    }).ids;
 
     // ── KMS key (always) ─────────────────────────────────────────────────
     const kmsKey = new aws.kms.Key(`${name}-kms`, {
@@ -442,12 +492,12 @@ export class TinoService extends pulumi.ComponentResource {
     // (e.g. 123456789.dkr.ecr.us-east-1.amazonaws.com/tino@sha256:abc123),
     // which is compatible with IMMUTABLE tag enforcement.
     let resolvedImageUri: pulumi.Output<string>;
-    if (args?.image) {
+    if (args.image) {
       resolvedImageUri = pulumi.output(args.image);
     } else {
       const builtImage = new awsx.ecr.Image(`${name}-image`, {
         repositoryUrl: ecrRepo.repositoryUrl,
-        context: args?.dockerContext ?? ".",
+        context: args.dockerContext ?? ".",
         platform: "linux/amd64",
       }, { parent: this });
       resolvedImageUri = builtImage.imageUri;
@@ -519,7 +569,7 @@ export class TinoService extends pulumi.ComponentResource {
     // All resources are scoped — no wildcards except where AWS requires it.
     // GDPR: Bedrock resources are restricted to the current region only, preventing
     // cross-region inference calls that could violate data residency requirements.
-    const extraLogGroupArns: pulumi.Input<string>[] = args?.cloudwatchLogGroupArns ?? [];
+    const extraLogGroupArns: pulumi.Input<string>[] = args.cloudwatchLogGroupArns ?? [];
     const region = aws.config.region ?? "us-east-1";
     const bedrockResources = gdprCompliance
       ? [
@@ -590,7 +640,7 @@ export class TinoService extends pulumi.ComponentResource {
 
     // ── ECS cluster (create or reuse) ────────────────────────────────────
     // Container Insights is always enabled for audit trail depth.
-    const cluster = args?.cluster ?? new aws.ecs.Cluster(`${name}-cluster`, {
+    const cluster = args.cluster ?? new aws.ecs.Cluster(`${name}-cluster`, {
       name: `tino-${name}`,
       settings: [{ name: "containerInsights", value: "enabled" }],
       tags,
@@ -598,17 +648,139 @@ export class TinoService extends pulumi.ComponentResource {
 
     this.clusterName = cluster.name;
 
-    // ── ECS security group ───────────────────────────────────────────────
-    // No ingress — Tino uses Slack Socket Mode (outbound WebSocket only).
-    const sg = new aws.ec2.SecurityGroup(`${name}-sg`, {
+    // ── ALB security group ───────────────────────────────────────────────
+    // Allow inbound on 443 (with custom domain) or 80 (without) from anywhere.
+    const albSg = new aws.ec2.SecurityGroup(`${name}-alb-sg`, {
       vpcId,
-      description: "tino ECS task — outbound only (Socket Mode)",
+      description: "tino console ALB",
+      ingress: [{
+        protocol: "tcp",
+        fromPort: args.consoleDomain ? 443 : 80,
+        toPort: args.consoleDomain ? 443 : 80,
+        cidrBlocks: ["0.0.0.0/0"],
+        description: "Console access",
+      }],
       egress: [{
         protocol: "-1",
         fromPort: 0,
         toPort: 0,
         cidrBlocks: ["0.0.0.0/0"],
-        description: "Allow all outbound (Slack WSS, Bedrock, external APIs)",
+      }],
+      tags,
+    }, { parent: this });
+
+    // ── ALB ──────────────────────────────────────────────────────────────
+    const alb = new aws.lb.LoadBalancer(`${name}-alb`, {
+      internal: false,
+      loadBalancerType: "application",
+      securityGroups: [albSg.id],
+      subnets: publicSubnetIds,
+      tags,
+    }, { parent: this });
+
+    // ── Target group ─────────────────────────────────────────────────────
+    // Points to the ECS task on port 3001.
+    const tg = new aws.lb.TargetGroup(`${name}-tg`, {
+      port: 3001,
+      protocol: "HTTP",
+      targetType: "ip",
+      vpcId,
+      healthCheck: {
+        path: "/api/health",
+        port: "3001",
+        protocol: "HTTP",
+        healthyThreshold: 2,
+        unhealthyThreshold: 3,
+        interval: 30,
+        timeout: 5,
+      },
+      tags,
+    }, { parent: this });
+
+    // ── HTTPS with custom domain ──────────────────────────────────────────
+    if (args.consoleDomain && args.hostedZoneId) {
+      const cert = new aws.acm.Certificate(`${name}-cert`, {
+        domainName: args.consoleDomain,
+        validationMethod: "DNS",
+        tags,
+      }, { parent: this });
+
+      const validationRecord = new aws.route53.Record(`${name}-cert-validation`, {
+        zoneId: args.hostedZoneId,
+        name: cert.domainValidationOptions.apply(opts => opts[0]!.resourceRecordName),
+        type: cert.domainValidationOptions.apply(opts => opts[0]!.resourceRecordType),
+        records: [cert.domainValidationOptions.apply(opts => opts[0]!.resourceRecordValue)],
+        ttl: 60,
+      }, { parent: this });
+
+      const certValidation = new aws.acm.CertificateValidation(`${name}-cert-valid`, {
+        certificateArn: cert.arn,
+        validationRecordFqdns: [validationRecord.fqdn],
+      }, { parent: this });
+
+      new aws.lb.Listener(`${name}-https`, {
+        loadBalancerArn: alb.arn,
+        port: 443,
+        protocol: "HTTPS",
+        certificateArn: certValidation.certificateArn,
+        defaultActions: [{ type: "forward", targetGroupArn: tg.arn }],
+      }, { parent: this });
+
+      new aws.lb.Listener(`${name}-http-redirect`, {
+        loadBalancerArn: alb.arn,
+        port: 80,
+        protocol: "HTTP",
+        defaultActions: [{
+          type: "redirect",
+          redirect: { protocol: "HTTPS", port: "443", statusCode: "HTTP_301" },
+        }],
+      }, { parent: this });
+
+      new aws.route53.Record(`${name}-dns`, {
+        zoneId: args.hostedZoneId,
+        name: args.consoleDomain,
+        type: "A",
+        aliases: [{
+          name: alb.dnsName,
+          zoneId: alb.zoneId,
+          evaluateTargetHealth: true,
+        }],
+      }, { parent: this });
+    }
+
+    // ── HTTP without custom domain ────────────────────────────────────────
+    if (!args.consoleDomain) {
+      new aws.lb.Listener(`${name}-http`, {
+        loadBalancerArn: alb.arn,
+        port: 80,
+        protocol: "HTTP",
+        defaultActions: [{ type: "forward", targetGroupArn: tg.arn }],
+      }, { parent: this });
+    }
+
+    // ── Console URL output ────────────────────────────────────────────────
+    this.consoleUrl = args.consoleDomain
+      ? pulumi.output(`https://${args.consoleDomain}`)
+      : alb.dnsName.apply(dns => `http://${dns}`);
+
+    // ── ECS security group ───────────────────────────────────────────────
+    // Allows inbound from the ALB on port 3001; all outbound allowed.
+    const sg = new aws.ec2.SecurityGroup(`${name}-sg`, {
+      vpcId,
+      description: "tino ECS task",
+      ingress: [{
+        protocol: "tcp",
+        fromPort: 3001,
+        toPort: 3001,
+        securityGroups: [albSg.id],
+        description: "Allow traffic from ALB to console",
+      }],
+      egress: [{
+        protocol: "-1",
+        fromPort: 0,
+        toPort: 0,
+        cidrBlocks: ["0.0.0.0/0"],
+        description: "Allow all outbound",
       }],
       tags,
     }, { parent: this });
@@ -619,12 +791,16 @@ export class TinoService extends pulumi.ComponentResource {
     //
     // readonlyRootFilesystem: true — container cannot write to its root FS.
     // /tmp is mounted as an ephemeral volume for Node.js scratch space.
+    //
+    // NOTE: @tino/core's console server must bind to 0.0.0.0:3001 when
+    // CONSOLE_BASE_URL is set (production). This change is in @tino/core,
+    // not in this component.
     const taskDef = new aws.ecs.TaskDefinition(`${name}-task`, {
       family: `tino-${name}`,
       networkMode: "awsvpc",
       requiresCompatibilities: ["FARGATE"],
-      cpu: args?.cpu ?? "256",
-      memory: args?.memory ?? "512",
+      cpu: args.cpu ?? "256",
+      memory: args.memory ?? "512",
       executionRoleArn: taskExecutionRole.arn,
       taskRoleArn: taskRole.arn,
       // Ephemeral volume for /tmp (required when readonlyRootFilesystem is true).
@@ -632,8 +808,14 @@ export class TinoService extends pulumi.ComponentResource {
         name: "tmp",
         // Fargate ephemeral storage — no host path needed.
       }],
-      containerDefinitions: pulumi.all([resolvedImageUri, logGroup.name]).apply(
-        ([image, logName]) => JSON.stringify([{
+      containerDefinitions: pulumi.all([
+        resolvedImageUri,
+        logGroup.name,
+        this.consoleUrl,
+        pulumi.output(args.googleOAuthClientId),
+        pulumi.output(args.googleOAuthClientSecret),
+      ]).apply(
+        ([image, logName, consoleBaseUrl, googleClientId, googleClientSecret]) => JSON.stringify([{
           name: "tino",
           image,
           essential: true,
@@ -647,8 +829,11 @@ export class TinoService extends pulumi.ComponentResource {
             { name: "NODE_ENV", value: "production" },
             { name: "PERSISTENCE_ADAPTER", value: "dynamodb" },
             { name: "DYNAMODB_TABLE_NAME", value: `tino-${name}` },
-            { name: "DYNAMODB_ENDPOINT", value: "" }, // empty = use real AWS
             { name: "LOG_LEVEL", value: "info" },
+            { name: "GOOGLE_OAUTH_CLIENT_ID", value: googleClientId },
+            { name: "GOOGLE_OAUTH_CLIENT_SECRET", value: googleClientSecret },
+            { name: "CONSOLE_ALLOWED_DOMAIN", value: args.allowedDomain ?? "" },
+            { name: "CONSOLE_BASE_URL", value: consoleBaseUrl },
           ],
           // No secrets block — credentials come from the DynamoDB config store
           logConfiguration: {
@@ -678,7 +863,12 @@ export class TinoService extends pulumi.ComponentResource {
         securityGroups: [sg.id],
         assignPublicIp: false,
       },
-      enableExecuteCommand: args?.enableExec ?? false,
+      loadBalancers: [{
+        targetGroupArn: tg.arn,
+        containerName: "tino",
+        containerPort: 3001,
+      }],
+      enableExecuteCommand: args.enableExec ?? false,
       tags,
     }, { parent: this });
 
@@ -687,8 +877,8 @@ export class TinoService extends pulumi.ComponentResource {
     // ── Console access note ──────────────────────────────────────────────
     this.consoleNote = pulumi.all([cluster.name, service.name]).apply(
       ([clusterName, serviceName]) =>
-        `ECS Exec is ${args?.enableExec ? "enabled" : "disabled"}.\n` +
-        (args?.enableExec
+        `ECS Exec is ${args.enableExec ? "enabled" : "disabled"}.\n` +
+        (args.enableExec
           ? `Access the running container:\n` +
             `  1. Find the task ID: aws ecs list-tasks --cluster ${clusterName} --service-name ${serviceName}\n` +
             `  2. Exec in:          aws ecs execute-command --cluster ${clusterName} --task <task-id> --container tino --interactive --command /bin/sh`
@@ -705,6 +895,7 @@ export class TinoService extends pulumi.ComponentResource {
       logGroupName: this.logGroupName,
       imageUri: this.imageUri,
       consoleNote: this.consoleNote,
+      consoleUrl: this.consoleUrl,
     });
   }
 }
