@@ -22,7 +22,8 @@
   "dependencies": {
     "@inquirer/prompts": "^7.5.2",
     "chalk": "^5.6.2",
-    "cmd-ts": "^0.15.0"
+    "cmd-ts": "^0.15.0",
+    "execa": "^9.6.1"
   },
   "peerDependencies": {
     "@tino/core": "workspace:*",

@@ -1,7 +1,7 @@
 /**
  * Shared deployment logic used by both `tino deploy` and `tino init` step 7.
  */
-import { execSync } from 'node:child_process';
+import { execaCommandSync } from 'execa';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import type { DeployConfig } from './init/types.js';
@@ -10,7 +10,7 @@ import { displaySuccess, displayError, displayInfo, displayStep } from '../utils
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 
 function run(cmd: string, cwd?: string): void {
-  execSync(cmd, { stdio: 'inherit', cwd, env: { ...process.env } });
+  execaCommandSync(cmd, { stdio: 'inherit', cwd });
 }
 
 function readPulumiOutputs(
@@ -18,10 +18,9 @@ function readPulumiOutputs(
   stack: string
 ): { ecrRepoUri: string; clusterName: string; serviceName: string } {
   const get = (outputName: string) =>
-    execSync(`pulumi stack output ${outputName} --stack ${stack}`, {
+    execaCommandSync(`pulumi stack output ${outputName} --stack ${stack}`, {
       cwd: infraDir,
-      encoding: 'utf8',
-    }).trim();
+    }).stdout.trim();
 
   return {
     ecrRepoUri: get('EcrRepoUri'),
