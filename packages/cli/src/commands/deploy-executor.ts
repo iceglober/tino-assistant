@@ -29,9 +29,7 @@ function readPulumiOutputs(
 export async function executeDeploy(config: DeployConfig): Promise<void> {
   // All paths are relative to where `tino init` was run
   const cwd = process.cwd();
-  const infraDir = config.iac === 'standalone'
-    ? resolve(cwd, 'infra')
-    : resolve(cwd, config.infraPath ?? 'infra');
+  const infraDir = resolve(cwd, config.infraPath ?? 'infra-tino');
   const stack = config.pulumiStack ?? 'dev';
   const region = config.region;
 

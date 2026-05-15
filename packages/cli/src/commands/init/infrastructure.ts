@@ -123,16 +123,15 @@ export async function stepInfrastructure(
   let pulumiStack: string | undefined;
 
   if (iac === 'standalone') {
-    displaySuccess('Pulumi project will be created at ./infra/');
-    displayInfo('');
-    displayInfo('This creates:');
-    displayInfo('  infra/');
-    displayInfo('    Pulumi.yaml');
-    displayInfo('    index.ts          ← imports TinoService from @tino/aws/pulumi');
-    displayInfo('    package.json');
+    const rawInfraPath = await input({
+      message: 'Directory for the tino Pulumi project:',
+      default: './infra-tino',
+    });
+    infraPath = rawInfraPath.trim();
 
-    // Generate the standalone Pulumi project
-    const infraDir = resolve(process.cwd(), 'infra');
+    const infraDir = resolve(process.cwd(), infraPath);
+    displaySuccess(`Pulumi project will be created at ${infraPath}/`);
+    displayInfo('');
     mkdirSync(infraDir, { recursive: true });
     writeFileSync(resolve(infraDir, 'package.json'), STANDALONE_PACKAGE_JSON);
     writeFileSync(resolve(infraDir, 'Pulumi.yaml'), STANDALONE_PULUMI_YAML);
