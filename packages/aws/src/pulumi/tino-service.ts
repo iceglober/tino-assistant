@@ -310,9 +310,45 @@ export class TinoService extends pulumi.ComponentResource {
     }).ids;
 
     // ── KMS key (always) ─────────────────────────────────────────────────
+    const callerIdentity = aws.getCallerIdentityOutput();
+    const currentRegion = aws.getRegionOutput();
+    const accountId = callerIdentity.accountId;
+
     const kmsKey = new aws.kms.Key(`${name}-kms`, {
       description: `tino encryption key (${name})`,
       enableKeyRotation: true,
+      policy: pulumi.all([accountId, currentRegion.name]).apply(([acctId, region]) =>
+        JSON.stringify({
+          Version: "2012-10-17",
+          Statement: [
+            {
+              Sid: "EnableRootAccountFullAccess",
+              Effect: "Allow",
+              Principal: { AWS: `arn:aws:iam::${acctId}:root` },
+              Action: "kms:*",
+              Resource: "*",
+            },
+            {
+              Sid: "AllowCloudWatchLogs",
+              Effect: "Allow",
+              Principal: { Service: `logs.${region}.amazonaws.com` },
+              Action: [
+                "kms:Encrypt",
+                "kms:Decrypt",
+                "kms:ReEncrypt*",
+                "kms:GenerateDataKey*",
+                "kms:DescribeKey",
+              ],
+              Resource: "*",
+              Condition: {
+                ArnLike: {
+                  "kms:EncryptionContext:aws:logs:arn": `arn:aws:logs:${region}:${acctId}:log-group:*`,
+                },
+              },
+            },
+          ],
+        }),
+      ),
       tags,
     }, { parent: this });
 
