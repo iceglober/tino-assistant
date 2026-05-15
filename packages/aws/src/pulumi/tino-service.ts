@@ -46,31 +46,25 @@ export interface TinoServiceArgs {
   compliance?: {
     /**
      * HIPAA (Health Insurance Portability and Accountability Act). Default: true.
-     * Adds: BAA verification reminder (logged as a Pulumi warning), "compliance:hipaa"
-     * tags, Container Insights.
+     * Adds: "compliance:hipaa" tags, Container Insights.
      *
-     * The reminder instructs the deployer to verify a signed BAA in AWS Artifact.
-     * There is no programmatic AWS API to confirm BAA status, so the check is
-     * advisory only.
+     * Requires `pulumi config set tino:baaAcknowledged true` — deployment fails
+     * without it. Run after verifying a signed BAA in AWS Artifact:
+     * https://console.aws.amazon.com/artifact/
      */
     hipaa?: boolean;
 
     /**
      * SOC 2 Type II. Default: true.
-     * Adds: "compliance:soc2" tags. Logs a Pulumi warning reminding the deployer
-     * to enable VPC Flow Logs on the VPC (required for SOC 2 CC6.1 network
-     * monitoring). The Pulumi AWS provider does not expose a read-only flow-log
-     * lookup, so detection is not possible — the warning is always emitted.
+     * Adds: "compliance:soc2" tags. Creates VPC Flow Logs (CloudWatch, encrypted,
+     * 1-minute granularity) on the VPC for SOC 2 CC6.1 network monitoring.
      */
     soc2?: boolean;
 
     /**
      * GDPR (General Data Protection Regulation). Default: false.
-     * Adds: "compliance:gdpr" tags, restricts the Bedrock IAM policy to the
-     * current region only (preventing cross-region inference calls), reduces
-     * CloudWatch log retention to 30 days (right-to-erasure for application
-     * logs), and logs reminders about cross-region inference profiles and
-     * application-level data retention.
+     * Adds: "compliance:gdpr" tags. Scopes Bedrock IAM to current region only
+     * (prevents cross-region model invocation). Sets log retention to 30 days.
      *
      * Enable if tino processes data from EU users or employees.
      */
@@ -163,15 +157,15 @@ function discoverSubnets(vpcId: pulumi.Input<string>): pulumi.Output<string[]> {
  * - Container Insights is always enabled for audit trail depth.
  *
  * Compliance behaviour (when flags are set):
- * - HIPAA: logs a Pulumi warning reminding the deployer to verify a signed BAA
- *   in AWS Artifact. No programmatic BAA check exists in the AWS API.
- * - SOC 2: logs a Pulumi warning reminding the deployer to enable VPC Flow Logs
- *   (required for CC6.1 network monitoring). Detection is not possible via the
- *   Pulumi AWS provider, so the reminder is always emitted.
- * - GDPR: restricts the Bedrock IAM policy to the current region (prevents
- *   cross-region inference calls), reduces CloudWatch log retention to 30 days
- *   (right-to-erasure for application logs), and logs reminders about
- *   cross-region inference profiles and application-level data retention.
+ * - HIPAA: hard gate — `pulumi up` throws immediately unless
+ *   `pulumi config set tino:baaAcknowledged true` has been run after verifying
+ *   a signed BAA in AWS Artifact.
+ * - SOC 2: creates VPC Flow Logs (CloudWatch, encrypted with tino's KMS key,
+ *   1-minute granularity) on the VPC for CC6.1 network monitoring.
+ * - GDPR: scopes Bedrock IAM to the current region only (prevents cross-region
+ *   model invocation), reduces CloudWatch log retention to 30 days (right-to-
+ *   erasure for application logs), and logs reminders about cross-region
+ *   inference profiles and application-level data retention.
  */
 export class TinoService extends pulumi.ComponentResource {
   /** The DynamoDB table name. */
@@ -227,53 +221,34 @@ export class TinoService extends pulumi.ComponentResource {
 
     const tags = { ...args?.tags, "tino:managed": "true", ...complianceTags };
 
-    // ── Compliance warnings ───────────────────────────────────────────────
+    // ── Compliance enforcement ────────────────────────────────────────────
     // These run during `pulumi preview` and `pulumi up`.
 
-    // HIPAA: remind the deployer to verify a signed BAA.
-    // There is no AWS API that confirms BAA status programmatically; the
-    // reminder is the most honest implementation possible.
+    // HIPAA: hard gate — deployment fails unless the deployer has explicitly
+    // acknowledged a signed BAA via `pulumi config set tino:baaAcknowledged true`.
+    // There is no AWS API that confirms BAA status programmatically; requiring
+    // explicit acknowledgment is the strongest enforcement possible.
     if (effectiveHipaa) {
-      pulumi.log.warn(
-        `HIPAA compliance is enabled. Verify that your AWS account has a signed BAA:\n` +
-        `  AWS Console → Artifact → Agreements → AWS Business Associate Addendum\n` +
-        `  https://console.aws.amazon.com/artifact/\n` +
-        `  Without a BAA, this deployment may violate HIPAA requirements.`,
-        this,
-      );
-    }
-
-    // SOC 2: remind the deployer to enable VPC Flow Logs.
-    // The Pulumi AWS provider does not expose a read-only flow-log lookup
-    // (aws.ec2.getFlowLogs does not exist), so we always emit the reminder.
-    if (soc2Compliance) {
-      pulumi.log.warn(
-        `SOC 2 compliance is enabled. Ensure VPC Flow Logs are enabled on your VPC.\n` +
-        `  Required for SOC 2 CC6.1 (network monitoring).\n` +
-        `  If using an existing VPC, verify flow logs are already configured.\n` +
-        `  To add flow logs: aws.ec2.FlowLog or your existing IaC.`,
-        this,
-      );
-    }
-
-    // GDPR: warn about cross-region Bedrock inference profiles.
-    // The IAM policy below enforces single-region Bedrock access when GDPR is
-    // on, but the model ID itself is configured at runtime — remind the deployer.
-    if (gdprCompliance) {
-      pulumi.log.warn(
-        `GDPR compliance is enabled. Ensure your Bedrock model uses a single-region inference profile\n` +
-        `  (e.g., us.anthropic.claude-sonnet-4-6), NOT a global profile (e.g., global.anthropic.claude-sonnet-4-6).\n` +
-        `  Global profiles route requests across regions, which may violate GDPR data residency requirements.\n` +
-        `  Configure the model ID in tino's console after deployment.`,
-        this,
-      );
-      pulumi.log.warn(
-        `GDPR compliance is enabled. Ensure tino's application-level data retention is configured:\n` +
-        `  - Conversation history: 30 days (right to erasure)\n` +
-        `  - Audit logs: 90 days\n` +
-        `  Configure via tino's console → Compliance section after deployment.`,
-        this,
-      );
+      const tinoConfig = new pulumi.Config("tino");
+      const baaAcknowledged = tinoConfig.get("baaAcknowledged");
+      if (baaAcknowledged !== "true") {
+        throw new Error(
+          [
+            "",
+            "═══════════════════════════════════════════════════════════════",
+            "  HIPAA compliance requires a signed AWS Business Associate",
+            "  Addendum (BAA) on this AWS account.",
+            "",
+            "  1. Verify at: https://console.aws.amazon.com/artifact/",
+            "  2. Then run:  pulumi config set tino:baaAcknowledged true",
+            "",
+            "  To deploy without HIPAA compliance (not recommended for PHI):",
+            "    compliance: { hipaa: false }",
+            "═══════════════════════════════════════════════════════════════",
+            "",
+          ].join("\n"),
+        );
+      }
     }
 
     // ── VPC ──────────────────────────────────────────────────────────────
@@ -355,6 +330,63 @@ export class TinoService extends pulumi.ComponentResource {
     }, { parent: this });
 
     this.logGroupName = logGroup.name;
+
+    // ── SOC 2: VPC Flow Logs ─────────────────────────────────────────────
+    // Creates tino-owned flow logs on the VPC (encrypted, 1-minute granularity).
+    // AWS allows multiple flow logs per VPC — this adds tino's own destination
+    // without conflicting with any existing flow log configuration.
+    if (soc2Compliance) {
+      const flowLogRole = new aws.iam.Role(`${name}-flow-log-role`, {
+        assumeRolePolicy: JSON.stringify({
+          Version: "2012-10-17",
+          Statement: [{
+            Action: "sts:AssumeRole",
+            Effect: "Allow",
+            Principal: { Service: "vpc-flow-logs.amazonaws.com" },
+          }],
+        }),
+        tags,
+      }, { parent: this });
+
+      new aws.iam.RolePolicy(`${name}-flow-log-policy`, {
+        role: flowLogRole.name,
+        policy: pulumi.all([logGroup.arn]).apply(([logArn]) =>
+          JSON.stringify({
+            Version: "2012-10-17",
+            Statement: [{
+              Effect: "Allow",
+              Action: [
+                "logs:CreateLogGroup",
+                "logs:CreateLogStream",
+                "logs:PutLogEvents",
+                "logs:DescribeLogGroups",
+                "logs:DescribeLogStreams",
+              ],
+              Resource: ["*"],
+            }],
+          }),
+        ),
+      }, { parent: this });
+
+      // Dedicated log group for flow logs — separate from tino's app logs.
+      // Encrypted with tino's KMS key; 90-day retention for SOC 2 audit trail.
+      const flowLogGroup = new aws.cloudwatch.LogGroup(`${name}-flow-logs`, {
+        name: `/vpc/tino-${name}`,
+        retentionInDays: 90,
+        kmsKeyId: kmsKey.arn,
+        tags,
+      }, { parent: this });
+
+      new aws.ec2.FlowLog(`${name}-vpc-flow-log`, {
+        vpcId: vpcId,
+        trafficType: "ALL",
+        logDestinationType: "cloud-watch-logs",
+        logGroupName: flowLogGroup.name,
+        iamRoleArn: flowLogRole.arn,
+        maxAggregationInterval: 60, // 1-minute granularity (most detailed)
+        tags: { ...tags, "tino:resource": "vpc-flow-log" },
+      }, { parent: this });
+    }
 
     // ── Security alarms (always) ─────────────────────────────────────────
     // SNS topic is created; subscriptions are managed via the console.
