@@ -23,18 +23,15 @@ const auditLogger = createMemoryAuditLogger();
 // Run one-time migration from env vars to config store (no-op if already done)
 await migrateEnvToCapabilities(env, configStore, logger);
 
-// Read Slack connection config from config store (written by migration or console)
-interface SlackConnection {
-  botToken?: string;
-  appToken?: string;
-  allowedUserId?: string;
+// Read Slack connection config from config store (written by console)
+// configStore.get returns JSON-stringified values, so parse them
+function parseConfigValue(raw: string | null): string | undefined {
+  if (!raw) return undefined;
+  try { return JSON.parse(raw) as string; } catch { return raw; }
 }
-const slackConnRaw = await configStore.get('slack.connection');
-const slackConn: SlackConnection = slackConnRaw ? (JSON.parse(slackConnRaw) as SlackConnection) : {};
-
-const slackBotToken = slackConn.botToken ?? env.SLACK_BOT_TOKEN;
-const slackAppToken = slackConn.appToken ?? env.SLACK_APP_TOKEN;
-const allowedUserId = slackConn.allowedUserId ?? env.ALLOWED_SLACK_USER_ID ?? '';
+const slackBotToken = parseConfigValue(await configStore.get('slack.botToken')) ?? env.SLACK_BOT_TOKEN;
+const slackAppToken = parseConfigValue(await configStore.get('slack.appToken')) ?? env.SLACK_APP_TOKEN;
+const allowedUserId = parseConfigValue(await configStore.get('slack.adminUserId')) ?? env.ALLOWED_SLACK_USER_ID ?? '';
 
 const hasSlack = Boolean(slackBotToken && slackAppToken && allowedUserId);
 
