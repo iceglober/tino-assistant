@@ -495,13 +495,14 @@ export class TinoService extends pulumi.ComponentResource {
     }, { parent: this });
 
     // ── ECR repository ───────────────────────────────────────────────────
-    // imageTagMutability: IMMUTABLE prevents overwriting existing tags.
-    // The built image URI includes the digest, so `latest` is never used.
+    // imageTagMutability: MUTABLE allows pushing updated images to the same tag.
+    // The docker-build provider pushes to :latest on each deploy.
+    // Image scanning on push provides the security control.
     const ecrRepo = new aws.ecr.Repository(`${name}-ecr`, {
       name: `tino-${name}`,
       forceDelete: false,
       imageScanningConfiguration: { scanOnPush: true },
-      imageTagMutability: "IMMUTABLE",
+      imageTagMutability: "MUTABLE",
       tags,
     }, { parent: this });
 
