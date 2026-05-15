@@ -11,6 +11,23 @@ import type { AppLogger } from '../../slack/app.js';
  * `betterAuth({ ... })` config block, same migration step. Only the surrounding
  * adapter changes: instead of `toNodeHandler` for raw `node:http`, this module
  * exposes a Hono middleware (`authMiddleware`) and a Hono-shaped auth handler.
+ *
+ * ## Session persistence (gap #7) — MVP behaviour
+ *
+ * Sessions are stored in SQLite at `dbPath` (defaults to `/tmp/tino-auth.db`
+ * in production). On ECS, `/tmp` is wiped between task restarts — sessions
+ * are lost and users must re-login. This is acceptable for MVP because the
+ * console is a single-user (`ALLOWED_SLACK_USER_ID`) tool and ECS restarts
+ * are rare; the re-login flow is one Google-OAuth click (~3-5 seconds).
+ *
+ * For sessions to survive restarts, `BETTER_AUTH_SECRET` MUST be set to a
+ * stable value across restarts. Without it, even a hypothetical durable
+ * session store would be invalidated because better-auth's session token
+ * signature depends on the secret. In production the secret is provisioned
+ * via Pulumi Secrets Manager — see `packages/aws/src/pulumi/secrets.ts`.
+ *
+ * Future: replace SQLite with a DynamoDB-backed `secondaryStorage` adapter
+ * to eliminate the re-login-on-restart trade-off entirely (gap #7 follow-up).
  */
 export async function createAuth(opts: {
   googleClientId: string;
@@ -18,10 +35,23 @@ export async function createAuth(opts: {
   allowedDomain?: string;
   baseUrl: string;
   dbPath?: string;
+  logger?: AppLogger;
 }): Promise<Auth> {
+  const envSecret = process.env['BETTER_AUTH_SECRET'];
+  if (!envSecret) {
+    // Without a stable secret, every process restart silently invalidates
+    // ALL outstanding sessions. Use a per-process random fallback so dev
+    // works, but warn loudly so production deployments fix it.
+    opts.logger?.warn(
+      { fix: 'set BETTER_AUTH_SECRET env var (Pulumi: SecretsManager)' },
+      'BETTER_AUTH_SECRET not set — sessions will be invalidated on every restart',
+    );
+  }
+  const secret = envSecret ?? crypto.randomUUID();
+
   const auth = betterAuth({
     baseURL: opts.baseUrl,
-    secret: process.env['BETTER_AUTH_SECRET'] ?? crypto.randomUUID(),
+    secret,
     database: new Database(opts.dbPath ?? './tino-auth.db'),
     socialProviders: {
       google: {

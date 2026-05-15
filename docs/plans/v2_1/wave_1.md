@@ -61,9 +61,9 @@ async function getHealth() {
 - console JS is plain ES (no JSX) inside the HTML string; reload-on-401 already established at lines 1555/1562
 
 **acceptance:**
-- [ ] `fetch('/api/config')` without a session cookie returns `{"error":"unauthorized"}` with status 401
-- [ ] `fetch('/api/config')` with a valid session cookie returns the config array as JSON
-- [ ] the console page detects 401 and shows the login page
+- [x] `fetch('/api/config')` without a session cookie returns `{"error":"unauthorized"}` with status 401
+- [x] `fetch('/api/config')` with a valid session cookie returns the config array as JSON
+- [x] the console page detects 401 and shows the login page
 
 ### 1.2 fix preferences tools disabled (gap #6)
 
@@ -126,8 +126,8 @@ const { history, tasks: taskStore, config: configStore } = await createPersisten
 - dynamic-import boundary: do NOT import from `@tino/aws` in core; the factory handles the dynamic import
 
 **acceptance:**
-- [ ] `preferences tools enabled` in the startup logs (not `disabled`)
-- [ ] `set_preference` and `get_preferences` tools work in Slack DMs
+- [x] `preferences tools enabled` in the startup logs (not `disabled`)
+- [x] `set_preference` and `get_preferences` tools work in Slack DMs
 
 ### 1.3 fix session persistence across restarts (gap #7)
 
@@ -189,7 +189,7 @@ auth = await createAuth({
 
 **acceptance:**
 - [ ] after ECS task restart, the user's session is still valid (no re-login required)
-- OR: document that sessions are lost on restart and ensure the re-login flow is smooth (< 5 seconds)
+- [x] OR: document that sessions are lost on restart and ensure the re-login flow is smooth (< 5 seconds)
 
 ### 1.4 fix logo loading in production (gap #13)
 
@@ -245,5 +245,35 @@ COPY assets ./assets
 - error handling: existing `try { } catch { continue; }` style is fine; preserve the 404 fallback for local dev where `/app` doesn't exist
 
 **acceptance:**
-- [ ] logo loads on the console page in production
-- [ ] logo loads on the login page in production
+- [x] logo loads on the console page in production
+- [x] logo loads on the login page in production
+
+## Open questions
+
+- **plan-vs-reality drift:** wave 0 (executed before this wave) replaced the
+  raw-http console (`packages/core/src/console/server.ts`, `html.ts`) with a
+  Hono server (`packages/core/src/server/`) + Vite React SPA
+  (`packages/core/src/console-app/`). The file paths in items 1.1, 1.3, and 1.4
+  no longer exist; item 1.2's `tools/index.ts` is dead code (the live path is
+  `capabilities/registry.ts`). Each item was re-mapped to the new architecture:
+  - **1.1** — already implemented by wave 0's `server/middleware/auth.ts`
+    (returns 401 JSON for `/api/*`, falls through to SPA for non-API). Locked
+    in with 9 regression tests at `tests/server/auth-middleware.test.ts`.
+  - **1.2** — fixed in `capabilities/registry.ts` (the live path) and mirrored
+    in `tools/index.ts` (dead but kept consistent). `index.ts` now destructures
+    `preferences` from `createPersistence` and threads it into
+    `initCapabilityRegistry`. 2 regression tests added.
+  - **1.3** — went the MVP path (re-login on restart). Documented the trade-off
+    in `auth.ts`'s module doc and added a loud warning when
+    `BETTER_AUTH_SECRET` is unset (without it, sessions silently invalidate
+    every restart). Future: DynamoDB `secondaryStorage` adapter.
+  - **1.4** — fixed in `server/index.ts` (Hono route, not raw-http). Prepended
+    `/app/assets/tino-logo.png` (Dockerfile WORKDIR pin) to the candidate
+    list; existing `import.meta.url` candidates preserved as local-dev
+    fallbacks.
+- **deferred to a later wave:** durable-session DynamoDB adapter (1.3 stretch
+  goal). The custom adapter would replace SQLite session storage and let
+  sessions survive ECS restarts. Estimate: 1-2 days; new file
+  `packages/aws/src/persistence/dynamo/auth.ts` plus better-auth
+  `secondaryStorage` config. Skipped because (a) MVP single-user tool, (b) ECS
+  restarts rare, (c) re-login flow is one click + ~3 seconds.

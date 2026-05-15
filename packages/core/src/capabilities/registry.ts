@@ -9,6 +9,7 @@ import type { ToolSet } from 'ai';
 import type { ConfigStore } from '../persistence/config.js';
 import type { AppLogger } from '../slack/app.js';
 import type { TaskStore } from '../persistence/tasks.js';
+import type { PreferencesStore } from '../persistence/preferences.js';
 import type { CapabilityConfig, CapabilityModule, CapabilityRegistry, CapabilityRuntimeState } from './types.js';
 import { createPreferencesStore } from '../persistence/preferences.js';
 import { setPreferenceTool, getPreferencesTool } from '../tools/preferences.js';
@@ -35,8 +36,21 @@ export interface RegistryOptions {
   logger: AppLogger;
   /** ALLOWED_SLACK_USER_ID — needed for preferences and task tools. */
   allowedUserId: string;
-  /** DB path for preferences store (SQLite only). */
+  /**
+   * DB path for the SQLite preferences store. Used only when `preferencesStore`
+   * is NOT injected (local dev with SQLite persistence). Production (DynamoDB)
+   * passes `preferencesStore` directly and this is ignored.
+   */
   dbPath?: string;
+  /**
+   * Pre-built preferences store from the persistence factory. When provided,
+   * the registry uses it instead of constructing a new SQLite store.
+   *
+   * In production (PERSISTENCE_ADAPTER=dynamodb) this MUST be passed —
+   * otherwise the registry tries to open a SQLite file on the read-only
+   * root filesystem and the preferences tools log "disabled". (gap #6)
+   */
+  preferencesStore?: PreferencesStore;
   /** Task store for schedule_task / list_tasks / cancel_task tools. */
   taskStore?: TaskStore;
   /**
@@ -54,7 +68,7 @@ export interface RegistryOptions {
  * findWork.enabled=true, starts the poller.
  */
 export async function initCapabilityRegistry(opts: RegistryOptions): Promise<CapabilityRegistry> {
-  const { configStore, logger, allowedUserId, dbPath, taskStore, onNewWork } = opts;
+  const { configStore, logger, allowedUserId, dbPath, preferencesStore, taskStore, onNewWork } = opts;
   const tools: ToolSet = {};
   const stopFns: Array<() => void> = [];
   const state: Record<string, CapabilityRuntimeState> = {};
@@ -110,9 +124,13 @@ export async function initCapabilityRegistry(opts: RegistryOptions): Promise<Cap
   }
 
   // ── Preferences tools (always available) ─────────────────────────────────
+  // Prefer the injected store (mirrors the taskStore injection pattern below).
+  // Fall back to constructing a SQLite store only when no store was injected,
+  // i.e. local-dev callers that haven't been threaded through `createPersistence`.
   try {
-    const prefDbPath = dbPath ?? './tino.db';
-    const prefStore = createPreferencesStore({ dbPath: prefDbPath });
+    const prefStore =
+      preferencesStore ??
+      createPreferencesStore({ dbPath: dbPath ?? './tino.db' });
     tools['set_preference'] = setPreferenceTool(prefStore, allowedUserId);
     tools['get_preferences'] = getPreferencesTool(prefStore, allowedUserId);
     logger.info('preferences tools enabled');

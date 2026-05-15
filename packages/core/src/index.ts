@@ -15,7 +15,7 @@ import { createMemoryAuditLogger } from './audit/memory.js';
 
 const env = loadEnv();
 const logger = createLogger(env);
-const { history, tasks: taskStore, config: configStore } = await createPersistence(env, logger);
+const { history, tasks: taskStore, preferences: preferencesStore, config: configStore } = await createPersistence(env, logger);
 
 // Audit logger — in-memory for local dev; AWS deployment wires in DynamoDB logger
 const auditLogger = createMemoryAuditLogger();
@@ -48,6 +48,7 @@ const registry = await initCapabilityRegistry({
   logger,
   allowedUserId,
   dbPath: env.DB_PATH,
+  preferencesStore,
   taskStore,
   onNewWork: async (summary: string) => {
     // findWork callback — run the agent on the work item and post result to owner

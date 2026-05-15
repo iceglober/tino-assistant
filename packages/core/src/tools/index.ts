@@ -14,6 +14,7 @@ import { createGoogleAuth } from './google/oauth.js';
 import { calendarListEventsTool } from './google/calendar.js';
 import { gmailSearchTool, gmailGetMessageTool } from './google/gmail.js';
 import { createPreferencesStore } from '../persistence/preferences.js';
+import type { PreferencesStore } from '../persistence/preferences.js';
 import { setPreferenceTool, getPreferencesTool } from './preferences.js';
 import type { TaskStore } from '../persistence/tasks.js';
 import { scheduleTaskTool, listTasksTool, cancelTaskTool } from './tasks.js';
@@ -43,6 +44,7 @@ export async function buildTools(
   logger: AppLogger,
   taskStore?: TaskStore,
   configStore?: ConfigStore,
+  preferencesStore?: PreferencesStore,
 ): Promise<ToolSet> {
   const tools: ToolSet = {};
 
@@ -85,9 +87,13 @@ export async function buildTools(
   }
 
   try {
-    const dbPath = env.DB_PATH ?? './tino.db';
     const userId = env.ALLOWED_SLACK_USER_ID ?? '';
-    const prefStore = createPreferencesStore({ dbPath });
+    // Prefer the injected store (mirrors the taskStore pattern below). Fall
+    // back to constructing a SQLite store only when no store was injected
+    // (local-dev callers without a persistence factory). gap #6.
+    const prefStore =
+      preferencesStore ??
+      createPreferencesStore({ dbPath: env.DB_PATH ?? './tino.db' });
     tools['set_preference'] = setPreferenceTool(prefStore, userId);
     tools['get_preferences'] = getPreferencesTool(prefStore, userId);
     logger.info('preferences tools enabled');

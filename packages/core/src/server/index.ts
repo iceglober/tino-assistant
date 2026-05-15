@@ -77,6 +77,7 @@ export async function startServer(opts: StartServerOptions): Promise<StartedServ
         allowedDomain,
         baseUrl,
         dbPath: '/tmp/tino-auth.db',
+        logger,
       });
       logger.info(
         { baseUrl, allowedDomain, authEnabled: true },
@@ -122,10 +123,19 @@ export async function startServer(opts: StartServerOptions): Promise<StartedServ
   app.route('/api/reload', createReloadRoutes());
 
   // ── Logo asset (preserve the old multi-path lookup) ───────────────────────
+  // The Dockerfile pins `WORKDIR /app` and copies `assets/` into the image,
+  // so `/app/assets/tino-logo.png` is the canonical container path. Try that
+  // first; fall back to the `import.meta.url`-relative paths for local dev
+  // and the cwd-relative path for `tsx`-from-repo-root style runs.
   app.get('/assets/tino-logo.png', (c) => {
     const candidates = [
+      // Production (Docker): WORKDIR /app + COPY assets ./assets — gap #13.
+      '/app/assets/tino-logo.png',
+      // Local dev (built): dist/server/index.js → ../../assets/tino-logo.png
       new URL('../../assets/tino-logo.png', import.meta.url),
+      // Workspace root from package: packages/core/src/server/index.ts
       new URL('../../../../assets/tino-logo.png', import.meta.url),
+      // Last-resort cwd lookup.
       new URL(`file://${process.cwd()}/assets/tino-logo.png`),
     ];
     for (const logoPath of candidates) {

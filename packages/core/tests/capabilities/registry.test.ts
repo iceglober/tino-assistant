@@ -291,4 +291,69 @@ describe('initCapabilityRegistry', () => {
     };
     expect(() => registry.stopAll()).not.toThrow();
   });
+
+  // gap #6 — when a preferencesStore is injected, the registry must use it
+  // instead of opening a SQLite file. Production (DynamoDB) depends on this
+  // because the root filesystem is read-only.
+  it('11. injected preferencesStore is used instead of constructing a SQLite store', async () => {
+    const configStore = makeConfigStore({});
+    const logger = makeLogger();
+
+    // A trivial in-memory preferences store. If the registry uses this rather
+    // than constructing a SQLite store, set_preference will route through it.
+    const calls: Array<{ method: string; args: unknown[] }> = [];
+    const preferencesStore = {
+      get: vi.fn(async (...args: unknown[]) => { calls.push({ method: 'get', args }); return null; }),
+      set: vi.fn(async (...args: unknown[]) => { calls.push({ method: 'set', args }); }),
+      list: vi.fn(async (...args: unknown[]) => { calls.push({ method: 'list', args }); return []; }),
+      delete: vi.fn(async (...args: unknown[]) => { calls.push({ method: 'delete', args }); }),
+    };
+
+    const registry = await initCapabilityRegistry({
+      configStore,
+      logger,
+      allowedUserId: 'U001',
+      // dbPath intentionally NOT a real file — if the registry ignored the
+      // injected store and tried SQLite, this would fail or write to disk.
+      dbPath: '/dev/null/should-not-be-touched',
+      preferencesStore,
+    });
+
+    expect(registry.tools['set_preference']).toBeDefined();
+    expect(registry.tools['get_preferences']).toBeDefined();
+
+    // Exercise the tool — it should hit the injected store, not SQLite.
+    const setTool = registry.tools['set_preference'] as {
+      execute: (input: { key: string; value: string }) => Promise<unknown>;
+    };
+    await setTool.execute({ key: 'tz', value: 'UTC' });
+
+    expect(preferencesStore.set).toHaveBeenCalledWith('U001', 'tz', 'UTC');
+    expect(calls.find((c) => c.method === 'set')).toBeDefined();
+  });
+
+  it('12. logs "preferences tools enabled" when injected store is provided', async () => {
+    const configStore = makeConfigStore({});
+    const logger = makeLogger();
+    const preferencesStore = {
+      get: vi.fn(async () => null),
+      set: vi.fn(async () => {}),
+      list: vi.fn(async () => []),
+      delete: vi.fn(async () => {}),
+    };
+
+    await initCapabilityRegistry({
+      configStore,
+      logger,
+      allowedUserId: 'U001',
+      preferencesStore,
+    });
+
+    // operators grep logs for `enabled`/`disabled` — preserve exact phrasing
+    expect(logger.info).toHaveBeenCalledWith('preferences tools enabled');
+    expect(logger.warn).not.toHaveBeenCalledWith(
+      expect.anything(),
+      'preferences tools disabled',
+    );
+  });
 });
