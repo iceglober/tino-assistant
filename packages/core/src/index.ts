@@ -7,7 +7,7 @@ import { createHistoryStore } from './agent/history.js';
 import { runAgent } from './agent/run.js';
 import { startScheduler } from './scheduler/index.js';
 import { createProactiveDm } from './slack/proactive.js';
-import { startConsole } from './console/server.js';
+import { startServer } from './server/index.js';
 import { createPersistence } from './persistence/factory.js';
 import { migrateEnvToCapabilities } from './capabilities/migration.js';
 import { initCapabilityRegistry } from './capabilities/registry.js';
@@ -91,7 +91,14 @@ logger.info({ toolCount: Object.keys(tools).length, estimatedTokens: toolTokenEs
 let postDm: (text: string) => Promise<void> = async () => { /* no-op: Slack not connected */ };
 
 // Config console — always starts, regardless of Slack status
-const consoleServer = await startConsole(configStore, logger, tools, registry, 3001, auditLogger);
+const consoleServer = await startServer({
+  config: configStore,
+  logger,
+  tools,
+  registry,
+  port: 3001,
+  auditLogger,
+});
 
 let stopScheduler: () => void = () => { /* no-op */ };
 

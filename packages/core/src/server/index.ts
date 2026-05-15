@@ -1,0 +1,217 @@
+import { Hono, type Context } from 'hono';
+import { serve, type ServerType } from '@hono/node-server';
+import { serveStatic } from '@hono/node-server/serve-static';
+import fs from 'node:fs';
+import path from 'node:path';
+import type { ConfigStore } from '../persistence/config.js';
+import type { AppLogger } from '../slack/app.js';
+import type { CapabilityRegistry } from '../capabilities/types.js';
+import type { AuditLogger } from '../audit/logger.js';
+import { createAuth, buildAuthMiddleware, type AuthVariables } from './middleware/auth.js';
+import { createHealthRoutes } from './routes/health.js';
+import { createConfigRoutes } from './routes/config.js';
+import { createCapabilityRoutes } from './routes/capabilities.js';
+import { createComplianceRoutes } from './routes/compliance.js';
+import { createUsersRoutes } from './routes/users.js';
+import { createReloadRoutes } from './routes/reload.js';
+
+/**
+ * Tino console HTTP server — Hono app on top of `@hono/node-server`.
+ *
+ * Replaces the previous raw `node:http` server in `console/server.ts`.
+ *
+ * Routing:
+ *   /api/health              → public, ALB-friendly liveness
+ *   /api/auth/*              → better-auth handler (public; auth lives here)
+ *   /api/config*             → protected (auth-gated) config CRUD
+ *   /api/capabilities*       → protected capability config
+ *   /api/compliance          → protected HIPAA snapshot
+ *   /api/users/:id           → protected user deprovisioning
+ *   /api/reload/*            → protected hot-reload (wave 3)
+ *   /assets/*                → static (SPA + logo); also bypasses auth
+ *   /*                       → serves the built React SPA (Vite output)
+ *
+ * Auth:
+ *   - `GOOGLE_OAUTH_CLIENT_ID` + `GOOGLE_OAUTH_CLIENT_SECRET` set → Google OAuth via better-auth
+ *   - either missing → auth disabled (local dev)
+ *   - `CONSOLE_ALLOWED_DOMAIN` optionally restricts sessions to a specific email domain
+ *
+ * Production binds to `0.0.0.0` (ALB-reachable) when `CONSOLE_BASE_URL` is set;
+ * dev binds to `127.0.0.1`.
+ */
+export interface StartServerOptions {
+  config: ConfigStore;
+  logger: AppLogger;
+  tools: Record<string, unknown>;
+  registry?: CapabilityRegistry;
+  port?: number;
+  auditLogger?: AuditLogger;
+}
+
+export interface StartedServer {
+  /** Underlying Node HTTP server — `.close()` shuts it down. */
+  server: ServerType;
+  /** Convenience close that mirrors the old `consoleServer.close()` callsite. */
+  close: () => void;
+}
+
+export async function startServer(opts: StartServerOptions): Promise<StartedServer> {
+  const { config, logger, tools, registry, auditLogger } = opts;
+  const port = opts.port ?? 3001;
+  const startTime = Date.now();
+
+  // ── Auth setup ────────────────────────────────────────────────────────────
+  const googleClientId = process.env['GOOGLE_OAUTH_CLIENT_ID'];
+  const googleClientSecret = process.env['GOOGLE_OAUTH_CLIENT_SECRET'];
+  const allowedDomain = process.env['CONSOLE_ALLOWED_DOMAIN'];
+  const baseUrl = process.env['CONSOLE_BASE_URL'] ?? `http://localhost:${port}`;
+  const authEnabled = !!(googleClientId && googleClientSecret);
+
+  let auth: Awaited<ReturnType<typeof createAuth>> | null = null;
+
+  if (authEnabled) {
+    try {
+      auth = await createAuth({
+        googleClientId: googleClientId!,
+        googleClientSecret: googleClientSecret!,
+        allowedDomain,
+        baseUrl,
+        dbPath: '/tmp/tino-auth.db',
+      });
+      logger.info(
+        { baseUrl, allowedDomain, authEnabled: true },
+        'console auth: Google OAuth enabled',
+      );
+    } catch (err) {
+      logger.error(
+        { err: (err as Error).message },
+        'console auth: failed to initialize — running without auth',
+      );
+    }
+  } else {
+    logger.info({ authEnabled: false }, 'console auth: disabled (no GOOGLE_OAUTH_CLIENT_ID)');
+  }
+
+  // ── Build the Hono app ────────────────────────────────────────────────────
+  const app = new Hono<{ Variables: AuthVariables }>();
+
+  // Auth-gate everything (the middleware itself permits `/api/auth/*`,
+  // `/api/health`, and `/assets/*` to bypass).
+  app.use('*', buildAuthMiddleware({ auth, allowedDomain, logger }));
+
+  // ── /api/auth/* — better-auth handler ─────────────────────────────────────
+  // better-auth ships a fetch-style handler at `auth.handler`. Hono's `c.req.raw`
+  // is a `Request` and `c.body` accepts a `Response`, so this is a one-line wire-up.
+  if (auth) {
+    app.all('/api/auth/*', async (c: Context) => {
+      const res = await auth.handler(c.req.raw);
+      return res;
+    });
+  } else {
+    // Auth disabled: return a stub so the React app's `/api/auth/get-session`
+    // probe gets a deterministic null instead of a 404 that looks like an error.
+    app.get('/api/auth/get-session', (c) => c.json(null));
+  }
+
+  // ── Public + protected API routes ─────────────────────────────────────────
+  app.route('/api/health', createHealthRoutes({ startTime, tools, registry }));
+  app.route('/api/config', createConfigRoutes({ config, logger, auditLogger }));
+  app.route('/api/capabilities', createCapabilityRoutes({ config, logger }));
+  app.route('/api/compliance', createComplianceRoutes({ config, auditLogger }));
+  app.route('/api/users', createUsersRoutes({ config, logger, auditLogger }));
+  app.route('/api/reload', createReloadRoutes());
+
+  // ── Logo asset (preserve the old multi-path lookup) ───────────────────────
+  app.get('/assets/tino-logo.png', (c) => {
+    const candidates = [
+      new URL('../../assets/tino-logo.png', import.meta.url),
+      new URL('../../../../assets/tino-logo.png', import.meta.url),
+      new URL(`file://${process.cwd()}/assets/tino-logo.png`),
+    ];
+    for (const logoPath of candidates) {
+      try {
+        const data = fs.readFileSync(logoPath);
+        c.header('Content-Type', 'image/png');
+        c.header('Cache-Control', 'public, max-age=86400');
+        return c.body(data as unknown as ArrayBuffer);
+      } catch {
+        continue;
+      }
+    }
+    return c.text('Logo not found', 404);
+  });
+
+  // ── Static React SPA (built by Vite to dist/console) ──────────────────────
+  // Resolve once at startup so the path is deterministic regardless of cwd.
+  // `import.meta.url` points at dist/server/index.js in production; the SPA
+  // build sits at dist/console/ — three levels up + console.
+  const consoleDir = resolveConsoleDir();
+  const indexHtmlPath = path.join(consoleDir, 'index.html');
+  let indexHtml: string | null = null;
+  try {
+    indexHtml = fs.readFileSync(indexHtmlPath, 'utf8');
+  } catch {
+    logger.warn(
+      { indexHtmlPath },
+      'console SPA index.html not found — run `vite build` to produce it',
+    );
+  }
+
+  // Static-file serving for SPA assets (JS, CSS, images Vite emits).
+  // serveStatic resolves paths relative to process.cwd, so we pass the absolute path.
+  app.use(
+    '/*',
+    serveStatic({
+      root: path.relative(process.cwd(), consoleDir) || '.',
+    }),
+  );
+
+  // SPA fallback: any non-API GET that didn't hit a file falls back to index.html.
+  app.get('*', (c) => {
+    if (c.req.path.startsWith('/api/')) {
+      return c.text('Not found', 404);
+    }
+    if (!indexHtml) {
+      return c.text(
+        'Console SPA not built — run `vite build` in packages/core',
+        503,
+      );
+    }
+    return c.html(indexHtml);
+  });
+
+  // ── Bind ──────────────────────────────────────────────────────────────────
+  // Production: bind 0.0.0.0 so the ALB can reach the container.
+  // Dev: bind 127.0.0.1.
+  const hostname = process.env['CONSOLE_BASE_URL'] ? '0.0.0.0' : '127.0.0.1';
+  const server = serve({ fetch: app.fetch, port, hostname }, () => {
+    logger.info({ port, host: hostname }, 'config console listening');
+  });
+
+  return {
+    server,
+    close: () => server.close(),
+  };
+}
+
+/**
+ * Resolve the directory containing the built React SPA (`dist/console/`).
+ *
+ * In production (`node dist/server/index.js`), `import.meta.url` resolves to
+ * `dist/server/index.js` and the SPA lives at `../console/`.
+ *
+ * In `tsx` dev (`tsx src/server/index.ts`), `import.meta.url` resolves to
+ * `src/server/index.ts`. Vite's dev server is the source of truth in that mode;
+ * we still return a path here, but `index.html` will simply not exist and the
+ * fallback handler reports a friendly error.
+ */
+function resolveConsoleDir(): string {
+  // .../dist/server/index.js → .../dist/console/
+  // .../src/server/index.ts  → .../src/console-app/  (only used as a probe)
+  const here = new URL('.', import.meta.url).pathname;
+  // Distinguish dist vs src by path segment.
+  if (here.includes(`${path.sep}dist${path.sep}`) || here.includes('/dist/')) {
+    return path.resolve(here, '../console');
+  }
+  return path.resolve(here, '../../dist/console');
+}

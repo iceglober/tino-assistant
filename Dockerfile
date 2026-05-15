@@ -8,12 +8,14 @@ COPY packages/cli/package.json ./packages/cli/
 RUN bun install --frozen-lockfile
 
 FROM deps AS builder
-COPY packages/core/tsconfig.json packages/core/tsconfig.build.json ./packages/core/
+COPY packages/core/tsconfig.json packages/core/tsconfig.build.json packages/core/tsconfig.app.json packages/core/vite.config.ts ./packages/core/
 COPY packages/core/src ./packages/core/src
 COPY packages/aws/tsconfig.json packages/aws/tsconfig.build.json ./packages/aws/
 COPY packages/aws/src ./packages/aws/src
-# Build both packages (core first, aws depends on core types)
-RUN cd packages/core && ./node_modules/.bin/tsc -p tsconfig.build.json && \
+# Build server (tsc) + console SPA (Vite), then build aws (depends on core types)
+RUN cd packages/core && \
+    ./node_modules/.bin/tsc -p tsconfig.build.json && \
+    ./node_modules/.bin/vite build && \
     cd ../aws && ./node_modules/.bin/tsc -p tsconfig.build.json
 
 FROM node:22-slim AS runner

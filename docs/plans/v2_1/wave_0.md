@@ -10,6 +10,93 @@ set up Hono + Vite React SPA as the web framework for the tino console before fi
 
 ## items
 
+### enrichment notes (apply across all items in this wave)
+
+**files affected (overall):**
+- NEW: `packages/core/src/server/index.ts`, `packages/core/src/server/middleware/auth.ts`, `packages/core/src/server/routes/{config,health,capabilities,compliance,reload}.ts`
+- NEW: `packages/core/src/console/main.tsx`, `App.tsx`, `pages/{Login,Setup,Console}.tsx`, `components/*.tsx`, `hooks/*.ts`, `styles/tokens.css`, `index.html`
+- NEW: `packages/core/vite.config.ts`
+- DELETE: `packages/core/src/console/server.ts` (490 lines), `packages/core/src/console/html.ts` (2109 lines)
+- MOVE: `packages/core/src/console/auth.ts` → `packages/core/src/server/middleware/auth.ts`
+- EDIT: `Dockerfile` (add `vite build` step in builder stage), `packages/core/package.json` (add hono/vite/react deps and a `build:console` script)
+
+**mirrors (overall):**
+- `packages/core/src/console/server.ts:69-354` (the inline `handleRoute` function) is the single canonical mirror for what each new Hono route handler must do — every `if (method === '...' && routePath === '...')` block at lines 76, 83, 102, 111, 155, 181, 197, 229, 287, 325 maps 1:1 to a Hono route file in `routes/`.
+- `packages/core/src/console/html.ts:1462-1565` (the screen-switcher and fetch helpers in vanilla JS) is the React-router mirror — keep the same screen names (`screen-welcome` → `<Login>`, `screen-basics` → `<Setup>`, `screen-console` → `<Console>`).
+- `packages/core/src/console/auth.ts:1-32` (the `createAuth` factory) is the mirror for the new `server/middleware/auth.ts` — the `betterAuth({ ... })` config block stays identical; only the Node-http adapter (`toNodeHandler`, `fromNodeHeaders` from `better-auth/node`) is swapped for the Hono adapter (`betterAuth/api/getSession({ headers: c.req.raw.headers })`).
+
+**context (canonical route handler shape from `console/server.ts:111-152` — `PUT /api/config/:key`):**
+```ts
+if (method === 'PUT' && routePath.startsWith('/api/config/')) {
+  const key = decodeURIComponent(routePath.slice('/api/config/'.length));
+  if (!key) { res.writeHead(400); res.end('Missing key'); return; }
+  readBody(req, (err, body) => {
+    if (err) { res.writeHead(400); res.end('Failed to read request body'); return; }
+    let parsed: { value: unknown };
+    try { parsed = JSON.parse(body) as { value: unknown }; }
+    catch { res.writeHead(400); res.end('Request body must be valid JSON'); return; }
+    if (!('value' in parsed)) { res.writeHead(400); res.end('Request body must have a "value" field'); return; }
+    void config.set(key, parsed.value).then(async () => {
+      logger.info({ key }, 'config updated via console');
+      if (auditLogger) await auditLogger.log({ userId: 'console', action: 'config_change', toolName: key, status: 'success' });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, key }));
+    });
+  });
+  return;
+}
+```
+→ Hono equivalent in `routes/config.ts`:
+```ts
+configRoutes.put('/:key', async (c) => {
+  const key = c.req.param('key');
+  const { value } = await c.req.json();
+  if (value === undefined) return c.json({ error: 'value required' }, 400);
+  await config.set(key, value);
+  await auditLogger?.log({ userId: 'console', action: 'config_change', toolName: key, status: 'success' });
+  return c.json({ ok: true, key });
+});
+```
+
+**context (current `createAuth` to wrap in Hono middleware — `console/auth.ts:5-31`):**
+```ts
+export async function createAuth(opts: {
+  googleClientId: string; googleClientSecret: string;
+  allowedDomain?: string; baseUrl: string; dbPath?: string;
+}): Promise<Auth> {
+  const auth = betterAuth({
+    baseURL: opts.baseUrl,
+    secret: process.env['BETTER_AUTH_SECRET'] ?? crypto.randomUUID(),
+    database: new Database(opts.dbPath ?? "./tino-auth.db"),
+    socialProviders: { google: { clientId: opts.googleClientId, clientSecret: opts.googleClientSecret } },
+    session: { expiresIn: 60 * 60 * 24 },
+  }) as unknown as Auth;
+  const { runMigrations } = await getMigrations((auth as any).options);
+  await runMigrations();
+  return auth;
+}
+```
+
+**context (existing `index.ts` startConsole call site to update — line 94):**
+```ts
+const consoleServer = await startConsole(configStore, logger, tools, registry, 3001, auditLogger);
+// → becomes: const consoleServer = await startServer({ config: configStore, logger, tools, registry, port: 3001, auditLogger });
+```
+
+**conventions (apply across the wave):**
+- imports: ESM with `.js` extensions for compiled output; React/TSX uses `.tsx`; named imports throughout
+- exports: named `export function`, `export const`; never default
+- TypeScript: `tsconfig.build.json` already extends NodeNext; preserve that. Vite uses its own bundler config separately
+- React: function components only (no classes); hooks over HOCs; keep JSX terse and prop types inline (`{ children }: { children: ReactNode }`)
+- routing: react-router-dom v6+ (`<Routes>` + `<Route>`); SPA fallback to index.html for any non-`/api/*` path
+- styling: design tokens go to `styles/tokens.css` (mirror the `:root` block at `console/html.ts:75-97` exactly — same variable names, same hex values); never hex inline
+- test framework: vitest (already configured for `packages/core` per `package.json:test`); React tests use `@testing-library/react` if added
+- error handling: try/catch with `(err as Error).message` in log lines; pino-style `logger.info({ ... }, 'message')`; never `alert()` in console JS — use the existing `showToast(msg, level)` pattern (defined in `html.ts`)
+- audit: every config write goes through `auditLogger.log({ userId, action, toolName, status })` — match the shape at `server.ts:139-146`
+- security: do NOT bypass `authMiddleware` for any new route except `/api/auth/*` and `/api/health` (existing `publicPaths` allowlist at `server.ts:368`); login page HTML is served from the auth middleware itself when session is missing — preserve that behavior in the Hono port
+- bundling: keep `@tino/aws` out of the React SPA bundle; only `@tino/core` types may cross the client/server boundary
+- Dockerfile: builder stage runs `tsc -p tsconfig.build.json` AND `vite build`; runner stage copies `dist/` (server) AND `dist/console/` (SPA assets); `WORKDIR /app` is fixed (see wave 1.4)
+
 ### 0.1 install deps
 
 ```bash
@@ -173,3 +260,17 @@ the built SPA goes to `packages/core/dist/console/` and Hono serves it as static
 - the Pulumi component — unchanged
 - the CLI (`tino init`, `tino deploy`) — unchanged
 - better-auth integration — same library, just mounted on Hono instead of raw http
+
+## Open questions
+
+(none — defaults captured in implementation; resolved during build)
+
+## Decisions made during execution
+
+- **Console SPA root directory:** `src/console-app/` (not `src/console/`). The plan listed `src/console/main.tsx` etc., but the path was already scaffolded as `console-app/` in the working tree, and `console/` was occupied by the legacy files we're deleting. Keeping `console-app/` avoids a name collision during the deletion step. The Vite root and `serveStatic` paths were updated to match.
+- **Where the `JSX` namespace comes from:** React 19 dropped the global `JSX` namespace; every `*.tsx` file imports `type JSX` from `'react'`. Documented in `tsconfig.app.json` (`"jsx": "react-jsx"`).
+- **Vitest config split:** added `packages/core/vitest.config.ts` so vitest can find `tests/**` from the package root. `vite.config.ts` is rooted at `src/console-app/`, which would otherwise cause vitest to scan only the SPA tree.
+- **Separate `tsconfig.app.json`:** the SPA needs DOM lib, JSX, and Bundler module resolution; the server needs Node types and NodeNext. Two configs, both run in the `typecheck` script.
+- **Build outputs:** server tsc → `dist/server/`, Vite SPA → `dist/console/`. Dockerfile copies both via the existing `COPY --from=builder /app/packages/core/dist`.
+- **`/api/users` and `/api/reload` routes:** kept the existing scaffolds. `users` mirrors the old `DELETE /api/users/:userId`; `reload` is wave 3 stubs returning 501.
+- **`/api/auth/get-session` stub when auth disabled:** preserved from the existing scaffolding — returns `null` so the React `useAuth` hook gets a deterministic answer in local dev.
