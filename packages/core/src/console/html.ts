@@ -1552,12 +1552,14 @@ export function getConsoleHtml(): string {
 
   async function getConfig() {
     const r = await fetch('/api/config');
+    if (r.status === 401) { window.location.reload(); return []; }
     if (!r.ok) throw new Error(await r.text());
     return r.json();
   }
 
   async function getHealth() {
     const r = await fetch('/api/health');
+    if (r.status === 401) { window.location.reload(); return {}; }
     if (!r.ok) throw new Error(await r.text());
     return r.json();
   }

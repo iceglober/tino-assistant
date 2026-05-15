@@ -385,7 +385,13 @@ export async function startConsole(
         });
 
         if (!session) {
-          // No valid session → show login page
+          // API routes get 401 JSON; page routes get the login page
+          if (url.startsWith('/api/')) {
+            res.writeHead(401, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'unauthorized', message: 'sign in required' }));
+            return;
+          }
+          // Non-API routes → show login page
           res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
           res.end(`<!DOCTYPE html>
 <html lang="en">
