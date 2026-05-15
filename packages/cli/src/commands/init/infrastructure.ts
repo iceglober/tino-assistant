@@ -97,7 +97,7 @@ export function createTino(opts: {
 export async function stepInfrastructure(
   config: Partial<DeployConfig>
 ): Promise<Partial<DeployConfig>> {
-  displayStep(5, 7, 'Infrastructure');
+  displayStep(4, 6, 'Infrastructure');
 
   const iacChoice = await select({
     message: 'Infrastructure setup:',

@@ -59,7 +59,6 @@ function buildSafeConfig(config: DeployConfig): Record<string, unknown> {
     compliance: config.compliance,
     provider: config.provider,
     region: config.region,
-    model: config.model,
     iac: config.iac,
     infraPath: config.infraPath,
     pulumiStack: config.pulumiStack,

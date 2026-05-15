@@ -15,10 +15,6 @@ export interface DeployConfig {
   };
   provider: 'aws';
   region: string;
-  model: {
-    provider: 'bedrock';
-    modelId: string;
-  };
   iac: 'standalone' | 'existing';
   infraPath?: string;      // path to existing Pulumi project (only for 'existing')
   pulumiStack?: string;    // stack name (default: 'dev')

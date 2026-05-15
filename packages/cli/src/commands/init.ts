@@ -1,15 +1,17 @@
 /**
  * tino init — Bootstrap a new HIPAA-compliant tino deployment.
  *
- * Chains 7 interactive steps to collect a full DeployConfig,
- * then writes tino.deploy.json and prints a dry-run deploy plan.
+ * Chains 6 interactive steps to collect deployment config,
+ * then writes tino.deploy.json and deploys.
+ *
+ * All runtime config (model ID, Slack tokens, capabilities) is
+ * configured via the console after deploy — not here.
  */
 import { command } from 'cmd-ts';
 import { displayBanner } from '../utils/display.js';
 import { stepCompliance } from './init/compliance.js';
 import { stepProvider } from './init/provider.js';
 import { stepBaa } from './init/baa.js';
-import { stepModel } from './init/model.js';
 import { stepInfrastructure } from './init/infrastructure.js';
 import { stepConsoleAuth } from './init/console-auth.js';
 import { stepReview } from './init/review.js';
@@ -24,12 +26,11 @@ export const init = command({
 
     let config: Partial<DeployConfig> = {};
 
-    config = await stepCompliance(config);
-    config = await stepProvider(config);
-    config = await stepBaa(config);
-    config = await stepModel(config);
-    config = await stepInfrastructure(config);
-    config = await stepConsoleAuth(config);
-    await stepReview(config as DeployConfig);
+    config = await stepCompliance(config);      // step 1
+    config = await stepProvider(config);        // step 2
+    config = await stepBaa(config);             // step 3
+    config = await stepInfrastructure(config);  // step 4
+    config = await stepConsoleAuth(config);     // step 5
+    await stepReview(config as DeployConfig);   // step 6
   },
 });

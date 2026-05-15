@@ -8,7 +8,7 @@ import { displayStep, displaySuccess, displayInfo } from '../../utils/display.js
  * These are passed to TinoService at deploy time — no Slack tokens needed.
  */
 export async function stepConsoleAuth(config: Partial<DeployConfig>): Promise<Partial<DeployConfig>> {
-  displayStep(6, 7, 'Console Authentication');
+  displayStep(5, 6, 'Console Authentication');
 
   displayInfo('  The tino console is protected by Google Sign-In.');
   displayInfo('  You need a GCP OAuth client (Web application type).');

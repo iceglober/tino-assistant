@@ -33,7 +33,7 @@ export function displaySummary(config: {
   ║  Compliance:  ${padRight('HIPAA', 33)}║
   ║  Provider:    ${padRight(`${config.provider ?? 'aws'} (${config.region ?? 'us-east-1'})`, 33)}║
   ║  BAA:         ${padRight(`${baaIcon} AWS BAA ${awsBaa}`, 33)}║
-  ║  Model:       ${padRight(config.model?.modelId ?? 'not set', 33)}║
+  ║  Model:       ${padRight('(configured via console)', 33)}║
   ║  IaC:         ${padRight(config.iac ?? 'standalone', 33)}║
   ║  Console auth:${padRight(` Google OAuth ${oauthStatus}`, 33)}║
   ║                                                 ║
