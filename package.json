@@ -3,7 +3,7 @@
   "private": true,
   "workspaces": ["packages/*"],
   "scripts": {
-    "build": "bun run --filter @tino/core build && bun run --filter @tino/aws build",
+    "build": "bun run --filter @tino/core build && bun run --filter @tino/aws build && bun run --filter @tino/cli build",
     "dev": "bun run --filter @tino/core dev",
     "test": "bun run --filter '*' test",
     "typecheck": "bun run --filter '*' typecheck",
