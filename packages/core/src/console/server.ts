@@ -44,17 +44,26 @@ export function startConsole(
   const baseUrl = process.env['CONSOLE_BASE_URL'] ?? `http://localhost:${port}`;
   const authEnabled = !!(googleClientId && googleClientSecret);
 
-  const auth = authEnabled
-    ? createAuth({
-        googleClientId,
-        googleClientSecret,
+  let auth: ReturnType<typeof createAuth> | null = null;
+  let authHandler: ReturnType<typeof toNodeHandler> | null = null;
+
+  if (authEnabled) {
+    try {
+      auth = createAuth({
+        googleClientId: googleClientId!,
+        googleClientSecret: googleClientSecret!,
         allowedDomain,
         baseUrl,
         dbPath: '/tmp/tino-auth.db',
-      })
-    : null;
-
-  const authHandler = auth ? toNodeHandler(auth) : null;
+      });
+      authHandler = toNodeHandler(auth);
+      logger.info({ baseUrl, allowedDomain, authEnabled: true }, 'console auth: Google OAuth enabled');
+    } catch (err) {
+      logger.error({ err: (err as Error).message }, 'console auth: failed to initialize — running without auth');
+    }
+  } else {
+    logger.info({ authEnabled: false }, 'console auth: disabled (no GOOGLE_OAUTH_CLIENT_ID)');
+  }
 
   // ── Route handler (called after auth passes) ───────────────────────────────
   function handleRoute(
@@ -376,9 +385,62 @@ export function startConsole(
         });
 
         if (!session) {
-          // No valid session → redirect to Google login
-          res.writeHead(302, { Location: '/api/auth/sign-in/social?provider=google&callbackURL=/' });
-          res.end();
+          // No valid session → show login page
+          res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+          res.end(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>tino — sign in</title>
+  <style>
+    body { background: #1a2332; color: #f2ebe3; font-family: -apple-system, system-ui, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
+    .card { text-align: center; max-width: 360px; padding: 48px 32px; }
+    .logo { width: 64px; height: 64px; border-radius: 14px; margin-bottom: 24px; }
+    h1 { font-size: 1.4rem; font-weight: 600; margin-bottom: 8px; }
+    p { color: #9aa6b8; font-size: 0.9rem; margin-bottom: 32px; }
+    button { background: #c8956a; color: #1a2332; border: none; padding: 12px 32px; border-radius: 8px; font-size: 1rem; font-weight: 600; cursor: pointer; width: 100%; }
+    button:hover { background: #d4a57a; }
+    .error { color: #c06060; font-size: 0.85rem; margin-top: 16px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <img src="/assets/tino-logo.png" alt="tino" class="logo">
+    <h1>tino</h1>
+    <p>sign in with your Google account to continue</p>
+    <button onclick="signIn()">sign in with Google</button>
+    <p class="error" id="error" style="display:none"></p>
+  </div>
+  <script>
+    async function signIn() {
+      try {
+        const res = await fetch('/api/auth/sign-in/social', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ provider: 'google', callbackURL: '/' }),
+          redirect: 'manual',
+        });
+        if (res.status === 200) {
+          const data = await res.json();
+          if (data.url) {
+            window.location.href = data.url;
+          }
+        } else if (res.type === 'opaqueredirect' || res.status === 302) {
+          const location = res.headers.get('location');
+          if (location) window.location.href = location;
+        } else {
+          document.getElementById('error').textContent = 'sign in failed — check console';
+          document.getElementById('error').style.display = 'block';
+        }
+      } catch (err) {
+        document.getElementById('error').textContent = err.message;
+        document.getElementById('error').style.display = 'block';
+      }
+    }
+  </script>
+</body>
+</html>`);
           return;
         }
 
