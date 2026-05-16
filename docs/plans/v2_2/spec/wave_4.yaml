@@ -1,0 +1,298 @@
+# spec/wave_4.yaml
+# Wave 4: deploy verification.
+#
+# Wave 4 is observational, not edit-driven — every item is a probe/verify
+# step against an already-built artifact. No source files are MODIFIED in
+# this wave. The `files:` field on each item lists the artifact under test
+# (Dockerfile, server entrypoint, infra index.ts) rather than an edit.
+#
+# Status snapshot (from wave_4.md):
+#   - 4.1 local smoke test  — DONE (acceptance boxes all [x])
+#   - 4.2 docker container  — DONE (acceptance boxes all [x])
+#   - 4.3 pulumi deploy     — BLOCKED (AWS SSO session unavailable; cannot
+#     run `aws sso login` non-interactively)
+#   - 4.4 e2e verification  — BLOCKED (depends on 4.3)
+#   - 4.5 rollback plan     — reference-only; never runs unless 4.3 fails
+
+items:
+  - id: "4.1"
+    intent: "Local smoke test under Bun runtime. Build with `bun run build`, start `packages/core/dist/index.js` with `PERSISTENCE_ADAPTER=sqlite`, then probe `/api/health`, the React SPA root, and `/assets/tino-logo.png`. Confirms wave 0 (bun:sqlite + Dockerfile) didn't regress local startup."
+    checked: true
+    files:
+      - path: packages/core/dist/index.js
+        isNew: false
+        change: "Build output of `packages/core/src/index.ts` via `tsc -p tsconfig.build.json && vite build`. Not edited — only executed."
+      - path: packages/core/src/server/index.ts
+        isNew: false
+        change: "Not edited. Source of the listen log (`config console listening port host`) at line 211 and the bind logic at line 209 (CONSOLE_BASE_URL → 0.0.0.0 vs 127.0.0.1)."
+      - path: packages/core/src/server/routes/health.ts
+        isNew: false
+        change: "Not edited. Source of the `/api/health` response shape under test."
+    tests:
+      - "manual: curl http://localhost:3001/api/health"
+      - "manual: open http://localhost:3001 in browser"
+    verify: "bun run build && PERSISTENCE_ADAPTER=sqlite bun run packages/core/dist/index.js & sleep 3 && curl -fsS http://localhost:3001/api/health | jq && curl -sI http://localhost:3001/ | head -1 && curl -sI http://localhost:3001/assets/tino-logo.png | head -1"
+    mirror: "packages/core/src/server/index.ts"
+    context: |
+      // packages/core/src/server/index.ts — bind logic + listen log (lines 206-212)
+      // Production: bind 0.0.0.0 so the ALB can reach the container.
+      // Dev: bind 127.0.0.1.
+      const hostname = process.env.CONSOLE_BASE_URL ? "0.0.0.0" : "127.0.0.1";
+      const server = serve({ fetch: app.fetch, port, hostname }, () => {
+        logger.info({ port, host: hostname }, "config console listening");
+      });
+
+      // packages/core/src/server/routes/health.ts — response shape (lines 18-31)
+      app.get("/", (c) => {
+        const capState = opts.registry?.getState() ?? {};
+        return c.json({
+          ok: true,
+          tools: Object.keys(opts.tools),
+          uptime: (Date.now() - opts.startTime) / 1000,
+          capabilities: Object.entries(capState).map(([id, s]) => ({
+            id,
+            toolCount: s.toolCount,
+            lastFindWorkScanAt: s.lastFindWorkScanAt,
+            lastError: s.lastError,
+          })),
+        });
+      });
+
+      // packages/core/src/persistence/factory.ts — PERSISTENCE_ADAPTER default (lines 37-38)
+      // 'sqlite' is the default; setting it explicitly removes ambiguity.
+      const adapter = env.PERSISTENCE_ADAPTER ?? "sqlite";
+
+      // Failure signature for a wave-0 regression (should NOT appear):
+      //   Error: ENOENT ... better_sqlite3.node
+      //   ERR_DLOPEN_FAILED
+    conventions: |
+      Bun runtime is the target — invoke with `bun run …` not `node …`. ESM-only
+      (`"type": "module"` in root package.json). Workspaces: `packages/*`. Logger
+      is pino — JSON logs in prod, `pino-pretty` for dev. Health response is the
+      contract the React SPA's `useHealth.ts` polls every 30s; capability cards
+      derive "connected" status from the `tools[]` array
+      (see `packages/core/src/console-app/lib/capabilityTools.ts`). DB defaults
+      to `./tino.db` when DB_PATH is unset.
+
+  - id: "4.2"
+    intent: "Docker build + local container test. Build the image (oven/bun:1 base, post-wave-0), run with `-e PERSISTENCE_ADAPTER=sqlite -e CONSOLE_BASE_URL=http://localhost:3001`, then verify `/api/health` and `/assets/tino-logo.png` both return 200. Confirms the Dockerfile is shippable."
+    checked: true
+    files:
+      - path: Dockerfile
+        isNew: false
+        change: "Not edited in this wave (wave 0 did the rewrite). Multi-stage: deps → builder → runner; final stage `oven/bun:1` with `CMD [\"bun\", \"run\", \"packages/core/dist/index.js\"]`. WORKDIR /app; COPY assets ./assets puts the logo at `/app/assets/tino-logo.png`."
+      - path: assets/tino-logo.png
+        isNew: false
+        change: "Not edited. Asset under test — must be reachable at `/assets/tino-logo.png` after Dockerfile `COPY assets ./assets`."
+    tests:
+      - "manual: docker build -t tino ."
+      - "manual: docker run + curl health/logo"
+    verify: "docker build -t tino . && docker run --rm -d --name tino-smoke -p 3001:3001 -e PERSISTENCE_ADAPTER=sqlite -e CONSOLE_BASE_URL=http://localhost:3001 tino && sleep 5 && curl -fsS http://localhost:3001/api/health | jq && curl -s -o /dev/null -w '%{http_code}\\n' http://localhost:3001/assets/tino-logo.png && docker stop tino-smoke"
+    mirror: "Dockerfile"
+    context: |
+      # Dockerfile — current state (post-wave-0; full file, 40 lines)
+      FROM oven/bun:1 AS deps
+      WORKDIR /app
+      COPY package.json bun.lock* ./
+      COPY packages/core/package.json ./packages/core/
+      COPY packages/aws/package.json ./packages/aws/
+      COPY packages/cli/package.json ./packages/cli/
+      RUN bun install --frozen-lockfile
+
+      FROM deps AS builder
+      COPY packages/core/tsconfig.json packages/core/tsconfig.build.json packages/core/tsconfig.app.json packages/core/vite.config.ts ./packages/core/
+      COPY packages/core/src ./packages/core/src
+      COPY packages/aws/tsconfig.json packages/aws/tsconfig.build.json ./packages/aws/
+      COPY packages/aws/src ./packages/aws/src
+      RUN cd packages/core && \
+          ./node_modules/.bin/tsc -p tsconfig.build.json && \
+          ./node_modules/.bin/vite build && \
+          cd ../aws && ./node_modules/.bin/tsc -p tsconfig.build.json
+
+      FROM oven/bun:1 AS runner
+      WORKDIR /app
+      COPY --from=deps /app/node_modules ./node_modules
+      # ... node_modules + workspace COPY steps ...
+      COPY --from=builder /app/packages/core/dist ./packages/core/dist
+      COPY --from=builder /app/packages/aws/dist ./packages/aws/dist
+      COPY assets ./assets
+      COPY scripts ./scripts
+      COPY tino.deploy.json* ./
+      ENV NODE_ENV=production
+      CMD ["bun", "run", "packages/core/dist/index.js"]
+
+      # CONSOLE_BASE_URL is REQUIRED in Docker — without it the server binds to
+      # 127.0.0.1 inside the container and the host port-forward sees no listener.
+      # See packages/core/src/server/index.ts:209.
+    conventions: |
+      Single Dockerfile at repo root, multi-stage. Image is `tino:latest` locally;
+      production Pulumi tags it with the ECR repo URI. `oven/bun:1` is Debian-based.
+      Env vars passed via `-e KEY=VALUE`. Required: `PERSISTENCE_ADAPTER`. Required
+      in Docker: `CONSOLE_BASE_URL` (presence flips bind to 0.0.0.0). Logs are
+      line-delimited JSON on stdout (pino) — `docker logs <id>` shows them raw.
+      Slack will NOT connect without tokens — `tino slack connected` is expected
+      to be ABSENT in the local container test (only `config console listening`).
+
+  - id: "4.3"
+    intent: "Deploy to ECS via Pulumi from the kn-eng `infra-tino` worktree. Run `pulumi preview --stack prod` first (mandatory — never `--skip-preview`), confirm DynamoDB shows update/same NOT replace, then `pulumi up --yes --stack prod`. Pulumi builds the image via @pulumi/docker-build, pushes to ECR, and rolls the ECS task definition. BLOCKED on this machine — AWS SSO session unavailable."
+    checked: false
+    files:
+      - path: /Users/austinhess/.glorious/worktrees/kn-eng/wt-260514-175943-q3b/infra-tino/index.ts
+        isNew: false
+        change: "Not edited. Reference: instantiates `new TinoService(\"tino\", {…})` from `@tino/aws`. Does NOT pass `resourcePrefix`, so the prefix defaults to the component name `\"tino\"` (NOT the legacy `\"tino-tino\"`)."
+      - path: packages/aws/src/pulumi/tino-service.ts
+        isNew: false
+        change: "Not edited. Reference: `args.resourcePrefix ?? name` at line 289 — confirms prefix-default behavior. Pulumi component built on @pulumi/docker-build."
+      - path: tino.deploy.json
+        isNew: false
+        change: "Not edited. Declares `frameworks: [\"hipaa\"]` and `baaStatus.aws: \"manual-confirmed\"`; gates deploy via the `tino:baaAcknowledged` config key."
+    tests:
+      - "manual: pulumi preview --stack prod (gate before up)"
+      - "manual: pulumi up --yes --stack prod"
+    verify: "cd /Users/austinhess/.glorious/worktrees/kn-eng/wt-260514-175943-q3b/infra-tino && pulumi preview --stack prod 2>&1 | tee /tmp/pulumi-preview.log && grep -E '~|replace' /tmp/pulumi-preview.log | grep -i dynamodb && echo 'CHECK DIFF MANUALLY' || echo 'no dynamodb diff'; pulumi up --yes --stack prod"
+    mirror: "/Users/austinhess/.glorious/worktrees/kn-eng/wt-260514-175943-q3b/infra-tino/index.ts"
+    context: |
+      // infra-tino/index.ts (kn-eng worktree) — full file, 32 lines
+      import * as aws from "@pulumi/aws";
+      import * as pulumi from "@pulumi/pulumi";
+      import { TinoService } from "@tino/aws";
+
+      const config = new pulumi.Config("tino");
+
+      const tino = new TinoService("tino", {
+        vpc: "vpc-07663dfa109acea79",
+        subnets: [
+          "subnet-0413d15d4aca5f97c",
+          "subnet-06b138860b4faf3a8",
+          "subnet-04454c95ab37059ae",
+        ],
+        cluster: aws.ecs.Cluster.get("api-cluster", "api-cluster-prod"),
+        googleOAuthClientId: config.require("googleOAuthClientId"),
+        googleOAuthClientSecret: config.requireSecret("googleOAuthClientSecret"),
+        allowedDomain: config.get("allowedDomain") ?? undefined,
+      });
+
+      export const consoleUrl = tino.consoleUrl;
+      // ... ecrRepoUri, clusterName, serviceName, tableName
+
+      // packages/aws/src/pulumi/tino-service.ts:284-289 — prefix default
+      // Defaults to the Pulumi component name so a `new TinoService("tino", …)`
+      // call produces `tino`, `/ecs/tino`, `alias/tino` etc. Older deployments
+      // that still want the legacy `tino-tino` doubling can pass
+      // `resourcePrefix: "tino-tino"` to keep their existing resource names.
+      const prefix = args.resourcePrefix ?? name;
+    conventions: |
+      Pulumi commands run from the `infra-tino/` directory (separate kn-eng
+      worktree). HARD RULES: always `pulumi preview --stack prod` before
+      `pulumi up`; never pass `--skip-preview`; ABORT immediately on any
+      preview that shows `replace` of DynamoDB / ECR repo / CloudWatch log
+      group. AWS profile is `production/developer` (per pre-requisites);
+      this machine has `developer-997948076145` instead — `aws sso login`
+      must be run interactively. `tino:baaAcknowledged true` is required
+      (HIPAA gate). CloudWatch log group is `/ecs/tino`. Stack outputs:
+      `pulumi stack output consoleUrl --stack prod`. Log queries:
+      `aws logs tail /ecs/tino --profile production/developer --since 5m`.
+
+  - id: "4.4"
+    intent: "End-to-end verification once ECS is running with the new image: console (ALB URL, Google OAuth sign-in, capability cards, save credential), Slack (DM round-trip, tool calls), hot-reload (capability registers without restart), compliance (`/api/compliance` returns real values; audit entries > 0). Purely observational — no code edits."
+    checked: false
+    files:
+      - path: packages/core/src/server/routes/compliance.ts
+        isNew: false
+        change: "Not edited. Reference: response shape under test at `/api/compliance`. Reads `process.env['PERSISTENCE_ADAPTER']` at line 79 — for production this MUST be `dynamodb` (see context)."
+      - path: packages/core/src/server/routes/health.ts
+        isNew: false
+        change: "Not edited. Reference: hot-reload contract — `tools[]` array length should grow after saving a credential, without restart."
+      - path: packages/core/src/index.ts
+        isNew: false
+        change: "Not edited. Reference: `tino slack connected` log emitted at line 188 — the proof that Slack auth succeeded after task start."
+    tests:
+      - "manual: navigate to ALB URL"
+      - "manual: Google OAuth sign-in"
+      - "manual: Slack DM round-trip"
+      - "manual: curl /api/compliance + /api/health"
+    verify: "URL=$(cd /Users/austinhess/.glorious/worktrees/kn-eng/wt-260514-175943-q3b/infra-tino && pulumi stack output consoleUrl --stack prod) && curl -fsS \"$URL/api/health\" | jq && curl -fsS \"$URL/api/compliance\" | jq && aws logs tail /ecs/tino --profile production/developer --since 10m | grep -E 'config console listening|tino slack connected'"
+    mirror: "packages/core/src/server/routes/compliance.ts"
+    context: |
+      // packages/core/src/server/routes/compliance.ts — adapter branching (lines 79-95)
+      const adapter = process.env.PERSISTENCE_ADAPTER;
+      const isDynamo = adapter === "dynamodb";
+      const encryption = isDynamo
+        ? { dynamodb: "cmk", secretsManager: "unknown", cloudwatchLogs: "cmk" }
+        : { dynamodb: "unknown", secretsManager: "unknown", cloudwatchLogs: "unknown" };
+      // ⇧ If production reports all-unknown the task definition is misconfigured —
+      //   PERSISTENCE_ADAPTER must be "dynamodb" in prod.
+
+      // packages/core/src/server/routes/health.ts response shape (re-stated):
+      //   { ok: boolean, tools: string[], uptime: number,
+      //     capabilities: Array<{id, toolCount, lastFindWorkScanAt, lastError}> }
+
+      // packages/core/src/index.ts:188 — Slack-connect log
+      logger.info({ nodeVersion: process.version, pid: process.pid }, "tino slack connected");
+
+      // packages/core/src/console-app/hooks/useHealth.ts:13 — SPA polls every 30s
+      export function useHealth(intervalMs: number = 30_000): UseHealthResult { … }
+
+      // packages/core/src/console-app/lib/capabilityTools.ts — capability → tool prefix
+      // map; capability cards derive "connected" status from /api/health tools[].
+    conventions: |
+      4.4 is observational — DO NOT edit code in this item. Use `curl -s`
+      (silent) for health/compliance probes; pipe through `jq`. ALB DNS:
+      `pulumi stack output consoleUrl --stack prod` (HTTP, not HTTPS — prod
+      stack does not set `consoleDomain`/`hostedZoneId`). Slack tokens live
+      in the DynamoDB config store (NOT env vars). For Slack DM tests use a
+      real workspace and watch CloudWatch in parallel:
+      `aws logs tail /ecs/tino --follow --profile production/developer`.
+      Audit table scan: `aws dynamodb scan --table-name tino-audit
+      --select COUNT --profile production/developer` (verify exact name
+      from `pulumi stack output` since prefix is `"tino"` not `"tino-tino"`).
+
+  - id: "4.5"
+    intent: "Reference rollback plan — invoked only if 4.3 deploy fails. Three failure modes: (a) ECS task won't start (check CloudWatch for `bun:sqlite` import or `@hono/node-server` errors); (b) Pulumi previews `replace` of DynamoDB → ABORT with ctrl+c; (c) Slack won't connect → check DynamoDB config store. Rollback path: `pulumi up` with the previous commit checked out, OR pin the prior ECS task-def revision via `aws ecs update-service`."
+    checked: false
+    files:
+      - path: Dockerfile
+        isNew: false
+        change: "Not edited in this wave. Reference: revert to the pre-wave-0 `node:22-slim` + `better-sqlite3` version via `git revert <wave-0-sha>` if a forward fix isn't viable."
+      - path: packages/core/src/persistence/sqlite.ts
+        isNew: false
+        change: "Not edited in this wave. Reference: pre-wave-0 `better-sqlite3` import is the rollback target alongside the Dockerfile."
+    tests:
+      - "manual (recovery only): aws ecs update-service --task-definition tino:<prev>"
+      - "manual (recovery only): git revert <wave-0-sha> && pulumi up"
+    verify: "aws ecs list-task-definitions --family-prefix tino --profile production/developer --sort DESC | head -10"
+    mirror: "Dockerfile"
+    context: |
+      # Pulumi preview ABORT condition (rule 4.5.b):
+      #   any line containing `replace` on a DynamoDB / ECR / CloudWatch-LogGroup
+      #   resource → ctrl+c IMMEDIATELY during `pulumi up`.
+
+      # CloudWatch failure-signature greps (rule 4.5.a):
+      #   ERR_DLOPEN_FAILED              → bun:sqlite native module missing
+      #   better_sqlite3.node            → wave-0 regression (should not appear)
+      #   @hono/node-server: ...          → runtime adapter incompat
+
+      # ECS rollback by task-def revision (no IaC change — creates drift):
+      #   aws ecs list-task-definitions --family-prefix tino --profile production/developer --sort DESC
+      #   aws ecs update-service \
+      #     --cluster tino --service tino \
+      #     --task-definition tino:<prev-revision> \
+      #     --profile production/developer
+
+      # IaC rollback (clean — no drift):
+      #   git revert <wave-0-sha>           # reverts Dockerfile + sqlite.ts together
+      #   cd .../infra-tino
+      #   pulumi preview --stack prod        # confirm no `replace` lines
+      #   pulumi up --yes --stack prod
+    conventions: |
+      Rollback is a recovery path — narrate every step in chat before executing
+      (no silent `pulumi up` after a failed deploy). HARD RULES: NEVER
+      `pulumi destroy` (it deletes resources). NEVER `git push --force` to
+      revert wave 0 on `main`. ABORT (`ctrl+c`) on any `pulumi up` that
+      previews a `replace` of DynamoDB / ECR / CloudWatch-LogGroup. Confirm
+      with the user before invoking `aws ecs update-service` to pin a prior
+      task-def revision — that bypasses Pulumi as the source of truth and
+      creates IaC drift. The auth-session SQLite DB inside the task is
+      ephemeral; rolling back the runtime swap (bun:sqlite ↔ better-sqlite3)
+      does NOT lose user-facing state because the durable config store is
+      DynamoDB and OAuth sessions are short-lived.

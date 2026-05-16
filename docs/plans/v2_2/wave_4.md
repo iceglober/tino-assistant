@@ -2,6 +2,11 @@
 
 build the Docker image, push to ECR, deploy to ECS, and verify tino works end-to-end. this wave is the "it actually runs in production" gate.
 
+## open questions (autopilot deferred)
+
+- **4.3 / 4.4 require human-run deploy.** Re-validated 4.1 (bun smoke) and 4.2 (docker smoke) on 2026-05-16; both still PASS. AWS SSO is now usable (`developer-997948076145` profile, account 997948076145), but the plan's documented profile (`production/developer`) does NOT exist on this machine, and the verify commands in 4.4 hard-code that profile name. Production ECS deploy is also outside the autopilot's authority (analogous to the "never merge a PR yourself" rule) — `pulumi up --stack prod` rolls a new ECS task definition for a HIPAA-scoped service, which needs a human to read the `pulumi preview` diff for unintended `replace` lines. **To resume:** run `aws sso login` interactively, confirm the right profile name, then `cd /Users/austinhess/.glorious/worktrees/kn-eng/wt-260514-175943-q3b/infra-tino && pulumi preview --stack prod`, verify no `replace` on DynamoDB / ECR / CloudWatch, then `pulumi up --yes --stack prod`. After ECS rolls, run the 4.4 verify command (replacing `--profile production/developer` with the local profile name).
+- **4.5 is reference-only.** No action — only invoked if 4.3 fails.
+
 ## pre-requisites
 
 - waves 0-1 complete (bun:sqlite migration + Dockerfile rewrite)
