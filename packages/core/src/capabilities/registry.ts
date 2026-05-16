@@ -4,6 +4,12 @@
  *
  * Also registers the non-capability tools (preferences, tasks) that are
  * always available regardless of capability config.
+ *
+ * Wave 3.2 — exposes `reload()` so the console can swap the active
+ * toolset without restarting the process. The reload mutates the existing
+ * `tools` reference in place so the agent loop and scheduler (which read
+ * `registry.tools` per-call but might capture the reference at startup)
+ * see the new toolset immediately.
  */
 import type { ToolSet } from 'ai';
 import type { ConfigStore } from '../persistence/config.js';
@@ -46,20 +52,23 @@ export interface RegistryOptions {
 }
 
 /**
- * Initialize the capability registry.
+ * Walk every capability module, read its config from `configStore`, and
+ * register tools / start findWork pollers. Mutates `tools`, `state`, and
+ * `stopFns` in place.
  *
- * Reads each `capability.<id>` key from the config store. For enabled
- * capabilities with credentials, calls registerTools. For capabilities with
- * findWork.enabled=true, starts the poller.
+ * Reused by `initCapabilityRegistry` (initial load) and `reload()` (wave 3.2).
  */
-export async function initCapabilityRegistry(opts: RegistryOptions): Promise<CapabilityRegistry> {
-  const { configStore, logger, allowedUserId, dbPath, preferencesStore, taskStore, onNewWork } = opts;
-  const tools: ToolSet = {};
-  const stopFns: Array<() => void> = [];
-  const state: Record<string, CapabilityRuntimeState> = {};
-  const loadedCapabilityIds: string[] = [];
+async function loadCapabilityTools(opts: {
+  configStore: ConfigStore;
+  logger: AppLogger;
+  onNewWork?: (summary: string) => Promise<void>;
+  tools: ToolSet;
+  state: Record<string, CapabilityRuntimeState>;
+  stopFns: Array<() => void>;
+  loadedCapabilityIds: string[];
+}): Promise<void> {
+  const { configStore, logger, onNewWork, tools, state, stopFns, loadedCapabilityIds } = opts;
 
-  // ── Capability tools ──────────────────────────────────────────────────────
   for (const cap of ALL_CAPABILITIES) {
     const raw = await configStore.get(`capability.${cap.id}`);
     if (raw === null) {
@@ -107,6 +116,29 @@ export async function initCapabilityRegistry(opts: RegistryOptions): Promise<Cap
       }
     }
   }
+}
+
+/**
+ * Initialize the capability registry.
+ *
+ * Reads each `capability.<id>` key from the config store. For enabled
+ * capabilities with credentials, calls registerTools. For capabilities with
+ * findWork.enabled=true, starts the poller.
+ */
+export async function initCapabilityRegistry(opts: RegistryOptions): Promise<CapabilityRegistry> {
+  const { configStore, logger, allowedUserId, dbPath, preferencesStore, taskStore, onNewWork } = opts;
+  // Mutable buckets — the registry exposes `tools` directly so callers can
+  // share a stable reference across reloads (`reload()` mutates this in place).
+  const tools: ToolSet = {};
+  let stopFns: Array<() => void> = [];
+  let state: Record<string, CapabilityRuntimeState> = {};
+  let loadedCapabilityIds: string[] = [];
+
+  // ── Capability tools ──────────────────────────────────────────────────────
+  await loadCapabilityTools({
+    configStore, logger, onNewWork,
+    tools, state, stopFns, loadedCapabilityIds,
+  });
 
   // ── Preferences tools (always available) ─────────────────────────────────
   // Prefer the injected store (mirrors the taskStore injection pattern below).
@@ -137,7 +169,7 @@ export async function initCapabilityRegistry(opts: RegistryOptions): Promise<Cap
 
   return {
     tools,
-    capabilityIds: loadedCapabilityIds,
+    get capabilityIds() { return loadedCapabilityIds; },
     stopAll() {
       for (const stop of stopFns) {
         try { stop(); } catch { /* ignore */ }
@@ -145,6 +177,68 @@ export async function initCapabilityRegistry(opts: RegistryOptions): Promise<Cap
     },
     getState() {
       return { ...state };
+    },
+
+    /**
+     * Wave 3.2 — re-read every `capability.<id>` from the config store and
+     * atomically swap the capability portion of the toolset.
+     *
+     * Mechanism:
+     *   1. Stop existing findWork pollers from the previous load (so we don't
+     *      end up with two pollers per capability).
+     *   2. Compute the set of capability tool keys currently in `tools` (the
+     *      preferences/tasks tools are NOT capability tools — they stay).
+     *   3. Delete those keys IN PLACE on the same `tools` reference.
+     *   4. Re-run the capability loop, populating `tools` again.
+     *   5. Replace `state`, `stopFns`, `loadedCapabilityIds` with fresh values.
+     *
+     * Errors from a single capability don't roll back the whole reload —
+     * the per-capability try/catch in `loadCapabilityTools` handles those
+     * the same way as the initial load. Only an error in the surrounding
+     * machinery (config store read failure) propagates out.
+     */
+    async reload(): Promise<{ ok: boolean; error?: string }> {
+      try {
+        // Snapshot which tool keys came from capabilities (not preferences/tasks)
+        // so we know which ones to clear. We compute by exclusion: anything that
+        // isn't a known non-capability tool is a capability tool.
+        const NON_CAPABILITY_TOOLS = new Set([
+          'set_preference', 'get_preferences',
+          'schedule_task', 'list_tasks', 'cancel_task',
+        ]);
+        const before = Object.keys(tools).filter((k) => !NON_CAPABILITY_TOOLS.has(k));
+
+        // Stop existing pollers BEFORE clearing — otherwise stale callbacks
+        // could fire during the swap window.
+        for (const stop of stopFns) {
+          try { stop(); } catch { /* ignore */ }
+        }
+
+        // Atomic-from-the-caller's-perspective swap: delete then repopulate.
+        // The `tools` reference itself never changes; consumers holding it
+        // see the new contents.
+        for (const k of before) delete tools[k];
+
+        // Reset the bookkeeping containers to fresh ones; the registry's
+        // `stopAll` / `getState` / `capabilityIds` getters bind to the new
+        // values via the closure.
+        stopFns = [];
+        state = {};
+        loadedCapabilityIds = [];
+
+        await loadCapabilityTools({
+          configStore, logger, onNewWork,
+          tools, state, stopFns, loadedCapabilityIds,
+        });
+
+        const after = Object.keys(tools).filter((k) => !NON_CAPABILITY_TOOLS.has(k));
+        // Operators grep for this exact log line to diff what changed.
+        logger.info({ before, after }, 'capabilities reloaded');
+
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, error: (err as Error).message };
+      }
     },
   };
 }

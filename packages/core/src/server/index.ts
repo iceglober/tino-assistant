@@ -15,6 +15,7 @@ import { createComplianceRoutes } from './routes/compliance.js';
 import { createUsersRoutes } from './routes/users.js';
 import { createReloadRoutes } from './routes/reload.js';
 import { createBedrockRoutes } from './routes/bedrock.js';
+import { createAdminRoutes } from './routes/admin.js';
 
 /**
  * Tino console HTTP server — Hono app on top of `@hono/node-server`.
@@ -29,6 +30,7 @@ import { createBedrockRoutes } from './routes/bedrock.js';
  *   /api/compliance          → protected HIPAA snapshot
  *   /api/users/:id           → protected user deprovisioning
  *   /api/reload/*            → protected hot-reload (wave 3)
+ *   /api/admin/*             → protected admin ops (restart — wave 3.4)
  *   /assets/*                → static (SPA + logo); also bypasses auth
  *   /*                       → serves the built React SPA (Vite output)
  *
@@ -47,6 +49,24 @@ export interface StartServerOptions {
   registry?: CapabilityRegistry;
   port?: number;
   auditLogger?: AuditLogger;
+  /**
+   * Wave 3.1 — invoked by `POST /api/reload/slack`. Reads the latest Slack
+   * tokens from the config store and reconnects the Slack app in place.
+   */
+  reconnectSlack?: () => Promise<{ ok: boolean; error?: string }>;
+  /**
+   * Wave 3.2 — invoked by `POST /api/reload/capabilities`. Re-runs the
+   * capability registry against the live config store and atomically swaps
+   * the toolset.
+   */
+  reloadCapabilities?: () => Promise<{ ok: boolean; error?: string }>;
+  /**
+   * Wave 3.4 — invoked by `POST /api/admin/restart`. Should run the same
+   * teardown as the SIGTERM handler before `process.exit`. The route sends
+   * its 202 response BEFORE invoking this callback (deferred ~100ms) so the
+   * client sees the ack.
+   */
+  shutdown?: (signal: string) => Promise<void> | void;
 }
 
 export interface StartedServer {
@@ -57,7 +77,7 @@ export interface StartedServer {
 }
 
 export async function startServer(opts: StartServerOptions): Promise<StartedServer> {
-  const { config, logger, tools, registry, auditLogger } = opts;
+  const { config, logger, tools, registry, auditLogger, reconnectSlack, reloadCapabilities, shutdown } = opts;
   const port = opts.port ?? 3001;
   const startTime = Date.now();
 
@@ -121,7 +141,13 @@ export async function startServer(opts: StartServerOptions): Promise<StartedServ
   app.route('/api/capabilities', createCapabilityRoutes({ config, logger }));
   app.route('/api/compliance', createComplianceRoutes({ config, auditLogger }));
   app.route('/api/users', createUsersRoutes({ config, logger, auditLogger }));
-  app.route('/api/reload', createReloadRoutes());
+  app.route(
+    '/api/reload',
+    createReloadRoutes({ reconnectSlack, reloadCapabilities, logger, auditLogger }),
+  );
+  if (shutdown) {
+    app.route('/api/admin', createAdminRoutes({ logger, auditLogger, shutdown }));
+  }
   app.route('/api/bedrock', createBedrockRoutes({ logger }));
 
   // ── Logo asset (preserve the old multi-path lookup) ───────────────────────

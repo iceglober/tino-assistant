@@ -136,3 +136,64 @@ export async function signOut(): Promise<void> {
     /* ignore */
   }
 }
+
+// ── Wave 3 — hot-reload + admin restart ────────────────────────────────────
+//
+// Reload routes return `{ ok, error? }` with HTTP 200 even on user-visible
+// failures (bad tokens, missing creds) so a server-bug 5xx is distinguishable
+// from a "you typed the wrong token" 200. Callers should toast `error` when
+// `ok` is false.
+
+export interface ReloadResult {
+  ok: boolean;
+  error?: string;
+}
+
+/**
+ * Wave 3.1 — POST /api/reload/slack. Tells the running tino process to
+ * reconnect Slack with whatever tokens are currently in the config store.
+ * Call AFTER saving slack.botToken / slack.appToken so the new values are
+ * visible to the reconnect.
+ */
+export async function reloadSlack(): Promise<ReloadResult> {
+  try {
+    const r = await fetch('/api/reload/slack', { method: 'POST', credentials: 'include' });
+    if (r.status === 401) throw new UnauthorizedError();
+    return (await r.json()) as ReloadResult;
+  } catch (err) {
+    if (err instanceof UnauthorizedError) throw err;
+    return { ok: false, error: (err as Error).message };
+  }
+}
+
+/**
+ * Wave 3.2 — POST /api/reload/capabilities. Tells the running tino process
+ * to re-run the capability registry against the live config store. Call
+ * AFTER saving any `capability.<id>` blob.
+ */
+export async function reloadCapabilities(): Promise<ReloadResult> {
+  try {
+    const r = await fetch('/api/reload/capabilities', { method: 'POST', credentials: 'include' });
+    if (r.status === 401) throw new UnauthorizedError();
+    return (await r.json()) as ReloadResult;
+  } catch (err) {
+    if (err instanceof UnauthorizedError) throw err;
+    return { ok: false, error: (err as Error).message };
+  }
+}
+
+/**
+ * Wave 3.4 — POST /api/admin/restart. Triggers an in-process shutdown;
+ * ECS automatically restarts the task. Returns 202 + `{ ok: true }`
+ * before the process exits, then the server takes ~100ms to actually exit.
+ */
+export async function restartTino(): Promise<ReloadResult> {
+  try {
+    const r = await fetch('/api/admin/restart', { method: 'POST', credentials: 'include' });
+    if (r.status === 401) throw new UnauthorizedError();
+    return (await r.json()) as ReloadResult;
+  } catch (err) {
+    if (err instanceof UnauthorizedError) throw err;
+    return { ok: false, error: (err as Error).message };
+  }
+}

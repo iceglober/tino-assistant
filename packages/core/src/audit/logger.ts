@@ -22,7 +22,8 @@ export interface AuditEntry {
     | 'task_scheduled'
     | 'task_executed'
     | 'injection_suspected'
-    | 'user_deprovisioned';
+    | 'user_deprovisioned'
+    | 'admin_restart';
   toolName?: string;
   capabilityInstanceId?: string;
   /** Parameter KEYS only — never values (values may contain PII or secrets). */

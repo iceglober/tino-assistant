@@ -9,7 +9,7 @@ import { SaveButton, useSaveState } from '../components/SaveButton.js';
 import { useAuth } from '../hooks/useAuth.js';
 import { useHealth } from '../hooks/useHealth.js';
 import { useToast } from '../hooks/useToast.js';
-import { getCapabilities, putConfig, getConfig } from '../lib/api.js';
+import { getCapabilities, putConfig, getConfig, reloadSlack } from '../lib/api.js';
 import { isCapabilityConnected } from '../lib/capabilityTools.js';
 
 /**
@@ -90,8 +90,14 @@ export function Console({
       await putConfig('slack.botToken', slackBot.trim());
       await putConfig('slack.appToken', slackApp.trim());
     });
-    if (ok) toast.show('Slack tokens updated', 'ok');
-    else toast.show('Could not save tokens', 'err');
+    if (!ok) {
+      toast.show('Could not save tokens', 'err');
+      return;
+    }
+    // Wave 3.1 — apply the new tokens without a process restart.
+    const reload = await reloadSlack();
+    if (reload.ok) toast.show('Slack tokens updated — reconnected', 'ok');
+    else toast.show(`Saved, but reconnect failed: ${reload.error ?? 'unknown'}`, 'err');
   };
 
   // ── Agent edit ──────────────────────────────────────────────────────

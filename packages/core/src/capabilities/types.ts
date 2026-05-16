@@ -97,4 +97,16 @@ export interface CapabilityRegistry {
   getState(): Record<string, CapabilityRuntimeState>;
   /** Ordered list of capability IDs that were loaded. */
   capabilityIds: string[];
+  /**
+   * Wave 3.2 — re-read every `capability.<id>` entry from the config store
+   * and atomically swap the toolset. Mutates the existing `tools` reference
+   * in place (deletes all keys, then re-populates) so external holders of
+   * the same `tools` object see the new toolset without a re-import.
+   *
+   * Per-capability errors are caught and logged; the reload as a whole
+   * still resolves `{ ok: true }` unless the loop itself throws (e.g. the
+   * config store is unreachable). findWork pollers from the previous load
+   * are stopped before new ones start.
+   */
+  reload(): Promise<{ ok: boolean; error?: string }>;
 }

@@ -1,5 +1,5 @@
 import { useState, type ReactNode, type JSX } from 'react';
-import { putCapability } from '../lib/api.js';
+import { putCapability, reloadCapabilities } from '../lib/api.js';
 import { useToast } from '../hooks/useToast.js';
 import { useSaveState, SaveButton } from './SaveButton.js';
 
@@ -88,6 +88,12 @@ export function CapabilityCard({
     setEnabled(next);
     try {
       await putCapability(cap.id, buildPayload(next));
+      // Wave 3.2 — apply the toggle without a restart. Surface failures
+      // softly (the server still has the new config; only the live tools
+      // didn't swap), but don't roll back the UI state — the next reload
+      // attempt will pick it up.
+      const reload = await reloadCapabilities();
+      if (!reload.ok) toast.show(`Saved, but reload failed: ${reload.error ?? 'unknown'}`, 'err');
       if (onChanged) await onChanged();
     } catch (err) {
       toast.show(`Could not update capability: ${(err as Error).message}`, 'err');
@@ -99,8 +105,14 @@ export function CapabilityCard({
     const ok = await run(async () => {
       await putCapability(cap.id, buildPayload());
     });
-    if (ok && onChanged) await onChanged();
-    if (!ok) toast.show('Could not save', 'err');
+    if (!ok) {
+      toast.show('Could not save', 'err');
+      return;
+    }
+    // Wave 3.2 — apply the new credentials/settings without a restart.
+    const reload = await reloadCapabilities();
+    if (!reload.ok) toast.show(`Saved, but reload failed: ${reload.error ?? 'unknown'}`, 'err');
+    if (onChanged) await onChanged();
   };
 
   const fields: ReactNode = (cap.fields ?? []).map((f) => (
