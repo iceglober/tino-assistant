@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { RevealInput } from "../components/RevealInput.js";
 import { SaveButton, useSaveState } from "../components/SaveButton.js";
 import { useToast } from "../hooks/useToast.js";
-import { putConfig } from "../lib/api.js";
+import { putConfig, reloadSlack } from "../lib/api.js";
 
 /**
  * Setup flow — two-step progressive setup.
@@ -77,6 +77,11 @@ export function Setup({ initialStep = 1 }: { initialStep?: 1 | 2 }): JSX.Element
       await putConfig("slack.adminUserId", adminId.trim());
     });
     if (ok) {
+      // Trigger Slack reconnect now that all three tokens are saved
+      const reload = await reloadSlack();
+      if (!reload.ok) {
+        toast.show(`Config saved, but Slack connect failed: ${reload.error ?? "unknown"}`, "err");
+      }
       setTimeout(() => navigate("/"), 700);
     } else {
       toast.show("Could not save config", "err");
