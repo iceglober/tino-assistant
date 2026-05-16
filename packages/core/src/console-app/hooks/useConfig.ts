@@ -10,12 +10,15 @@ export interface UseConfigResult {
 }
 
 /**
- * Subscribe to /api/config. Mirror of the inline `getConfig` helper at
- * `html.ts:1553-1558` plus the surrounding loading/error UI handling.
+ * Subscribe to /api/config.
+ *
+ * Pass `{ lazy: true }` to skip the initial fetch on mount — the caller
+ * is responsible for calling `refresh()` when the data is actually needed
+ * (e.g. when an accordion opens).
  */
-export function useConfig(): UseConfigResult {
+export function useConfig(opts?: { lazy?: boolean }): UseConfigResult {
   const [entries, setEntries] = useState<ConfigEntry[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!opts?.lazy);
   const [error, setError] = useState<string | null>(null);
   const [unauthorized, setUnauthorized] = useState(false);
 
@@ -38,9 +41,9 @@ export function useConfig(): UseConfigResult {
   };
 
   useEffect(() => {
-    void refresh();
-    // biome-ignore lint/correctness/useExhaustiveDependencies: refresh is intentionally invoked once on mount
-  }, [refresh]);
+    if (!opts?.lazy) void refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fire once on mount (or never if lazy)
+  }, []);
 
   return { entries, loading, error, unauthorized, refresh };
 }

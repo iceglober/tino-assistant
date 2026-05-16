@@ -12,10 +12,11 @@ import { SaveButton, useSaveState } from "./SaveButton.js";
  * `html.ts:1700-1791`.
  */
 export function ConfigTable(): JSX.Element {
-  const { entries, loading, error, refresh } = useConfig();
+  const { entries, loading, error, refresh } = useConfig({ lazy: true });
   const toast = useToast();
   const { state, run } = useSaveState();
   const [open, setOpen] = useState(false);
+  const [fetched, setFetched] = useState(false);
   const [confirming, setConfirming] = useState<string | null>(null);
   const [newKey, setNewKey] = useState("");
   const [newVal, setNewVal] = useState("");
@@ -92,7 +93,14 @@ export function ConfigTable(): JSX.Element {
       <button
         className="raw-toggle"
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => {
+          const next = !open;
+          setOpen(next);
+          if (next && !fetched) {
+            setFetched(true);
+            void refresh();
+          }
+        }}
         aria-expanded={open}
         aria-controls="raw-body-wrap"
       >
