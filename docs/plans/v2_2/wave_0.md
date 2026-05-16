@@ -165,9 +165,9 @@ CMD ["bun", "run", "packages/core/dist/index.js"]
 - keep `vite build` step (React SPA)
 
 **acceptance:**
-- [ ] `docker build -t tino .` succeeds
-- [ ] `docker run --rm tino bun --version` prints a bun version
-- [ ] `docker run --rm -e PERSISTENCE_ADAPTER=sqlite tino` starts without errors (will fail on missing Slack tokens, but shouldn't crash on SQLite)
+- [x] `docker build -t tino .` succeeds
+- [x] `docker run --rm tino bun --version` prints a bun version
+- [x] `docker run --rm -e PERSISTENCE_ADAPTER=sqlite tino` starts without errors (will fail on missing Slack tokens, but shouldn't crash on SQLite)
 **executor context:**
 
 mirror: no in-repo mirror — `Dockerfile` is the only Dockerfile. The `oven/bun:1` image documentation at https://hub.docker.com/r/oven/bun is the external reference.
