@@ -25,6 +25,22 @@ export const linearCapability: CapabilityModule = {
   id: 'linear',
   displayName: 'Linear',
 
+  fieldSchema: [
+    {
+      key: 'token',
+      label: 'Developer Token',
+      target: 'credentials.token',
+      secret: true,
+      placeholder: 'lin_api_...',
+    },
+    {
+      key: 'defaultTeamKey',
+      label: 'Default Team Key',
+      target: 'settings.defaultTeamKey',
+      placeholder: 'GEN',
+    },
+  ],
+
   async registerTools(
     config: CapabilityConfig,
     _configStore: ConfigStore,

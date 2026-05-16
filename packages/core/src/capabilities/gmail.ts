@@ -17,6 +17,27 @@ export const gmailCapability: CapabilityModule = {
   id: 'gmail',
   displayName: 'Gmail',
 
+  fieldSchema: [
+    {
+      key: 'clientId',
+      label: 'Google OAuth Client ID',
+      target: 'credentials.clientId',
+      placeholder: '...apps.googleusercontent.com',
+    },
+    {
+      key: 'clientSecret',
+      label: 'Google OAuth Client Secret',
+      target: 'credentials.clientSecret',
+      secret: true,
+    },
+    {
+      key: 'refreshToken',
+      label: 'Refresh Token',
+      target: 'credentials.refreshToken',
+      secret: true,
+    },
+  ],
+
   async registerTools(
     config: CapabilityConfig,
     _configStore: ConfigStore,

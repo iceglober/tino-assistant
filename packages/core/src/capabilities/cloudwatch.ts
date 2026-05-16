@@ -19,6 +19,22 @@ export const cloudwatchCapability: CapabilityModule = {
   id: 'cloudwatch',
   displayName: 'CloudWatch',
 
+  fieldSchema: [
+    {
+      key: 'logGroups',
+      label: 'Log Group Allowlist',
+      target: 'settings.logGroups',
+      kind: 'string[]',
+      placeholder: '/aws/lambda/foo, /aws/ecs/bar (comma or newline separated)',
+    },
+    {
+      key: 'region',
+      label: 'AWS Region',
+      target: 'settings.region',
+      placeholder: 'us-east-1 (defaults to AWS_REGION env)',
+    },
+  ],
+
   async registerTools(
     config: CapabilityConfig,
     _configStore: ConfigStore,

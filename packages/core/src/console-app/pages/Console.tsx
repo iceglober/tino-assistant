@@ -10,6 +10,7 @@ import { useAuth } from '../hooks/useAuth.js';
 import { useHealth } from '../hooks/useHealth.js';
 import { useToast } from '../hooks/useToast.js';
 import { getCapabilities, putConfig, getConfig } from '../lib/api.js';
+import { isCapabilityConnected } from '../lib/capabilityTools.js';
 
 /**
  * Main console — shown once Slack + basics are configured.
@@ -50,14 +51,10 @@ export function Console({
   const loadCaps = async (): Promise<void> => {
     try {
       const data = await getCapabilities();
-      // Each entry has `{ id, config, updatedAt }`. Flatten so the card sees
-      // the full shape.
-      setCaps(
-        data.map((entry) => {
-          const cfg = (entry.config ?? {}) as Record<string, unknown>;
-          return { id: entry.id, ...cfg } as CapabilityShape;
-        }),
-      );
+      // Server returns the full console-facing view per capability:
+      //   { id, displayName, enabled, fields: [...], findWork?, updatedAt? }
+      // Pass through unchanged — CapabilityCard reads `fields` directly.
+      setCaps(data as unknown as CapabilityShape[]);
       setCapsError(null);
     } catch (err) {
       setCapsError((err as Error).message);
@@ -131,7 +128,16 @@ export function Console({
         ) : caps.length === 0 ? (
           <p className="empty">no capabilities configured</p>
         ) : (
-          caps.map((cap) => <CapabilityCard key={cap.id} cap={cap} onChanged={loadCaps} />)
+          caps.map((cap) => (
+            <CapabilityCard
+              key={cap.id}
+              cap={{
+                ...cap,
+                connected: health ? isCapabilityConnected(cap.id, health.tools) : undefined,
+              }}
+              onChanged={loadCaps}
+            />
+          ))
         )}
       </div>
 

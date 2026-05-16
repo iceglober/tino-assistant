@@ -21,6 +21,29 @@ export const githubCapability: CapabilityModule = {
   id: 'github',
   displayName: 'GitHub',
 
+  fieldSchema: [
+    {
+      key: 'token',
+      label: 'Personal Access Token',
+      target: 'credentials.token',
+      secret: true,
+      placeholder: 'ghp_...',
+    },
+    {
+      key: 'defaultRepo',
+      label: 'Default Repo',
+      target: 'settings.defaultRepo',
+      placeholder: 'owner/repo',
+    },
+    {
+      key: 'repos',
+      label: 'Repo Allowlist',
+      target: 'settings.repos',
+      kind: 'string[]',
+      placeholder: 'owner/repo, owner/other (comma or newline separated)',
+    },
+  ],
+
   async registerTools(
     config: CapabilityConfig,
     _configStore: ConfigStore,

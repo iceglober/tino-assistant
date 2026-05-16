@@ -16,10 +16,23 @@ export interface ConfigEntry {
   updatedAt?: string;
 }
 
+export interface CapabilityField {
+  key: string;
+  label: string;
+  target: string;
+  kind?: 'string' | 'string[]';
+  secret?: boolean;
+  placeholder?: string;
+  value?: string;
+}
+
 export interface CapabilityEntry {
   id: string;
-  config: unknown;
-  updatedAt?: string;
+  displayName: string;
+  enabled: boolean;
+  fields: CapabilityField[];
+  findWork?: { enabled: boolean; intervalMinutes: number; lastScanAt?: number };
+  updatedAt?: number;
 }
 
 export interface HealthResponse {

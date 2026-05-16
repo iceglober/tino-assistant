@@ -20,6 +20,16 @@ export const slackCapability: CapabilityModule = {
   id: 'slack',
   displayName: 'Slack',
 
+  fieldSchema: [
+    {
+      key: 'userToken',
+      label: 'User Token (xoxp-)',
+      target: 'credentials.userToken',
+      secret: true,
+      placeholder: 'xoxp-...',
+    },
+  ],
+
   async registerTools(
     config: CapabilityConfig,
     _configStore: ConfigStore,

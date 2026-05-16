@@ -28,12 +28,44 @@ export interface CapabilityRuntimeState {
   lastError?: string;
 }
 
+/**
+ * Console-side schema describing one configurable input on a capability card.
+ *
+ * `target` is a dotted path into the stored `CapabilityConfig`:
+ *   - `credentials.<name>` — string credentials (tokens, secrets)
+ *   - `settings.<name>`    — non-secret settings (allowlists, defaults)
+ *
+ * `kind` controls input rendering and how the value is round-tripped:
+ *   - `string` (default) — plain text input; stored as a string
+ *   - `string[]`         — comma/newline separated input; stored as `string[]`
+ *
+ * The console fills `value` server-side from the stored blob before responding
+ * to GET /api/capabilities; on PUT it walks each `target` to reconstruct the
+ * `CapabilityConfig` shape that the registry expects.
+ */
+export interface CapField {
+  key: string;
+  label: string;
+  target: string;          // e.g. "credentials.token", "settings.repos"
+  kind?: 'string' | 'string[]';
+  secret?: boolean;
+  placeholder?: string;
+  /** Filled in by the GET handler from the stored blob; never declared by modules. */
+  value?: string;
+}
+
 /** What a capability module must export. */
 export interface CapabilityModule {
   /** Stable identifier, e.g. "github", "linear". */
   id: string;
   /** Human-readable display name. */
   displayName: string;
+  /**
+   * Console-side input schema. The server uses this to render the card with
+   * inputs even when no `capability.<id>` blob is stored yet, and to reconstruct
+   * a valid `CapabilityConfig` on save.
+   */
+  fieldSchema?: CapField[];
   /**
    * Register tools into the toolset. Called only when the capability is enabled
    * and credentials are present. Should throw if credentials are missing/invalid.

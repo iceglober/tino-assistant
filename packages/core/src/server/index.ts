@@ -14,6 +14,7 @@ import { createCapabilityRoutes } from './routes/capabilities.js';
 import { createComplianceRoutes } from './routes/compliance.js';
 import { createUsersRoutes } from './routes/users.js';
 import { createReloadRoutes } from './routes/reload.js';
+import { createBedrockRoutes } from './routes/bedrock.js';
 
 /**
  * Tino console HTTP server — Hono app on top of `@hono/node-server`.
@@ -121,6 +122,7 @@ export async function startServer(opts: StartServerOptions): Promise<StartedServ
   app.route('/api/compliance', createComplianceRoutes({ config, auditLogger }));
   app.route('/api/users', createUsersRoutes({ config, logger, auditLogger }));
   app.route('/api/reload', createReloadRoutes());
+  app.route('/api/bedrock', createBedrockRoutes({ logger }));
 
   // ── Logo asset (preserve the old multi-path lookup) ───────────────────────
   // The Dockerfile pins `WORKDIR /app` and copies `assets/` into the image,

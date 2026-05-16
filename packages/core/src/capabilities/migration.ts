@@ -24,6 +24,7 @@ export interface LegacyEnv {
   SLACK_USER_TOKEN?: string;
   LINEAR_DEVELOPER_TOKEN?: string;
   AWS_REGION?: string;
+  BEDROCK_MODEL_ID?: string;
 }
 
 export interface MigrationResult {
@@ -45,7 +46,43 @@ export async function migrateEnvToCapabilities(
 
   const capabilityIds = ['github', 'linear', 'slack', 'gmail', 'calendar', 'cloudwatch'];
 
-  // Migrate Slack connection tokens (stored separately from the slack capability)
+  // Migrate Slack connection tokens (stored separately from the slack capability).
+  //
+  // index.ts reads these as flat keys (`slack.botToken`, `slack.appToken`,
+  // `slack.adminUserId`) — that's what the React console writes when a user
+  // configures Slack. We write both the flat keys (the live shape) AND a
+  // legacy `slack.connection` JSON blob so existing readers keep working.
+  if (env.SLACK_BOT_TOKEN) {
+    const existing = await configStore.get('slack.botToken');
+    if (existing === null) {
+      await configStore.set('slack.botToken', env.SLACK_BOT_TOKEN);
+      result.migrated.push('slack.botToken');
+    }
+  }
+  if (env.SLACK_APP_TOKEN) {
+    const existing = await configStore.get('slack.appToken');
+    if (existing === null) {
+      await configStore.set('slack.appToken', env.SLACK_APP_TOKEN);
+      result.migrated.push('slack.appToken');
+    }
+  }
+  if (env.ALLOWED_SLACK_USER_ID) {
+    const existing = await configStore.get('slack.adminUserId');
+    if (existing === null) {
+      await configStore.set('slack.adminUserId', env.ALLOWED_SLACK_USER_ID);
+      result.migrated.push('slack.adminUserId');
+    }
+  }
+  // Bedrock model ID — read at startup as `bedrock.modelId`. Optional in env.
+  // Migration only writes if the env var was explicitly set.
+  if (env.BEDROCK_MODEL_ID) {
+    const existing = await configStore.get('bedrock.modelId');
+    if (existing === null) {
+      await configStore.set('bedrock.modelId', env.BEDROCK_MODEL_ID);
+      result.migrated.push('bedrock.modelId');
+    }
+  }
+  // Legacy single-blob form — preserved so older readers continue working.
   const existingSlackConn = await configStore.get('slack.connection');
   if (existingSlackConn === null && (env.SLACK_BOT_TOKEN || env.SLACK_APP_TOKEN || env.ALLOWED_SLACK_USER_ID)) {
     await configStore.set('slack.connection', {

@@ -17,6 +17,33 @@ export const calendarCapability: CapabilityModule = {
   id: 'calendar',
   displayName: 'Calendar',
 
+  fieldSchema: [
+    {
+      key: 'clientId',
+      label: 'Google OAuth Client ID',
+      target: 'credentials.clientId',
+      placeholder: '...apps.googleusercontent.com',
+    },
+    {
+      key: 'clientSecret',
+      label: 'Google OAuth Client Secret',
+      target: 'credentials.clientSecret',
+      secret: true,
+    },
+    {
+      key: 'refreshToken',
+      label: 'Refresh Token',
+      target: 'credentials.refreshToken',
+      secret: true,
+    },
+    {
+      key: 'calendarId',
+      label: 'Calendar ID',
+      target: 'settings.calendarId',
+      placeholder: 'primary',
+    },
+  ],
+
   async registerTools(
     config: CapabilityConfig,
     _configStore: ConfigStore,

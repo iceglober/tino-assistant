@@ -2,7 +2,7 @@ import 'dotenv/config';
 import { loadEnv } from './env.js';
 import { createLogger } from './logging/logger.js';
 import { createSlackApp, type DmHandler } from './slack/app.js';
-import { createBedrockModel, DEFAULT_BEDROCK_MODEL_ID } from './agent/bedrock.js';
+import { createBedrockModel, DEFAULT_BEDROCK_MODEL_ID, validateBedrockModel } from './agent/bedrock.js';
 import { createHistoryStore } from './agent/history.js';
 import { runAgent } from './agent/run.js';
 import { startScheduler } from './scheduler/index.js';
@@ -36,10 +36,23 @@ const allowedUserId = parseConfigValue(await configStore.get('slack.adminUserId'
 const hasSlack = Boolean(slackBotToken && slackAppToken && allowedUserId);
 
 // Read Bedrock model ID from config store; fall back to default
-const bedrockModelId = await configStore.getTyped<string>(
+const configuredModelId = await configStore.getTyped<string>(
   'bedrock.modelId',
   DEFAULT_BEDROCK_MODEL_ID,
 );
+// Validate the configured model is actually reachable with current credentials.
+// On failure, fall back to the default — never crash on an invalid saved ID.
+let bedrockModelId = configuredModelId;
+const validation = await validateBedrockModel(configuredModelId, env.AWS_REGION);
+if (!validation.ok) {
+  logger.error(
+    { modelId: configuredModelId, err: validation.error },
+    'bedrock model validation failed — falling back to default',
+  );
+  if (configuredModelId !== DEFAULT_BEDROCK_MODEL_ID) {
+    bedrockModelId = DEFAULT_BEDROCK_MODEL_ID;
+  }
+}
 const model = createBedrockModel(bedrockModelId, env.AWS_REGION);
 
 // Initialize capability registry — loads capabilities, registers tools, starts findWork pollers

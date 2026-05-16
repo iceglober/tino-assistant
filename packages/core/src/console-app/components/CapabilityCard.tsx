@@ -3,20 +3,29 @@ import { putCapability } from '../lib/api.js';
 import { useToast } from '../hooks/useToast.js';
 import { useSaveState, SaveButton } from './SaveButton.js';
 
+/**
+ * Console-side mirror of the CapField type declared on each capability module
+ * in `capabilities/types.ts`. Kept structurally identical (no shared module
+ * because `console-app/` is bundled by Vite while `capabilities/` is server-only).
+ */
 interface CapField {
   key: string;
   label?: string;
   value?: string;
   placeholder?: string;
   secret?: boolean;
+  /** Internal; the server uses this for round-tripping. UI ignores it. */
+  target?: string;
+  kind?: 'string' | 'string[]';
 }
 
 export interface CapabilityShape {
   id: string;
+  displayName?: string;
   enabled?: boolean;
   fields?: CapField[];
-  /** Anything else from the underlying config — preserved on save. */
-  [key: string]: unknown;
+  /** Whether the capability's tools are currently registered (from /api/health). */
+  connected?: boolean;
 }
 
 const CAP_META: Record<string, { icon: string; name: string; desc: string }> = {
@@ -31,12 +40,16 @@ const CAP_META: Record<string, { icon: string; name: string; desc: string }> = {
 /**
  * One capability card — collapsible header + enable toggle + fields.
  *
- * Mirror: `html.ts:1226-1230` + the `loadCapabilities`/`buildCapFields`/
- * `toggleCapability`/`saveCapability` block at `html.ts:1866-1995`.
+ * Each card mirrors `capability.<id>` in the config store. The server-side
+ * GET /api/capabilities returns a `fields` array sourced from the capability
+ * module's declared `fieldSchema` (with `value` filled from the stored blob).
+ * Save sends `{ enabled, fields: [{key, value}] }` which the server reconstructs
+ * into the `CapabilityConfig` shape the registry reads.
  *
- * Each card represents `capability.<id>` in the config store. Whatever
- * shape the store has is preserved on save (we shallow-merge edits over
- * the original).
+ * Status:
+ *   - `connected: true`  → the capability's tools are currently registered (green dot)
+ *   - `connected: false` → enabled in config but tools failed to register (red dot)
+ *   - `connected` undefined → fall back to the legacy enabled-vs-disabled label.
  */
 export function CapabilityCard({
   cap,
@@ -45,7 +58,11 @@ export function CapabilityCard({
   cap: CapabilityShape;
   onChanged?: () => void | Promise<void>;
 }): JSX.Element {
-  const meta = CAP_META[cap.id] ?? { icon: '⚙️', name: cap.id, desc: '' };
+  const meta = CAP_META[cap.id] ?? {
+    icon: '⚙️',
+    name: cap.displayName ?? cap.id,
+    desc: '',
+  };
   const [open, setOpen] = useState(false);
   const [enabled, setEnabled] = useState<boolean>(cap.enabled !== false);
   const initialFields: Record<string, string> = {};
@@ -56,10 +73,21 @@ export function CapabilityCard({
 
   const stateClass = enabled ? 'state-ok' : 'state-disabled';
 
+  const buildPayload = (overrideEnabled?: boolean): {
+    enabled: boolean;
+    fields: Array<{ key: string; value: string }>;
+  } => ({
+    enabled: overrideEnabled ?? enabled,
+    fields: (cap.fields ?? []).map((f) => ({
+      key: f.key,
+      value: fieldValues[f.key] ?? f.value ?? '',
+    })),
+  });
+
   const onToggle = async (next: boolean): Promise<void> => {
     setEnabled(next);
     try {
-      await putCapability(cap.id, { ...cap, enabled: next });
+      await putCapability(cap.id, buildPayload(next));
       if (onChanged) await onChanged();
     } catch (err) {
       toast.show(`Could not update capability: ${(err as Error).message}`, 'err');
@@ -69,12 +97,7 @@ export function CapabilityCard({
 
   const onSave = async (): Promise<void> => {
     const ok = await run(async () => {
-      // Preserve the original shape; overlay enabled + fields edits.
-      const fields = (cap.fields ?? []).map((f) => ({
-        ...f,
-        value: fieldValues[f.key] ?? f.value ?? '',
-      }));
-      await putCapability(cap.id, { ...cap, enabled, fields });
+      await putCapability(cap.id, buildPayload());
     });
     if (ok && onChanged) await onChanged();
     if (!ok) toast.show('Could not save', 'err');
@@ -97,6 +120,22 @@ export function CapabilityCard({
     </div>
   ));
 
+  // Status: prefer the live `connected` flag (from /api/health); fall back to enabled label.
+  const statusBadge: ReactNode =
+    typeof cap.connected === 'boolean' ? (
+      cap.connected ? (
+        <span className="status-connected" style={{ color: 'var(--ok)' }}>● on</span>
+      ) : enabled ? (
+        <span className="status-connected" style={{ color: 'var(--err)' }}>● needs setup</span>
+      ) : (
+        <span style={{ fontSize: '0.714rem', color: 'var(--text-dim)' }}>off</span>
+      )
+    ) : enabled ? (
+      <span className="status-connected">● on</span>
+    ) : (
+      <span style={{ fontSize: '0.714rem', color: 'var(--text-dim)' }}>off</span>
+    );
+
   return (
     <div className={`cap-card ${stateClass}${open ? ' open' : ''}`}>
       <div
@@ -117,13 +156,7 @@ export function CapabilityCard({
           <div className="cap-card-name">{meta.name}</div>
           <div className="cap-card-desc">{meta.desc}</div>
         </div>
-        <div className="cap-card-status">
-          {enabled ? (
-            <span className="status-connected">● on</span>
-          ) : (
-            <span style={{ fontSize: '0.714rem', color: 'var(--text-dim)' }}>off</span>
-          )}
-        </div>
+        <div className="cap-card-status">{statusBadge}</div>
         <svg className="cap-chevron" viewBox="0 0 14 14" fill="none" aria-hidden="true">
           <path d="M5 3l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
         </svg>

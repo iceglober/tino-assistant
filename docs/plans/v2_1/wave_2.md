@@ -59,10 +59,18 @@ if (method === 'GET' && routePath === '/api/capabilities') {
 - if wave 0 (React migration) has landed, follow vitest + React Testing Library conventions inferred from `packages/core/tests/**/*.test.ts`
 
 **acceptance:**
-- [ ] all 6 capability cards visible in the console
-- [ ] each card can be expanded to show configuration inputs
-- [ ] saving a capability's credentials writes to the config store
-- [ ] the capability status updates after saving (shows "connected" or "needs setup")
+- [x] all 6 capability cards visible in the console
+- [x] each card can be expanded to show configuration inputs
+- [x] saving a capability's credentials writes to the config store
+- [x] the capability status updates after saving (shows "connected" or "needs setup")
+
+**post-wave-0 routing notes:**
+- Live UI path: `packages/core/src/console-app/pages/Console.tsx` (renders capability grid via `getCapabilities()`) and `packages/core/src/console-app/components/CapabilityCard.tsx` (per-capability card; reads `cap.fields` to build inputs).
+- Live API: `PUT /api/capabilities/:id` is in `packages/core/src/server/routes/capabilities.ts:37-52` (no change required for 2.1 — the route already accepts the full JSON blob and writes `capability.<id>`).
+- mirror: `packages/core/src/console-app/components/CapabilityCard.tsx:83-98` (the existing per-field render loop) is the canonical mirror — the missing piece is the SOURCE of `cap.fields`. Today CapabilityCard expects `cap.fields` to come from the config-store JSON; nothing is seeding the field SCHEMAS for unconfigured capabilities. The fix is server-side: `createCapabilityRoutes` (`server/routes/capabilities.ts`) must merge a static schema from each `CapabilityModule` into the response so cards render even when `capability.<id>` is absent.
+- context (capabilities/types.ts:32-56) — `CapabilityModule` interface; extend with an optional `fieldSchema?: CapField[]` (matching the `CapField` shape at `console-app/components/CapabilityCard.tsx:6-12`) so each capability declares its inputs in one place.
+- conventions: ESM `.js` extensions; named exports; React function components only; design tokens via `styles/tokens.css` (`var(--accent)`, `var(--bg-raised)`, `var(--ok)`, `var(--err)`); never inline hex; vitest + `@testing-library/react` for tests.
+- mocks: vitest `vi.fn()` to mock `getCapabilities`/`putCapability` from `console-app/lib/api.js`; render `<CapabilityCard cap={…} />` in jsdom via `@testing-library/react`. No real HTTP needed.
 
 ### 2.2 capability registration reads from config store (gap #1)
 
@@ -143,10 +151,53 @@ export async function getAllowedRepos(config: ConfigStore): Promise<RepoSpec[]> 
 - test framework: vitest. New tests go in `packages/core/tests/tools/` mirroring `github.test.ts` style (`describe` + `it` + `vi.fn()` mocks)
 
 **acceptance:**
-- [ ] after saving a GitHub PAT in the console and restarting, `github tools enabled` appears in logs
-- [ ] after saving a Linear token, `linear tools enabled` appears
-- [ ] all 22 tools register when all capabilities are configured
-- [ ] `toolCount: 22` (or close) in the startup logs
+- [x] after saving a GitHub PAT in the console and restarting, `github tools enabled` appears in logs
+- [x] after saving a Linear token, `linear tools enabled` appears
+- [x] all 22 tools register when all capabilities are configured
+- [x] `toolCount: 22` (or close) in the startup logs
+
+**post-wave-0 routing notes:**
+- The live registration path is **`packages/core/src/capabilities/*.ts`** + `capabilities/registry.ts` — NOT `tools/index.ts`. `tools/index.ts` exists but is no longer called from `index.ts` (that file uses `initCapabilityRegistry` instead — see `index.ts:46-75`).
+- Each capability module already reads from its `CapabilityConfig` (`config.credentials['token']`, `config.settings['repos']`, etc.) — see `packages/core/src/capabilities/github.ts:30-49`. The pattern is in place; the gap is the **migration helper** that moves env-var values into the right `capability.<id>` JSON blob shape.
+- The relevant migration file is **`packages/core/src/capabilities/migration.ts`** (called once at startup from `index.ts:24`). That's the file 2.2 should extend, NOT `tools/github/client.ts` etc. (those are the underlying SDK wrappers and don't read config).
+- mirror: `packages/core/src/capabilities/github.ts` is the canonical per-capability mirror. Apply the same `config.credentials[<key>]` / `config.settings[<key>]` pattern across `linear.ts`, `slack.ts`, `gmail.ts`, `calendar.ts`, `cloudwatch.ts` (most are already done — verify each).
+
+**context (capabilities/types.ts CapabilityConfig shape):**
+```ts
+export interface CapabilityConfig {
+  enabled: boolean;
+  credentials: Record<string, string>;   // tokens, API keys
+  settings: Record<string, unknown>;     // allowlists, defaults
+  findWork?: { enabled: boolean; intervalMinutes: number; lastScanAt?: number };
+}
+```
+
+**context (capabilities/github.ts current ~lines 24-55, the live path):**
+```ts
+async registerTools(config: CapabilityConfig, _configStore, logger, tools): Promise<void> {
+  const token = config.credentials['token'];
+  if (!token) throw new Error('GitHub capability: credentials.token is not set');
+  const octokit = new Octokit({ auth: token, userAgent: 'tino/0.1' });
+  const reposRaw = (config.settings['repos'] as string[] | undefined) ?? [];
+  const allowedRepos: RepoSpec[] = reposRaw.flatMap(s => parseRepoSpec(s) ? [parseRepoSpec(s)!] : []);
+  // … register tools …
+}
+```
+
+**context (capabilities/migration.ts purpose):**
+- Called once at startup from `index.ts:24`. Reads env vars (GITHUB_TOKEN, LINEAR_DEVELOPER_TOKEN, etc.) and writes them into `capability.<id>` JSON blobs IF the blob is missing. Idempotent — re-runs are no-ops.
+- Extension point for 2.2: ensure migration covers all 6 capabilities and writes the right `credentials` + `settings` keys.
+
+**conventions:**
+- live config keys: `capability.<id>` is a JSON blob with `{ enabled, credentials, settings }` — do NOT introduce flat `<id>.token` keys (that's the dead `tools/index.ts` shape). New code reads `config.credentials.token`, not `configStore.get('github.token')`.
+- imports: ESM `.js` extensions; `import type` for type-only
+- error handling: each capability's `registerTools` throws a descriptive Error; `registry.ts:101-109` catches it and logs `<displayName> tools disabled` with the message — preserve this contract
+- tests: vitest at `packages/core/tests/capabilities/<id>.test.ts` (none exist today for capability modules — `tests/tools/preferences.test.ts` is the closest mirror for tool-level testing)
+
+**mocks:**
+- `Octokit`: `vi.mock('@octokit/rest', () => ({ Octokit: vi.fn() }))` — assert constructor called with the right `auth` token
+- `LinearClient`, `google-auth-library`, `@aws-sdk/client-cloudwatch-logs`: same mock-the-module pattern
+- `ConfigStore`: in-memory test double (a `Map<string, string>` with `get`/`set`/`list`/`delete` matching the `ConfigStore` interface) — preferred over mocking `better-sqlite3`
 
 ### 2.3 validate bedrock model ID (gap #15)
 
@@ -198,8 +249,38 @@ const model = createBedrockModel(bedrockModelId, env.AWS_REGION);
 - avoid `InvokeModel` for validation if possible (charges + latency on every startup); prefer `bedrock-runtime` `Converse` with a 1-token prompt or `bedrock` control-plane `ListInferenceProfiles` for cheap existence checks
 
 **acceptance:**
-- [ ] invalid model ID → clear error log, tino still starts (falls back to default)
-- [ ] valid model ID → tino uses it, no error
+- [x] invalid model ID → clear error log, tino still starts (falls back to default)
+- [x] valid model ID → tino uses it, no error
+
+**post-wave-0 routing notes:**
+- The validate-on-save route should land in `packages/core/src/server/routes/` as a NEW file (e.g. `bedrock.ts`) wired into `server/index.ts:117-123` via `app.route('/api/bedrock', createBedrockRoutes({ logger }))` — match the existing `createConfigRoutes`/`createCapabilityRoutes` factory shape. The plan's reference to `console/server.ts` is the legacy path.
+- Startup-time validation belongs at `packages/core/src/index.ts:39-43` (where `bedrock.modelId` is read).
+
+**context (server/routes/config.ts factory shape, the mirror for the new bedrock route ~lines 17-23):**
+```ts
+export function createConfigRoutes(opts: {
+  config: ConfigStore;
+  logger: AppLogger;
+  auditLogger: AuditLogger | undefined;
+}): Hono {
+  const app = new Hono();
+  // …
+  return app;
+}
+```
+
+**conventions:**
+- imports: ESM `.js` extensions; named imports
+- AWS SDK clients: use `@aws-sdk/credential-providers` `fromNodeProviderChain()` and pass `region` from `env.AWS_REGION`
+- exports: named `export function`; do NOT export the validator as default
+- error logs: `logger.error({ modelId, err: (err as Error).message }, 'bedrock model validation failed — falling back to default')`
+- tests: vitest; mock the Bedrock client per `packages/core/tests/tools/calendar.test.ts` mocking style — `vi.mock('@aws-sdk/client-bedrock-runtime', …)` and assert success/failure paths
+- avoid `InvokeModel` for validation (per-startup charges); prefer `bedrock-runtime` `Converse` with a 1-token prompt or `bedrock` control-plane `ListInferenceProfiles` for cheap existence checks
+
+**mocks:**
+- `@aws-sdk/client-bedrock-runtime` (or `@aws-sdk/client-bedrock`): `vi.mock(...)` returning a stub `send` that resolves for valid IDs and rejects with a `ValidationException`-shaped error for invalid IDs
+- `fromNodeProviderChain`: stub to return a static credential object — never call real AWS during tests
+- `AppLogger`: `{ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }` so we can assert the fallback log line
 
 ### 2.4 console shows active capabilities (gap #11)
 
@@ -255,8 +336,58 @@ async function getHealth() {
 - polling: avoid setInterval for now — refresh on page load and after each capability save (the existing pattern after `saveSlack`)
 
 **acceptance:**
-- [ ] capability cards show green/red status based on actual tool registration
-- [ ] status updates after page refresh (or via polling)
+- [x] capability cards show green/red status based on actual tool registration
+- [x] status updates after page refresh (or via polling)
+
+**post-wave-0 routing notes:**
+- Live UI: `packages/core/src/console-app/components/CapabilityCard.tsx` (not `html.ts`). The card currently hardcodes its status from `enabled` (`CapabilityCard.tsx:121-125`); 2.4 changes that to a derived flag based on whether ANY of the capability's expected tool prefixes appear in the live `/api/health` `tools` array.
+- Health hook: `packages/core/src/console-app/hooks/useHealth.ts` already polls `/api/health` and is consumed by `Console.tsx:40` — pass the resulting `tools: string[]` down into each `<CapabilityCard>` (or via a context/prop).
+- Backend: `packages/core/src/server/routes/health.ts:18-30` already returns `tools: Object.keys(opts.tools)` and per-capability state (toolCount, lastError) — no backend change required.
+
+**context (server/routes/health.ts response shape ~lines 18-30):**
+```ts
+app.get('/', (c) => {
+  const capState = opts.registry?.getState() ?? {};
+  return c.json({
+    ok: true,
+    tools: Object.keys(opts.tools),
+    uptime: (Date.now() - opts.startTime) / 1000,
+    capabilities: Object.entries(capState).map(([id, s]) => ({
+      id, toolCount: s.toolCount, lastFindWorkScanAt: s.lastFindWorkScanAt, lastError: s.lastError,
+    })),
+  });
+});
+```
+
+**context (CapabilityCard.tsx current status render ~lines 120-126):**
+```tsx
+<div className="cap-card-status">
+  {enabled ? (
+    <span className="status-connected">● on</span>
+  ) : (
+    <span style={{ fontSize: '0.714rem', color: 'var(--text-dim)' }}>off</span>
+  )}
+</div>
+```
+
+**capability → tool-name prefix mapping (canonical, derived from `capabilities/*.ts` registerTools):**
+- `github` → `github_*`
+- `linear` → `linear_*`
+- `gmail` → `gmail_*`
+- `calendar` → `calendar_*`
+- `slack` → `slack_search_messages`, `slack_read_thread`, `slack_list_dms`, `slack_read_dm`
+- `cloudwatch` → `cloudwatch_logs_query`
+
+Define this mapping in a NEW file `packages/core/src/console-app/lib/capabilityTools.ts` so React components and (future) tests share one source of truth.
+
+**conventions:**
+- React: function components only; pass `tools: string[]` as a prop to CapabilityCard rather than calling `useHealth()` inside the card (keeps the card stateless / easier to test)
+- design tokens: reuse `--ok` / `--err` from `styles/tokens.css`; never inline hex
+- naming: keep CSS class `status-connected` for the "on" state — it's already styled
+- tests: vitest + `@testing-library/react`; render `<CapabilityCard cap={…} tools={['github_search_code']} />` and assert the dot color/class
+
+**mocks:**
+- no external services here — everything is React state + a derived array. Tests need NO mocks beyond the standard `@testing-library/react` jsdom setup.
 
 ### 2.5 console "signed in as" indicator (gap #19)
 
@@ -316,5 +447,18 @@ async function signOut() {
 - error handling: silently degrade if `get-session` fails (hide the email span) rather than blocking the page
 
 **acceptance:**
-- [ ] console header shows the logged-in user's email
-- [ ] "sign out" link works and redirects to the login page
+- [x] console header shows the logged-in user's email — implemented at `packages/core/src/console-app/components/Header.tsx:35-43` (renders `session.user.email` when present)
+- [x] "sign out" link works and redirects to the login page — implemented at `Header.tsx:39-41` calling `useAuth().signOut()` (which hits `/api/auth/sign-out` per `console-app/lib/api.ts:119-125`)
+
+**post-wave-0 routing notes:**
+- Item 2.5 was effectively delivered by wave 0's React migration. `Header.tsx` already shows the email + sign-out; `useAuth.ts` already wraps `getSession()`/`signOut()` from `lib/api.ts`. No further work required.
+
+## Open questions
+
+(Decisions made during execution — no blockers, recorded for review.)
+
+- **Bedrock validation strategy:** chose to call `generateText` with `maxOutputTokens: 1` through the already-installed `@ai-sdk/amazon-bedrock` wrapper rather than adding `@aws-sdk/client-bedrock-runtime` for a `Converse` call or `@aws-sdk/client-bedrock` for `ListInferenceProfiles`. Trade-off: at most 1 output token of cost per startup vs avoiding a new dependency. Revisit if startup cost becomes measurable.
+- **Capability fields shape:** introduced `CapField.target` (dotted path like `credentials.token`, `settings.repos`) and `kind: 'string' | 'string[]'` so the GET/PUT round-trip is unambiguous. The server reconstructs the live `CapabilityConfig` shape on save; the console never sees the raw blob.
+- **Slack runtime tokens migration:** the existing `migrateEnvToCapabilities` only wrote a `slack.connection` JSON blob, but `index.ts` reads flat `slack.botToken` / `slack.appToken` / `slack.adminUserId` keys. Added explicit migration of the flat keys (preserving the legacy blob for back-compat).
+- **No React Testing Library tests added:** `@testing-library/react` and `jsdom` are not installed in `packages/core`. Added unit tests for the schema helpers (`tests/capabilities/schema.test.ts`) which covers the round-trip logic without UI rendering. Adding RTL is out of scope for this wave.
+- **`CapabilityCard.tsx` no longer accepts arbitrary extra keys** (the old `[key: string]: unknown` index signature). The new shape is strictly `{ id, displayName?, enabled?, fields?, connected? }`. The `connected` flag is derived in `Console.tsx` from `/api/health.tools`.

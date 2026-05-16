@@ -10,26 +10,11 @@ import type { ConfigStore } from '../persistence/config.js';
 import type { AppLogger } from '../slack/app.js';
 import type { TaskStore } from '../persistence/tasks.js';
 import type { PreferencesStore } from '../persistence/preferences.js';
-import type { CapabilityConfig, CapabilityModule, CapabilityRegistry, CapabilityRuntimeState } from './types.js';
+import type { CapabilityConfig, CapabilityRegistry, CapabilityRuntimeState } from './types.js';
 import { createPreferencesStore } from '../persistence/preferences.js';
 import { setPreferenceTool, getPreferencesTool } from '../tools/preferences.js';
 import { scheduleTaskTool, listTasksTool, cancelTaskTool } from '../tools/tasks.js';
-import { githubCapability } from './github.js';
-import { linearCapability } from './linear.js';
-import { slackCapability } from './slack.js';
-import { gmailCapability } from './gmail.js';
-import { calendarCapability } from './calendar.js';
-import { cloudwatchCapability } from './cloudwatch.js';
-
-/** All capability modules in registration order. */
-const ALL_CAPABILITIES: CapabilityModule[] = [
-  githubCapability,
-  linearCapability,
-  slackCapability,
-  gmailCapability,
-  calendarCapability,
-  cloudwatchCapability,
-];
+import { ALL_CAPABILITIES } from './all.js';
 
 export interface RegistryOptions {
   configStore: ConfigStore;
