@@ -15,10 +15,16 @@ v2.1 shipped the full feature set (Hono server, React SPA, capability config, ho
 
 - **wave 0: bun:sqlite migration** — replace `better-sqlite3` with `bun:sqlite` across all persistence files and `better-auth`. switch Docker from `node:22-slim` to `oven/bun`. this is the architectural change that unblocks everything else.
 - **wave 1: dead code + cleanup** — delete dead files, remove unused deps, fix Dockerfile inefficiencies, clean up stale comments.
-- **wave 2: biome linter** — add biome, configure it, fix all lint errors, add a `lint` script and pre-commit hook.
+- **wave 2: biome linter** — add biome, configure it, fix all lint errors, add a `lint` script.
 - **wave 3: test coverage** — add tests for untested server routes, capability modules, and critical React components.
+- **wave 4: deploy verification** — build, push, deploy to ECS, verify end-to-end (console, Slack, hot-reload, compliance).
 
 each wave has its own file with detailed acceptance criteria.
+
+## execution order
+
+for "deploy ASAP": wave 0 → wave 4 → wave 1 → waves 2-3.
+waves 0 and 4 are the critical path. waves 1-3 improve quality but don't block a working deployment.
 
 ## known gaps (complete inventory)
 
