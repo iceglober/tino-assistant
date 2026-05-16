@@ -65,8 +65,6 @@
     "@linear/sdk": "^84.0.0",
     "@octokit/rest": "^22.0.1",
     "@slack/bolt": "^4.7.2",
-    "@smithy/fetch-http-handler": "^5.4.1",
-    "@smithy/node-http-handler": "^4.7.1",
     "ai": "^6.0.178",
     "better-auth": "^1.6.11",
     "dotenv": "^17.4.2",

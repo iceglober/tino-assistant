@@ -7,8 +7,9 @@ import type { Env } from '../../env.js';
  * Shared by Calendar (Phase 6) and Gmail (Phase 7). The client auto-refreshes
  * access tokens using the refresh token — no manual token management needed.
  *
- * Throws if any of the three required env vars are missing. Caller
- * (buildTools) catches and degrades gracefully.
+ * Throws if any of the three required env vars are missing. Callers
+ * (`gmailCapability` in `capabilities/gmail.ts` and `calendarCapability`
+ * in `capabilities/calendar.ts`) catch and degrade gracefully.
  */
 export function createGoogleAuth(env: Env): InstanceType<typeof google.auth.OAuth2> {
   if (!env.GOOGLE_OAUTH_CLIENT_ID) {

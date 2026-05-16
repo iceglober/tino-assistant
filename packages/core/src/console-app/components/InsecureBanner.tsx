@@ -30,8 +30,8 @@ export function InsecureBanner(): JSX.Element | null {
       role="alert"
       aria-live="polite"
       style={{
-        background: 'rgba(192, 96, 96, 0.08)',
-        borderBottom: '1px solid rgba(192, 96, 96, 0.35)',
+        background: 'var(--err-bg)',
+        borderBottom: '1px solid var(--err-border)',
         color: 'var(--err)',
         padding: '10px 16px',
         fontSize: '0.857rem',

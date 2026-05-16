@@ -25,12 +25,11 @@ COPY --from=deps /app/packages/aws/node_modules ./packages/aws/node_modules
 COPY package.json ./
 COPY packages/core/package.json ./packages/core/
 COPY packages/aws/package.json ./packages/aws/
-COPY packages/core/src ./packages/core/src
-COPY packages/aws/src ./packages/aws/src
 COPY --from=builder /app/packages/core/dist ./packages/core/dist
 COPY --from=builder /app/packages/aws/dist ./packages/aws/dist
 COPY assets ./assets
 COPY scripts ./scripts
+COPY tino.deploy.json* ./
 
 # Ensure workspace packages are resolvable via node_modules/@tino/*
 RUN mkdir -p node_modules/@tino && \

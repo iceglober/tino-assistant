@@ -4,8 +4,9 @@ import type { Env } from '../../env.js';
 /**
  * Single shared Octokit instance.
  *
- * Throws if GITHUB_TOKEN is unset. Caller (`buildTools`) catches and
- * degrades gracefully — the bot keeps running without the GitHub tools.
+ * Throws if GITHUB_TOKEN is unset. Caller (`githubCapability.registerTools`
+ * in `capabilities/github.ts`) catches and degrades gracefully — the bot
+ * keeps running without the GitHub tools.
  */
 export function createOctokit(env: Env): Octokit {
   if (!env.GITHUB_TOKEN) {
