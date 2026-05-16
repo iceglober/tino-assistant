@@ -188,8 +188,9 @@ auth = await createAuth({
 - error handling: `try/catch` around adapter init with a `logger.error` fallback to "running without auth" — see existing pattern in `server.ts` lines 51-66
 
 **acceptance:**
-- [ ] after ECS task restart, the user's session is still valid (no re-login required)
+- [~] (external) after ECS task restart, the user's session is still valid (no re-login required) — requires deployed ECS task; deferred to follow-up wave per Open questions. No automated test path.
 - [x] OR: document that sessions are lost on restart and ensure the re-login flow is smooth (< 5 seconds)
+- [x] regression test: when `BETTER_AUTH_SECRET` env var is missing, `createAuth` logs a `'BETTER_AUTH_SECRET not set'` warning (test target: `packages/core/src/server/middleware/auth.ts:40-49`). Mock `opts.logger.warn` and assert the call. **mocks:** stub `AppLogger`; pass an in-memory `Database(':memory:')` (better-sqlite3 supports it natively) instead of touching `/tmp`. Implemented at `packages/core/tests/server/auth-secret-warning.test.ts` (3 tests: warns-on-missing, silent-on-set, no-throw-without-logger).
 
 ### 1.4 fix logo loading in production (gap #13)
 
@@ -277,3 +278,9 @@ COPY assets ./assets
   `packages/aws/src/persistence/dynamo/auth.ts` plus better-auth
   `secondaryStorage` config. Skipped because (a) MVP single-user tool, (b) ECS
   restarts rare, (c) re-login flow is one click + ~3 seconds.
+
+## Post-implementation actions
+
+External items in this wave that require manual verification after deployment:
+
+- **1.3** — after `pulumi up` deploys a new ECS task revision, sign in to the console, then trigger a restart (`aws ecs update-service ... --force-new-deployment`) and confirm whether the session survives. Expected: re-login required (MVP trade-off accepted). If the durable-session DynamoDB adapter ships in a follow-up wave, re-verify session survival.
