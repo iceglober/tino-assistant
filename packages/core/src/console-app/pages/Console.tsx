@@ -62,8 +62,8 @@ export function Console({
 
   useEffect(() => {
     void loadCaps();
-    // biome-ignore lint/correctness/useExhaustiveDependencies: loadCaps is intentionally invoked once on mount; capturing it as a dep would re-fire each render
-  }, [loadCaps]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fire once on mount
+  }, []);
 
   // ── Slack edit ──────────────────────────────────────────────────────
   const [slackBot, setSlackBot] = useState(initialSlackBot);
