@@ -1,5 +1,6 @@
-FROM oven/bun:1 AS deps
+FROM node:22-slim AS deps
 WORKDIR /app
+RUN npm install -g bun
 COPY package.json bun.lock* ./
 COPY packages/core/package.json ./packages/core/
 COPY packages/aws/package.json ./packages/aws/
