@@ -8,3 +8,5 @@ dist/
 *.log
 secrets.json
 tino.deploy.json
+.agent/
+
