@@ -1,0 +1,31 @@
+title: tino v2.2 — stack cleanup
+goal: >
+  v2.1 shipped the full feature set (Hono server, React SPA, capability config,
+  hot-reload, HTTPS, docs). but the stack has friction: `better-sqlite3` can't
+  run in Bun's runtime, the Dockerfile uses Node instead of Bun, there's no
+  linter, dead code is piling up, and new server routes have zero test coverage.
+  v2.2 cleans all of this up so the project is a clean, all-Bun stack with
+  enforced code quality.
+constraints: >
+  1. one runtime everywhere. Bun for dev, test (vitest), Docker, and production.
+  no Node dependency in the runtime path.
+
+  2. `bun run test` is the canonical test command. vitest stays (27 test files
+  use its APIs, it's mature, all 314 tests pass). `bun test` (Bun's built-in
+  runner) is not supported — it's a different command with different semantics.
+
+  3. dead code gets deleted, not commented. if nothing imports it, it's gone.
+
+  4. every new file gets a test. the v2.1 autopilot added 19 server route and
+  React component files with zero tests. fix that.
+phases:
+  - file: wave_0.yaml
+    completed: true
+  - file: wave_1.yaml
+    completed: true
+  - file: wave_2.yaml
+    completed: true
+  - file: wave_3.yaml
+    completed: true
+  - file: wave_4.yaml
+    completed: true
