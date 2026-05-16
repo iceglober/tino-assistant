@@ -137,4 +137,23 @@ describe("validateAgentOutput", () => {
     expect(result.safe).toBe(false);
     expect(result.reason).toMatch(/credential/i);
   });
+
+  // ── Active-capability allowlist ────────────────────────────────────────────
+
+  it("allows Gmail mention when gmail capability is active", () => {
+    const result = validateAgentOutput("i can help with Gmail, Linear, and Google Calendar.", {
+      userId: "U1",
+      activeCapabilities: ["gmail", "linear", "calendar"],
+    });
+    expect(result.safe).toBe(true);
+  });
+
+  it("flags Gmail mention when gmail capability is not active", () => {
+    const result = validateAgentOutput("i can help with Gmail.", {
+      userId: "U1",
+      activeCapabilities: [],
+    });
+    expect(result.safe).toBe(false);
+    expect(result.reason).toMatch(/gmail/i);
+  });
 });

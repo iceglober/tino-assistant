@@ -89,6 +89,7 @@ const registry = await initCapabilityRegistry({
       userId: allowedUserId,
       text: prompt,
       auditLogger,
+      activeCapabilities: registry.capabilityIds,
     });
 
     await postDm(result);
@@ -172,7 +173,16 @@ async function reconnectSlack(): Promise<{ ok: boolean; error?: string }> {
   };
 
   const handler: DmHandler = async (userId, text) =>
-    runAgent({ model, history, logger, tools: registry.tools, userId, text, auditLogger });
+    runAgent({
+      model,
+      history,
+      logger,
+      tools: registry.tools,
+      userId,
+      text,
+      auditLogger,
+      activeCapabilities: registry.capabilityIds,
+    });
 
   let nextApp: SlackBoltApp;
   try {
@@ -208,6 +218,7 @@ async function reconnectSlack(): Promise<{ ok: boolean; error?: string }> {
         userId: task.userId,
         text: taskPrompt,
         auditLogger,
+        activeCapabilities: registry.capabilityIds,
       });
     },
     postResult: (text: string) => postDm(text),
