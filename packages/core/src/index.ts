@@ -11,14 +11,21 @@ import { startServer } from './server/index.js';
 import { createPersistence } from './persistence/factory.js';
 import { migrateEnvToCapabilities } from './capabilities/migration.js';
 import { initCapabilityRegistry } from './capabilities/registry.js';
-import { createMemoryAuditLogger } from './audit/memory.js';
 
 const env = loadEnv();
 const logger = createLogger(env);
-const { history, tasks: taskStore, preferences: preferencesStore, config: configStore } = await createPersistence(env, logger);
+const {
+  history,
+  tasks: taskStore,
+  preferences: preferencesStore,
+  config: configStore,
+  auditLogger,
+} = await createPersistence(env, logger);
 
-// Audit logger — in-memory for local dev; AWS deployment wires in DynamoDB logger
-const auditLogger = createMemoryAuditLogger();
+// `auditLogger` is sourced from the persistence factory:
+//   - sqlite → in-memory (dev only; entries lost on restart)
+//   - dynamodb → durable, TTL-backed (90d default, see audit/dynamo.ts:22)
+// The shape is identical, so callers don't branch on adapter.
 
 // Run one-time migration from env vars to config store (no-op if already done)
 await migrateEnvToCapabilities(env, configStore, logger);

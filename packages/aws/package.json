@@ -14,6 +14,10 @@
       "types": "./dist/persistence/factory.d.ts",
       "default": "./dist/persistence/factory.js"
     },
+    "./audit": {
+      "types": "./dist/audit/dynamo.d.ts",
+      "default": "./dist/audit/dynamo.js"
+    },
     "./pulumi": {
       "types": "./dist/pulumi/index.d.ts",
       "default": "./dist/pulumi/index.js"

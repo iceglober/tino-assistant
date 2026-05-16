@@ -4,106 +4,86 @@
 
 # tino
 
-Personal Claude agent running locally in Slack DM.
+A Claude agent that lives in your Slack DM, runs in your AWS account, and remembers what you ask it. Backed by Bedrock for inference and DynamoDB for state. HIPAA-aware: encryption-at-rest on all stateful resources, an audit trail for every tool call, and a hard BAA gate before deploys.
 
-## Setup
+## Two installation paths
+
+Pick the one that fits where you are.
+
+### A. Standalone — `tino init` (recommended)
+
+The fastest path. Runs an interactive setup that asks for your AWS profile, Slack admin user, Google OAuth credentials, and HIPAA BAA status, then writes a Pulumi project to `./infra-tino/` and deploys it.
 
 ```sh
-git clone <repo>
-cd tino
+git clone <repo> tino && cd tino
+pnpm install
+pnpm --filter @tino/cli build
+node packages/cli/dist/index.js init
+```
+
+You end up with:
+- a Pulumi stack you own,
+- the tino service running on Fargate behind an ALB,
+- a config console at the printed URL,
+- a `tino.deploy.json` capturing the choices you made.
+
+See [`docs/deployment.md`](docs/deployment.md) for the full walkthrough.
+
+### B. Library — drop into an existing Pulumi project
+
+If you already have a Pulumi project (your VPC, your cluster), import the component:
+
+```ts
+import { TinoService } from "@tino/aws";
+
+const tino = new TinoService("tino", {
+  vpc: network.vpcId,
+  subnets: network.privateSubnetIds,
+  cluster: existingCluster,
+  googleOAuthClientId: config.require("googleOAuthClientId"),
+  googleOAuthClientSecret: config.requireSecret("googleOAuthClientSecret"),
+  allowedDomain: "example.com",
+  // Optional HTTPS (both required together):
+  consoleDomain: "tino.example.com",
+  hostedZoneId: "Z0123456789ABCDEFGHIJ",
+});
+```
+
+The component provisions DynamoDB, KMS, ECR, the ECS task, the ALB, and (when `consoleDomain` is set) ACM + Route53. It expects you to bring the VPC.
+
+## Documentation
+
+- [`docs/deployment.md`](docs/deployment.md) — step-by-step deploy
+- [`docs/console.md`](docs/console.md) — using the web console
+- [`docs/architecture.md`](docs/architecture.md) — how tino is put together
+- [`docs/security.md`](docs/security.md) — what's enforced, and where
+- [`docs/migration.md`](docs/migration.md) — renaming `tino-tino` → `tino`, switching adapters
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — local dev, tests, adding tools
+
+## Local development
+
+```sh
 nvm use          # picks up .nvmrc → Node 22
 cp .env.example .env
-# fill in .env with your tokens and credentials
+# fill in .env with your tokens
 pnpm install
 pnpm dev
 ```
 
-## Development
-
 | Command | What it does |
 |---|---|
-| `pnpm dev` | Start with `tsx watch` — restarts on file changes |
-| `pnpm test` | Run vitest test suite once |
-| `pnpm typecheck` | TypeScript type-check (no emit) |
+| `pnpm dev` | Start core with `tsx watch` — restarts on file changes |
+| `pnpm test` | Run vitest across the workspace |
+| `pnpm typecheck` | TypeScript check (no emit) |
+
+The local dev mode uses SQLite (`./tino.db`) and an in-memory audit logger — durable persistence is DynamoDB-only. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the dev loop in more depth.
 
 ## Config console
 
-When tino is running, a minimal web console is available at **http://localhost:3001** (localhost only — not exposed externally).
+When tino is running, the console is at **`http://localhost:3001`** in dev or `https://<consoleDomain>` in production. It manages Slack tokens, Google OAuth, the Bedrock model ID, capability connections (GitHub, Linear, CloudWatch), and surfaces a HIPAA compliance dashboard.
 
-Use it to:
-- Add GitHub repos to the allowlist (`github.repos`)
-- Set the default GitHub repo (`github.default_repo`)
-- Add CloudWatch log groups (`cloudwatch.log_groups`)
-- View all runtime config and health status
+Config changes take effect on the next tool call — no restart needed for capability changes; Slack reconnections happen via the console's "reconnect" button.
 
-Config changes take effect on the next tool call — no restart needed.
+## Plan history
 
-## Deployment (ECS Fargate)
-
-### Prerequisites
-
-- AWS CLI configured (`aws configure` or `AWS_PROFILE` set)
-- Docker installed and running
-- CDK bootstrapped once per account/region: `cd infra && npx cdk bootstrap`
-
-### First deploy
-
-```sh
-# 1. Install CDK dependencies
-cd infra && pnpm install
-
-# 2. Deploy the infrastructure (VPC, ECR, EFS, ECS cluster + service)
-pnpm run deploy
-cd ..
-
-# 3. Set secrets in SSM Parameter Store
-#    Option A: bulk setup from a JSON file (recommended)
-cp secrets.example.json secrets.json
-# fill in secrets.json with your actual values
-chmod +x scripts/setup-secrets.sh
-./scripts/setup-secrets.sh secrets.json
-
-#    Option B: one command per secret
-aws ssm put-parameter --name /tino/SLACK_BOT_TOKEN        --value "xoxb-..."  --type SecureString
-aws ssm put-parameter --name /tino/SLACK_APP_TOKEN        --value "xapp-..."  --type SecureString
-aws ssm put-parameter --name /tino/SLACK_USER_TOKEN       --value "xoxp-..."  --type SecureString
-aws ssm put-parameter --name /tino/ALLOWED_SLACK_USER_ID  --value "U..."      --type SecureString
-aws ssm put-parameter --name /tino/GITHUB_TOKEN           --value "ghp_..."   --type SecureString
-aws ssm put-parameter --name /tino/GOOGLE_OAUTH_CLIENT_ID     --value "..."   --type SecureString
-aws ssm put-parameter --name /tino/GOOGLE_OAUTH_CLIENT_SECRET --value "..."   --type SecureString
-aws ssm put-parameter --name /tino/GOOGLE_OAUTH_REFRESH_TOKEN --value "..."   --type SecureString
-aws ssm put-parameter --name /tino/BEDROCK_MODEL_ID       --value "global.anthropic.claude-sonnet-4-6" --type SecureString
-
-# 4. Build and push the container image, then force a new ECS deployment
-pnpm run deploy:app
-```
-
-### Deploy code changes
-
-```sh
-pnpm run deploy:app
-```
-
-This builds the Docker image, pushes it to ECR, and forces a new ECS task deployment. The new task starts in ~30 seconds.
-
-### View logs
-
-```sh
-aws logs tail /ecs/tino --follow
-```
-
-### Destroy infrastructure
-
-```sh
-cd infra && pnpm run destroy
-```
-
-ECR images and EFS data (the SQLite database) are **retained** after destroy — `RemovalPolicy.RETAIN` is set on both. Delete them manually if needed.
-
-## Troubleshooting
-
-_(Phase 2 will add "bot doesn't respond" debugging steps here.)_
-
----
-
-See [plans/tino.md](plans/tino.md) for the full buildout plan.
+The current buildout plan lives at [`docs/plans/v2_1/main.md`](docs/plans/v2_1/main.md).

@@ -67,6 +67,10 @@ const tino = new TinoService("tino", {
   googleOAuthClientId: config.require("googleOAuthClientId"),
   googleOAuthClientSecret: config.requireSecret("googleOAuthClientSecret"),
   allowedDomain: config.get("allowedDomain"),
+  // To deploy with a custom HTTPS domain, set:
+  //   consoleDomain: "tino.example.com",
+  //   hostedZoneId: "Z0123456789ABCDEFGHIJ",
+  // Both are required together; see docs/deployment.md.
 });
 
 export const consoleUrl = tino.consoleUrl;

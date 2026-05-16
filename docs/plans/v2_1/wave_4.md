@@ -43,9 +43,9 @@ hostedZoneId?: pulumi.Input<string>;   // required when consoleDomain is set
 - never log raw OAuth tokens — already enforced via `logger.info({ baseUrl, allowedDomain, ... })` (server.ts:60)
 
 **acceptance:**
-- [ ] with `consoleDomain`: console accessible at `https://tino.kayn.ai` (or whatever domain)
-- [ ] without `consoleDomain`: console accessible at HTTP with a visible warning
-- [ ] Google OAuth redirect URI works with HTTPS
+- [x] with `consoleDomain`: console accessible at `https://tino.kayn.ai` (or whatever domain)
+- [x] without `consoleDomain`: console accessible at HTTP with a visible warning
+- [x] Google OAuth redirect URI works with HTTPS
 
 ### 4.2 audit logging wired to DynamoDB (gap #16)
 
@@ -107,9 +107,9 @@ export function createDynamoAuditLogger(
 - tests: vitest, mock the dynamo client per `packages/core/tests/tools/preferences.test.ts` pattern
 
 **acceptance:**
-- [ ] audit entries visible in the console's compliance section
-- [ ] audit entries survive ECS task restart
-- [ ] `entry count` in the compliance dashboard shows real numbers
+- [x] audit entries visible in the console's compliance section
+- [x] audit entries survive ECS task restart
+- [x] `entry count` in the compliance dashboard shows real numbers
 
 ### 4.3 compliance dashboard shows real status (gap #17)
 
@@ -179,9 +179,9 @@ note: existing route reads `deployJson.baa`, but `tino.deploy.json` writes `comp
 - tests: vitest; for this route, integration-test by stubbing `auditLogger` with the in-memory implementation
 
 **acceptance:**
-- [ ] BAA status shows "verified" or "manual-confirmed" (from deploy config)
-- [ ] encryption shows "cmk" for DynamoDB, Secrets Manager, CloudWatch Logs
-- [ ] audit log health shows real entry count and last entry timestamp
+- [x] BAA status shows "verified" or "manual-confirmed" (from deploy config)
+- [x] encryption shows "cmk" for DynamoDB, Secrets Manager, CloudWatch Logs
+- [x] audit log health shows real entry count and last entry timestamp
 
 ### 4.4 fix `tino-tino` naming (gap #18)
 
@@ -230,8 +230,8 @@ const table = new aws.dynamodb.Table(`${name}-table`, {
 - tests: typecheck-only for now (`packages/aws` has no test file in `tests/`, so add a `pulumi.runtime.runInPulumiStack`-style integration test if we add tests)
 
 **acceptance:**
-- [ ] new deployments use clean names (`tino` not `tino-tino`)
-- [ ] existing deployments can migrate without data loss (or the migration path is documented)
+- [x] new deployments use clean names (`tino` not `tino-tino`)
+- [x] existing deployments can migrate without data loss (or the migration path is documented)
 
 ### 4.5 fix VPC Flow Logs deprecation warning (gap #20)
 
@@ -286,7 +286,7 @@ new aws.ec2.FlowLog(`${name}-vpc-flow-log`, {
 - migration: `aws.ec2.FlowLog` does NOT support in-place updates between `logGroupName` ↔ `logDestination` cleanly in some provider versions; if `pulumi preview` shows replace, accept it (flow logs are not stateful — losing 1-minute granularity for a few seconds is fine)
 
 **acceptance:**
-- [ ] `pulumi up` produces no deprecation warnings
+- [x] `pulumi up` produces no deprecation warnings
 
 ### 4.6 documentation
 
@@ -314,9 +314,9 @@ new aws.ec2.FlowLog(`${name}-vpc-flow-log`, {
 - never include real credentials, real account IDs, or customer domain names in examples — use `tino.example.com`, `123456789012`, etc.
 
 **what's needed:**
-- [ ] README updated with the two installation paths (standalone + npm install)
-- [ ] `docs/deployment.md` — step-by-step deployment guide (what we just went through, but clean)
-- [ ] `docs/console.md` — how to use the console (screenshots, capability setup)
-- [ ] `docs/architecture.md` — how tino works (packages, persistence, tools, scheduler)
-- [ ] `docs/security.md` — security model, compliance controls, what's enforced automatically
-- [ ] `CONTRIBUTING.md` — how to develop locally, run tests, add a new tool
+- [x] README updated with the two installation paths (standalone + npm install)
+- [x] `docs/deployment.md` — step-by-step deployment guide (what we just went through, but clean)
+- [x] `docs/console.md` — how to use the console (screenshots, capability setup)
+- [x] `docs/architecture.md` — how tino works (packages, persistence, tools, scheduler)
+- [x] `docs/security.md` — security model, compliance controls, what's enforced automatically
+- [x] `CONTRIBUTING.md` — how to develop locally, run tests, add a new tool

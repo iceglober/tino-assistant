@@ -109,6 +109,36 @@ export interface TinoServiceArgs {
   memory?: string;
 
   /**
+   * Audit log retention in days (HIPAA audit trail).
+   * Default: 90 (matches `DEFAULT_RETENTION_SECONDS` in audit/dynamo.ts).
+   *
+   * Source from `tino.deploy.json` `hipaa.auditRetentionDays` if you have one.
+   * Passed to the container as `AUDIT_RETENTION_DAYS`; the DynamoDB audit
+   * logger sets DynamoDB TTL on each entry to (now + retentionDays).
+   */
+  auditRetentionDays?: number;
+
+  /**
+   * Prefix used in AWS resource names (DynamoDB table, ECS cluster, log
+   * group, ECR repo, KMS alias, etc.). Default: the Pulumi component name.
+   *
+   * Historically the component was instantiated as `new TinoService("tino", …)`
+   * and resource names embedded a hardcoded `tino-` prefix, producing
+   * `tino-tino` everywhere. The current default drops that doubling — new
+   * deployments where the component is named `"tino"` get clean names
+   * (`tino`, `/ecs/tino`, `alias/tino`).
+   *
+   * **Migration warning.** Changing the prefix on an existing stack
+   * triggers replacement of stateful resources — DynamoDB table, ECR repo
+   * with images, KMS key alias. Replacement = data loss. To migrate an
+   * existing `tino-tino` deployment cleanly:
+   *   1. backup the DynamoDB table to S3
+   *   2. set `resourcePrefix: "tino-tino"` to keep current names
+   *   3. or follow `docs/migration.md` for the rename path
+   */
+  resourcePrefix?: string;
+
+  /**
    * Additional CloudWatch log group ARNs the CloudWatch tool can query.
    * If not provided, the tool can only query tino's own log group.
    * Add your application log groups here to enable the CloudWatch capability.
@@ -249,6 +279,32 @@ export class TinoService extends pulumi.ComponentResource {
 
     const tags = { ...args.tags, "tino:managed": "true", ...complianceTags };
 
+    // ── Resource name prefix ─────────────────────────────────────────────
+    // Defaults to the Pulumi component name so a `new TinoService("tino", …)`
+    // call produces `tino`, `/ecs/tino`, `alias/tino` etc. Older deployments
+    // that still want the legacy `tino-tino` doubling can pass
+    // `resourcePrefix: "tino-tino"` to keep their existing resource names.
+    const prefix = args.resourcePrefix ?? name;
+
+    // ── HTTPS argument validation ────────────────────────────────────────
+    // consoleDomain requires hostedZoneId — without it the component cannot
+    // create the Route53 record nor the ACM DNS validation record. We fail
+    // fast here so the user sees a clean message rather than a Pulumi
+    // "missing required argument" deep in the cert-validation resource.
+    if (args.consoleDomain && !args.hostedZoneId) {
+      throw new Error(
+        [
+          "",
+          "tino: consoleDomain was set but hostedZoneId was not.",
+          "  Both are required to provision HTTPS — the hosted zone is used for",
+          "  ACM DNS validation and the Route53 alias record.",
+          "",
+          "  Either set both, or remove consoleDomain to deploy with HTTP.",
+          "",
+        ].join("\n"),
+      );
+    }
+
     // ── Compliance enforcement ────────────────────────────────────────────
     // These run during `pulumi preview` and `pulumi up`.
 
@@ -353,7 +409,7 @@ export class TinoService extends pulumi.ComponentResource {
     }, { parent: this });
 
     new aws.kms.Alias(`${name}-kms-alias`, {
-      name: `alias/tino-${name}`,
+      name: `alias/${prefix}`,
       targetKeyId: kmsKey.id,
     }, { parent: this });
 
@@ -365,7 +421,7 @@ export class TinoService extends pulumi.ComponentResource {
     // deletionProtectionEnabled: true prevents accidental `pulumi destroy`.
     // To destroy the table, disable deletion protection in the console first.
     const table = new aws.dynamodb.Table(`${name}-table`, {
-      name: `tino-${name}`,
+      name: `${prefix}`,
       billingMode: "PAY_PER_REQUEST",
       hashKey: "pk",
       rangeKey: "sk",
@@ -395,7 +451,7 @@ export class TinoService extends pulumi.ComponentResource {
     // Non-GDPR deployments retain logs for 90 days.
     const logRetentionDays = gdprCompliance ? 30 : 90;
     const logGroup = new aws.cloudwatch.LogGroup(`${name}-logs`, {
-      name: `/ecs/tino-${name}`,
+      name: `/ecs/${prefix}`,
       retentionInDays: logRetentionDays,
       kmsKeyId: kmsKey.arn,
       tags,
@@ -443,7 +499,7 @@ export class TinoService extends pulumi.ComponentResource {
       // Dedicated log group for flow logs — separate from tino's app logs.
       // Encrypted with tino's KMS key; 90-day retention for SOC 2 audit trail.
       const flowLogGroup = new aws.cloudwatch.LogGroup(`${name}-flow-logs`, {
-        name: `/vpc/tino-${name}`,
+        name: `/vpc/${prefix}`,
         retentionInDays: 90,
         kmsKeyId: kmsKey.arn,
         tags,
@@ -453,7 +509,11 @@ export class TinoService extends pulumi.ComponentResource {
         vpcId: vpcId,
         trafficType: "ALL",
         logDestinationType: "cloud-watch-logs",
-        logGroupName: flowLogGroup.name,
+        // logDestination takes the log group ARN; replaces the deprecated
+        // logGroupName field. The provider may show this as a replacement on
+        // an existing stack — that's fine, flow logs are not stateful and a
+        // few seconds of missing 1-minute granularity is acceptable.
+        logDestination: flowLogGroup.arn,
         iamRoleArn: flowLogRole.arn,
         maxAggregationInterval: 60, // 1-minute granularity (most detailed)
         tags: { ...tags, "tino:resource": "vpc-flow-log" },
@@ -464,7 +524,7 @@ export class TinoService extends pulumi.ComponentResource {
     // SNS topic is created; subscriptions are managed via the console.
     // Encrypted with the component's KMS key.
     const snsTopic = new aws.sns.Topic(`${name}-alerts`, {
-      name: `tino-${name}-security-alerts`,
+      name: `${prefix}-security-alerts`,
       kmsMasterKeyId: kmsKey.id,
       tags,
     }, { parent: this });
@@ -475,14 +535,14 @@ export class TinoService extends pulumi.ComponentResource {
       logGroupName: logGroup.name,
       pattern: '"access_denied" OR "auth_error" OR "permission_denied" OR "injection_suspected"',
       metricTransformation: {
-        name: `tino-${name}-security-events`,
+        name: `${prefix}-security-events`,
         namespace: "Tino/Security",
         value: "1",
       },
     }, { parent: this });
 
     new aws.cloudwatch.MetricAlarm(`${name}-security-alarm`, {
-      name: `tino-${name}-security-events`,
+      name: `${prefix}-security-events`,
       comparisonOperator: "GreaterThanThreshold",
       evaluationPeriods: 1,
       metricName: metricFilter.metricTransformation.name,
@@ -499,7 +559,7 @@ export class TinoService extends pulumi.ComponentResource {
     // The docker-build provider pushes to :latest on each deploy.
     // Image scanning on push provides the security control.
     const ecrRepo = new aws.ecr.Repository(`${name}-ecr`, {
-      name: `tino-${name}`,
+      name: `${prefix}`,
       forceDelete: false,
       imageScanningConfiguration: { scanOnPush: true },
       imageTagMutability: "MUTABLE",
@@ -672,7 +732,7 @@ export class TinoService extends pulumi.ComponentResource {
     // ── ECS cluster (create or reuse) ────────────────────────────────────
     // Container Insights is always enabled for audit trail depth.
     const cluster = args.cluster ?? new aws.ecs.Cluster(`${name}-cluster`, {
-      name: `tino-${name}`,
+      name: `${prefix}`,
       settings: [{ name: "containerInsights", value: "enabled" }],
       tags,
     }, { parent: this });
@@ -827,7 +887,7 @@ export class TinoService extends pulumi.ComponentResource {
     // CONSOLE_BASE_URL is set (production). This change is in @tino/core,
     // not in this component.
     const taskDef = new aws.ecs.TaskDefinition(`${name}-task`, {
-      family: `tino-${name}`,
+      family: `${prefix}`,
       networkMode: "awsvpc",
       requiresCompatibilities: ["FARGATE"],
       cpu: args.cpu ?? "256",
@@ -863,12 +923,13 @@ export class TinoService extends pulumi.ComponentResource {
           environment: [
             { name: "NODE_ENV", value: "production" },
             { name: "PERSISTENCE_ADAPTER", value: "dynamodb" },
-            { name: "DYNAMODB_TABLE_NAME", value: `tino-${name}` },
+            { name: "DYNAMODB_TABLE_NAME", value: `${prefix}` },
             { name: "LOG_LEVEL", value: "info" },
             { name: "GOOGLE_OAUTH_CLIENT_ID", value: googleClientId },
             { name: "GOOGLE_OAUTH_CLIENT_SECRET", value: googleClientSecret },
             { name: "CONSOLE_ALLOWED_DOMAIN", value: args.allowedDomain ?? "" },
             { name: "CONSOLE_BASE_URL", value: consoleBaseUrl },
+            { name: "AUDIT_RETENTION_DAYS", value: String(args.auditRetentionDays ?? 90) },
           ],
           // No secrets block — credentials come from the DynamoDB config store
           logConfiguration: {
@@ -888,7 +949,7 @@ export class TinoService extends pulumi.ComponentResource {
     // enableExecuteCommand defaults to false (secure default).
     // Set enableExec: true in args to enable for debugging.
     const service = new aws.ecs.Service(`${name}-service`, {
-      name: `tino-${name}`,
+      name: `${prefix}`,
       cluster: cluster.arn,
       taskDefinition: taskDef.arn,
       desiredCount: 1,

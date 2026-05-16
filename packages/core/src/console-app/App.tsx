@@ -4,6 +4,7 @@ import { Login } from './pages/Login.js';
 import { Setup } from './pages/Setup.js';
 import { Console, fetchInitialConsoleValues } from './pages/Console.js';
 import { ToastProvider } from './hooks/useToast.js';
+import { InsecureBanner } from './components/InsecureBanner.js';
 import { getConfig, getSession, type Session, UnauthorizedError } from './lib/api.js';
 
 type AppState =
@@ -95,6 +96,7 @@ function AppRouter(): JSX.Element {
 export function App(): JSX.Element {
   return (
     <ToastProvider>
+      <InsecureBanner />
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />

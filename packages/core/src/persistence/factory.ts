@@ -4,12 +4,26 @@ import type { HistoryStore } from '../agent/history.js';
 import type { TaskStore } from './tasks.js';
 import type { PreferencesStore } from './preferences.js';
 import type { ConfigStore } from './config.js';
+import type { AuditLogger } from '../audit/logger.js';
 
 export interface Persistence {
   history: HistoryStore;
   tasks: TaskStore;
   preferences: PreferencesStore;
   config: ConfigStore;
+  /**
+   * Audit logger backing the HIPAA audit trail.
+   *
+   * - SQLite adapter: in-memory logger (entries lost on restart). Acceptable
+   *   for local dev; production must use DynamoDB.
+   * - DynamoDB adapter: durable logger writing to the same Tino table with
+   *   TTL-based retention (default 90 days).
+   *
+   * Returning the audit logger from the factory keeps it co-located with the
+   * adapter that owns the underlying table — avoids a second round of
+   * `if (adapter === 'dynamodb')` branching at the entry point.
+   */
+  auditLogger: AuditLogger;
 }
 
 /**
@@ -38,12 +52,14 @@ export async function createPersistence(env: Env, logger: AppLogger): Promise<Pe
   const { createTaskStore } = await import('./tasks.js');
   const { createPreferencesStore } = await import('./preferences.js');
   const { createConfigStore } = await import('./config.js');
+  const { createMemoryAuditLogger } = await import('../audit/memory.js');
 
   const history = createSqliteHistoryStore({ dbPath, cap: 40 });
   const tasks = createTaskStore({ dbPath });
   const preferences = createPreferencesStore({ dbPath });
   const config = createConfigStore({ dbPath });
+  const auditLogger = createMemoryAuditLogger();
 
   logger.info({ adapter: 'sqlite', dbPath }, 'persistence initialized');
-  return { history, tasks, preferences, config };
+  return { history, tasks, preferences, config, auditLogger };
 }
