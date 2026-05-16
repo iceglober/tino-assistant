@@ -24,21 +24,22 @@
  *
  * The decision is recorded in `## Open questions` of wave_3.md.
  */
-import { describe, it, expect } from 'vitest';
-import { createElement } from 'react';
-import { renderToString } from 'react-dom/server';
-import { Header } from '../../src/console-app/components/Header.js';
-import type { Session } from '../../src/console-app/lib/api.js';
+
+import { createElement } from "react";
+import { renderToString } from "react-dom/server";
+import { describe, expect, it } from "vitest";
+import { Header } from "../../src/console-app/components/Header.js";
+import type { Session } from "../../src/console-app/lib/api.js";
 
 const SESSION: Session = {
-  user: { id: 'U001', email: 'admin@example.com', name: 'Admin' },
+  user: { id: "U001", email: "admin@example.com", name: "Admin" },
 };
 
-describe('<Header /> — wave 3.4 restart button', () => {
+describe("<Header /> — wave 3.4 restart button", () => {
   it('renders a "restart" button when a session is present', () => {
     const html = renderToString(
       createElement(Header, {
-        status: 'ok',
+        status: "ok",
         session: SESSION,
         onSignOut: () => {},
       }),
@@ -55,12 +56,12 @@ describe('<Header /> — wave 3.4 restart button', () => {
     expect(html).toMatch(/>sign out</);
   });
 
-  it('does NOT render the restart button without a session', () => {
+  it("does NOT render the restart button without a session", () => {
     // The header itself still renders (logo + status), but the user-actions
     // cluster (which holds restart + sign out) is gated on session.
     const html = renderToString(
       createElement(Header, {
-        status: 'checking',
+        status: "checking",
         session: null,
         onSignOut: () => {},
       }),

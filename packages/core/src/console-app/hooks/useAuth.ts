@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { getSession, signOut as apiSignOut, type Session } from '../lib/api.js';
+import { useEffect, useState } from "react";
+import { signOut as apiSignOut, getSession, type Session } from "../lib/api.js";
 
 export interface UseAuthResult {
   session: Session | null;
@@ -35,7 +35,7 @@ export function useAuth(): UseAuthResult {
 
   const signOut = async (): Promise<void> => {
     await apiSignOut();
-    window.location.href = '/';
+    window.location.href = "/";
   };
 
   return { session, loading, signOut };

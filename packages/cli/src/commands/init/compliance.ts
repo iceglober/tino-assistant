@@ -1,50 +1,48 @@
-import { select } from '@inquirer/prompts';
-import type { DeployConfig } from './types.js';
-import { displayStep, displaySuccess, displayInfo } from '../../utils/display.js';
+import { select } from "@inquirer/prompts";
+import { displayInfo, displayStep, displaySuccess } from "../../utils/display.js";
+import type { DeployConfig } from "./types.js";
 
 /**
  * Step 1: Compliance framework selection.
  * HIPAA is the only option — it's the baseline for all tino deployments.
  */
-export async function stepCompliance(
-  config: Partial<DeployConfig>
-): Promise<Partial<DeployConfig>> {
-  displayStep(1, 6, 'Compliance Framework');
+export async function stepCompliance(config: Partial<DeployConfig>): Promise<Partial<DeployConfig>> {
+  displayStep(1, 6, "Compliance Framework");
 
   const framework = await select({
-    message: 'Which compliance frameworks must you adhere to?',
+    message: "Which compliance frameworks must you adhere to?",
     choices: [
-      { name: 'HIPAA', value: 'hipaa' },
-      { name: '(more coming soon)', value: 'hipaa', disabled: true },
+      { name: "HIPAA", value: "hipaa" },
+      { name: "(more coming soon)", value: "hipaa", disabled: true },
     ],
-    default: 'hipaa',
+    default: "hipaa",
   });
 
-  if (framework !== 'hipaa') {
+  if (framework !== "hipaa") {
     // Should never happen given the choices, but guard anyway
-    throw new Error('Only HIPAA is supported in this version.');
+    throw new Error("Only HIPAA is supported in this version.");
   }
 
-  displaySuccess('HIPAA selected. tino will enforce:');
-  displayInfo('• encryption at rest (KMS)');
-  displayInfo('• encryption in transit (TLS-only)');
-  displayInfo('• audit logging (every data access)');
-  displayInfo('• data retention policies (configurable TTL)');
-  displayInfo('• PHI redaction in logs');
-  displayInfo('• BAA verification for all services');
+  displaySuccess("HIPAA selected. tino will enforce:");
+  displayInfo("• encryption at rest (KMS)");
+  displayInfo("• encryption in transit (TLS-only)");
+  displayInfo("• audit logging (every data access)");
+  displayInfo("• data retention policies (configurable TTL)");
+  displayInfo("• PHI redaction in logs");
+  displayInfo("• BAA verification for all services");
 
   return {
     ...config,
     compliance: {
-      frameworks: ['hipaa'],
+      frameworks: ["hipaa"],
       baaStatus: {
-        aws: 'skipped',
-        bedrock: 'skipped',
+        aws: "skipped",
+        bedrock: "skipped",
         ...(config.compliance?.baaStatus ?? {}),
       },
     },
     hipaa: {
-      kmsKeyAlias: 'alias/tino',
+      kmsKeyAlias: "alias/tino",
       auditRetentionDays: 90,
       historyRetentionDays: 30,
       enforceEncryption: true,

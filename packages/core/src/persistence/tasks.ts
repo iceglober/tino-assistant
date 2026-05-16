@@ -1,5 +1,5 @@
-import crypto from 'node:crypto';
-import { Database } from 'bun:sqlite';
+import { Database } from "bun:sqlite";
+import crypto from "node:crypto";
 
 /**
  * SQLite-backed task store for scheduled tasks.
@@ -15,7 +15,7 @@ export interface Task {
   userId: string;
   description: string;
   scheduledAt: number; // epoch seconds UTC
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+  status: "pending" | "running" | "completed" | "failed" | "cancelled";
   result: string | null;
   createdAt: number;
   updatedAt: number;
@@ -26,7 +26,7 @@ export interface TaskStore {
   getById(id: string): Promise<Task | null>;
   listByUser(userId: string, status?: string): Promise<Task[]>;
   listPending(nowEpochSec: number): Promise<Task[]>; // scheduled_at <= now AND status = 'pending'
-  updateStatus(id: string, status: Task['status'], result?: string): Promise<void>;
+  updateStatus(id: string, status: Task["status"], result?: string): Promise<void>;
   cancel(id: string): Promise<boolean>; // returns false if task not found or not pending
 }
 
@@ -48,7 +48,7 @@ function rowToTask(row: TaskRow): Task {
     userId: row.user_id,
     description: row.description,
     scheduledAt: row.scheduled_at,
-    status: row.status as Task['status'],
+    status: row.status as Task["status"],
     result: row.result,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -73,9 +73,9 @@ export function createTaskStore({ dbPath }: { dbPath: string }): TaskStore {
   // 'running' status means the scheduler picked them up but never got to
   // mark them 'completed' or 'failed' — the process died in between.
   // Reset them to 'pending' so the next scheduler tick retries them.
-  const recovered = db.query(
-    `UPDATE tasks SET status = 'pending', updated_at = ? WHERE status = 'running'`,
-  ).run(Math.floor(Date.now() / 1000));
+  const recovered = db
+    .query(`UPDATE tasks SET status = 'pending', updated_at = ? WHERE status = 'running'`)
+    .run(Math.floor(Date.now() / 1000));
   if (recovered.changes > 0) {
     // Caller's logger isn't available here, but the count is visible in
     // the returned TaskStore — the scheduler will log when it picks them up.
@@ -86,25 +86,19 @@ export function createTaskStore({ dbPath }: { dbPath: string }): TaskStore {
      VALUES (?, ?, ?, ?, ?, ?)`,
   );
 
-  const stmtGetById = db.query(
-    'SELECT * FROM tasks WHERE id = ?',
-  );
+  const stmtGetById = db.query("SELECT * FROM tasks WHERE id = ?");
 
-  const stmtListByUser = db.query(
-    'SELECT * FROM tasks WHERE user_id = ? ORDER BY scheduled_at ASC',
-  );
+  const stmtListByUser = db.query("SELECT * FROM tasks WHERE user_id = ? ORDER BY scheduled_at ASC");
 
   const stmtListByUserAndStatus = db.query(
-    'SELECT * FROM tasks WHERE user_id = ? AND status = ? ORDER BY scheduled_at ASC',
+    "SELECT * FROM tasks WHERE user_id = ? AND status = ? ORDER BY scheduled_at ASC",
   );
 
   const stmtListPending = db.query(
     `SELECT * FROM tasks WHERE scheduled_at <= ? AND status = 'pending' ORDER BY scheduled_at ASC`,
   );
 
-  const stmtUpdateStatus = db.query(
-    'UPDATE tasks SET status = ?, result = ?, updated_at = ? WHERE id = ?',
-  );
+  const stmtUpdateStatus = db.query("UPDATE tasks SET status = ?, result = ?, updated_at = ? WHERE id = ?");
 
   const stmtCancel = db.query(
     `UPDATE tasks SET status = 'cancelled', updated_at = ? WHERE id = ? AND status = 'pending'`,
@@ -120,7 +114,7 @@ export function createTaskStore({ dbPath }: { dbPath: string }): TaskStore {
         userId,
         description,
         scheduledAt: scheduledAtEpochSec,
-        status: 'pending',
+        status: "pending",
         result: null,
         createdAt: now,
         updatedAt: now,
@@ -143,7 +137,7 @@ export function createTaskStore({ dbPath }: { dbPath: string }): TaskStore {
       return Promise.resolve((stmtListPending.all(nowEpochSec) as TaskRow[]).map(rowToTask));
     },
 
-    updateStatus(id: string, status: Task['status'], result?: string): Promise<void> {
+    updateStatus(id: string, status: Task["status"], result?: string): Promise<void> {
       const now = Math.floor(Date.now() / 1000);
       stmtUpdateStatus.run(status, result ?? null, now, id);
       return Promise.resolve();

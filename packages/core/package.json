@@ -53,6 +53,7 @@
     "build:console": "vite build",
     "dev": "tsx watch src/index.ts",
     "dev:console": "vite",
+    "lint": "biome check .",
     "start": "tsx src/index.ts",
     "test": "bun --bun ./node_modules/vitest/dist/cli.js run",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.app.json"

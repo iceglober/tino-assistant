@@ -1,9 +1,9 @@
-import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock';
-import { fromNodeProviderChain } from '@aws-sdk/credential-providers';
-import { generateText, type LanguageModel } from 'ai';
+import { createAmazonBedrock } from "@ai-sdk/amazon-bedrock";
+import { fromNodeProviderChain } from "@aws-sdk/credential-providers";
+import { generateText, type LanguageModel } from "ai";
 
 /** Default model used when no model ID is configured. */
-export const DEFAULT_BEDROCK_MODEL_ID = 'global.anthropic.claude-sonnet-4-6';
+export const DEFAULT_BEDROCK_MODEL_ID = "global.anthropic.claude-sonnet-4-6";
 
 /**
  * Build a configured Bedrock model handle for use with `generateText`.
@@ -23,9 +23,7 @@ export function createBedrockModel(modelId: string, region?: string): LanguageMo
   return bedrock(modelId);
 }
 
-export type BedrockValidationResult =
-  | { ok: true }
-  | { ok: false; error: string };
+export type BedrockValidationResult = { ok: true } | { ok: false; error: string };
 
 /**
  * Verify that a Bedrock model ID is reachable with the current AWS credentials.
@@ -42,15 +40,12 @@ export type BedrockValidationResult =
  * Returns a discriminated union; never throws. On failure, the caller can fall
  * back to `DEFAULT_BEDROCK_MODEL_ID`.
  */
-export async function validateBedrockModel(
-  modelId: string,
-  region?: string,
-): Promise<BedrockValidationResult> {
+export async function validateBedrockModel(modelId: string, region?: string): Promise<BedrockValidationResult> {
   try {
     const model = createBedrockModel(modelId, region);
     await generateText({
       model,
-      prompt: 'ok',
+      prompt: "ok",
       maxOutputTokens: 1,
     });
     return { ok: true };

@@ -1,10 +1,10 @@
-import { App, LogLevel } from '@slack/bolt';
-import type { Env } from '../env.js';
-import type { HistoryStore } from '../agent/history.js';
-import { toSlackMrkdwn } from './mrkdwn.js';
-import type { DmMessageEvent } from './types.js';
-import { handleResetCommand } from './reset.js';
-import type { AuditLogger } from '../audit/logger.js';
+import { App, LogLevel } from "@slack/bolt";
+import type { HistoryStore } from "../agent/history.js";
+import type { AuditLogger } from "../audit/logger.js";
+import type { Env } from "../env.js";
+import { toSlackMrkdwn } from "./mrkdwn.js";
+import { handleResetCommand } from "./reset.js";
+import type { DmMessageEvent } from "./types.js";
 
 export type DmHandler = (userId: string, text: string) => Promise<string>;
 
@@ -18,7 +18,7 @@ export interface AppLogger {
 
 export async function handleDmMessage(params: {
   message: Partial<DmMessageEvent>;
-  env: Pick<Env, 'ALLOWED_SLACK_USER_ID'>;
+  env: Pick<Env, "ALLOWED_SLACK_USER_ID">;
   onDmFromOwner: DmHandler;
   say: (args: { text: string }) => Promise<unknown>;
   logger: AppLogger;
@@ -30,40 +30,40 @@ export async function handleDmMessage(params: {
 
   if (m.subtype !== undefined) {
     // bot_message, message_changed, message_deleted, thread_broadcast, etc.
-    logger.debug({ subtype: m.subtype }, 'ignored message with subtype');
+    logger.debug({ subtype: m.subtype }, "ignored message with subtype");
     return;
   }
 
-  if (m.channel_type !== 'im') {
-    logger.debug({ channelType: m.channel_type, channel: m.channel }, 'ignored non-DM');
+  if (m.channel_type !== "im") {
+    logger.debug({ channelType: m.channel_type, channel: m.channel }, "ignored non-DM");
     return;
   }
 
   if (!m.user) {
-    logger.debug('ignored DM with no user');
+    logger.debug("ignored DM with no user");
     return;
   }
 
   if (m.user !== env.ALLOWED_SLACK_USER_ID) {
-    logger.warn({ user: m.user, channel: m.channel }, 'rejected DM from non-allowlisted user');
+    logger.warn({ user: m.user, channel: m.channel }, "rejected DM from non-allowlisted user");
     return;
   }
 
-  if (typeof m.text !== 'string' || m.text.length === 0) {
-    logger.debug('ignored DM with no text');
+  if (typeof m.text !== "string" || m.text.length === 0) {
+    logger.debug("ignored DM with no text");
     return;
   }
 
   try {
-    logger.info({ user: m.user, channel: m.channel, textLen: m.text.length }, 'owner DM received');
+    logger.info({ user: m.user, channel: m.channel, textLen: m.text.length }, "owner DM received");
 
     // Log 'login' audit entry on first message from this user in this session
     if (auditLogger && seenUsers && !seenUsers.has(m.user)) {
       seenUsers.add(m.user);
       await auditLogger.log({
         userId: m.user,
-        action: 'login',
-        status: 'success',
+        action: "login",
+        status: "success",
       });
     }
 
@@ -73,15 +73,21 @@ export async function handleDmMessage(params: {
     await say({ text: formatted });
     logger.info(
       { user: m.user, channel: m.channel, replyLen: formatted.length, durationMs: Date.now() - start },
-      'owner DM handled',
+      "owner DM handled",
     );
   } catch (err) {
-    logger.error({ err }, 'handler threw');
-    await say({ text: 'Something went wrong. Check the logs.' });
+    logger.error({ err }, "handler threw");
+    await say({ text: "Something went wrong. Check the logs." });
   }
 }
 
-export function createSlackApp(env: Env, onDmFromOwner: DmHandler, logger: AppLogger, history: HistoryStore, auditLogger?: AuditLogger): App {
+export function createSlackApp(
+  env: Env,
+  onDmFromOwner: DmHandler,
+  logger: AppLogger,
+  history: HistoryStore,
+  auditLogger?: AuditLogger,
+): App {
   const app = new App({
     token: env.SLACK_BOT_TOKEN,
     appToken: env.SLACK_APP_TOKEN,
@@ -111,7 +117,7 @@ export function createSlackApp(env: Env, onDmFromOwner: DmHandler, logger: AppLo
     const ts = (message as Partial<DmMessageEvent>).ts;
     if (ts) {
       if (seen.has(ts)) {
-        logger.debug({ ts }, 'duplicate event (already processing), skipped');
+        logger.debug({ ts }, "duplicate event (already processing), skipped");
         return;
       }
       seen.add(ts);

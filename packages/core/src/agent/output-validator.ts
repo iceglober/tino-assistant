@@ -26,8 +26,7 @@ export interface ValidationContext {
  * Regex for credential-like strings.
  * Matches common token prefixes followed by non-whitespace characters.
  */
-const CREDENTIAL_PATTERN =
-  /xox[bpas]-\S+|ghp_\S+|github_pat_\S+|gho_\S+|lin_\S+|GOCSPX-\S+/;
+const CREDENTIAL_PATTERN = /xox[bpas]-\S+|ghp_\S+|github_pat_\S+|gho_\S+|lin_\S+|GOCSPX-\S+/;
 
 /**
  * Maximum safe output length (MVP threshold).
@@ -40,16 +39,13 @@ const MAX_SAFE_LENGTH = 20_000;
  * contains one of its marker patterns, flag it.
  */
 const CROSS_CONTEXT_SIGNALS: Record<string, RegExp> = {
-  gmail: /\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b|\binbox\b|\bGmail\b/i,
+  gmail: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b|\binbox\b|\bGmail\b/i,
   calendar: /\bGoogle Calendar\b|\bcalendar event\b|\bGCal\b/i,
   linear: /\bLIN-\d+\b|\bLinear issue\b/i,
-  github: /\bghp_[A-Za-z0-9]+\b|\bgithub\.com\/[A-Za-z0-9_\-]+\/[A-Za-z0-9_\-]+\b/i,
+  github: /\bghp_[A-Za-z0-9]+\b|\bgithub\.com\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+\b/i,
 };
 
-export function validateAgentOutput(
-  output: string,
-  context: ValidationContext,
-): ValidationResult {
+export function validateAgentOutput(output: string, context: ValidationContext): ValidationResult {
   // Check 1: credential-like strings
   const credMatch = CREDENTIAL_PATTERN.exec(output);
   if (credMatch) {

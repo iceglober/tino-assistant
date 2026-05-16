@@ -21,9 +21,7 @@
  * If accepted: auto-inject `| limit 1000` at the end if no `| limit <N>`
  * is already present. Caps result set size as belt-and-suspenders.
  */
-export type ValidatorResult =
-  | { ok: true; rewritten: string }
-  | { ok: false; reason: string };
+export type ValidatorResult = { ok: true; rewritten: string } | { ok: false; reason: string };
 
 export function validateLogsInsightsQuery(
   query: string,
@@ -44,10 +42,10 @@ export function validateLogsInsightsQuery(
   // 2. Basic shape: not empty, not absurdly long
   const trimmed = query.trim();
   if (trimmed.length === 0) {
-    return { ok: false, reason: 'query is empty' };
+    return { ok: false, reason: "query is empty" };
   }
   if (trimmed.length > 4096) {
-    return { ok: false, reason: 'query exceeds 4096 character limit' };
+    return { ok: false, reason: "query exceeds 4096 character limit" };
   }
 
   // 3. Forbidden pipes — case-insensitive, with word boundary on the keyword.
@@ -55,10 +53,10 @@ export function validateLogsInsightsQuery(
   //    must be followed by a word boundary (so we don't false-match e.g.
   //    `parsed_field` if it appeared in some other context).
   const forbidden = [
-    { pattern: /\|\s*parse\b/i, name: 'parse' },
-    { pattern: /\|\s*display\b/i, name: 'display' },
-    { pattern: /\|\s*unmask\b/i, name: 'unmask' },
-    { pattern: /\|\s*head\b/i, name: 'head' },
+    { pattern: /\|\s*parse\b/i, name: "parse" },
+    { pattern: /\|\s*display\b/i, name: "display" },
+    { pattern: /\|\s*unmask\b/i, name: "unmask" },
+    { pattern: /\|\s*head\b/i, name: "head" },
   ];
   for (const { pattern, name } of forbidden) {
     if (pattern.test(trimmed)) {
@@ -83,21 +81,16 @@ export function validateLogsInsightsQuery(
   if (!statsMatch) {
     return {
       ok: false,
-      reason: 'query must contain a `| stats` clause (raw row dumps not permitted)',
+      reason: "query must contain a `| stats` clause (raw row dumps not permitted)",
     };
   }
 
   // 6. fields-after-stats rejection
-  if (
-    fieldsMatch &&
-    statsMatch.index !== undefined &&
-    fieldsMatch.index !== undefined
-  ) {
+  if (fieldsMatch && statsMatch.index !== undefined && fieldsMatch.index !== undefined) {
     if (fieldsMatch.index > statsMatch.index) {
       return {
         ok: false,
-        reason:
-          'query contains `| fields` after `| stats` (terminal field projection not permitted)',
+        reason: "query contains `| fields` after `| stats` (terminal field projection not permitted)",
       };
     }
   }

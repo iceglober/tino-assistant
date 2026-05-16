@@ -1,11 +1,11 @@
-import type { Env } from '../env.js';
-import type { AppLogger } from './app.js';
-import type { HistoryStore } from '../agent/history.js';
-import type { DmMessageEvent } from './types.js';
+import type { HistoryStore } from "../agent/history.js";
+import type { Env } from "../env.js";
+import type { AppLogger } from "./app.js";
+import type { DmMessageEvent } from "./types.js";
 
 export interface ResetHandlerParams {
   message: Partial<DmMessageEvent>;
-  env: Pick<Env, 'ALLOWED_SLACK_USER_ID'>;
+  env: Pick<Env, "ALLOWED_SLACK_USER_ID">;
   history: HistoryStore;
   say: (args: { text: string }) => Promise<unknown>;
   logger: AppLogger;
@@ -28,15 +28,15 @@ export async function handleResetCommand(params: ResetHandlerParams): Promise<bo
 
   // Same guards as handleDmMessage — subtype, channel_type, user
   if (m.subtype !== undefined) return false;
-  if (m.channel_type !== 'im') return false;
+  if (m.channel_type !== "im") return false;
   if (!m.user) return false;
   if (m.user !== env.ALLOWED_SLACK_USER_ID) return false;
 
-  const text = (m.text ?? '').trim().toLowerCase();
-  if (text !== 'reset') return false;
+  const text = (m.text ?? "").trim().toLowerCase();
+  if (text !== "reset") return false;
 
   await history.reset(m.user);
-  logger.info({ user: m.user }, 'conversation history reset');
-  await say({ text: 'History cleared.' });
+  logger.info({ user: m.user }, "conversation history reset");
+  await say({ text: "History cleared." });
   return true;
 }

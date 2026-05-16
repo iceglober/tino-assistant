@@ -1,4 +1,4 @@
-import { useState, useId, type JSX } from 'react';
+import { type JSX, useId, useState } from "react";
 
 /**
  * Password input with a "show/hide" reveal button.
@@ -32,23 +32,23 @@ export function RevealInput({
       <input
         id={id}
         className="field-input"
-        type={revealed ? 'text' : 'password'}
+        type={revealed ? "text" : "password"}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         autoComplete="off"
         aria-label={ariaLabel}
         aria-describedby={ariaDescribedBy}
-        aria-invalid={invalid ? 'true' : undefined}
+        aria-invalid={invalid ? "true" : undefined}
         onBlur={onBlur}
       />
       <button
         className="reveal-btn"
         type="button"
         onClick={() => setRevealed((v) => !v)}
-        aria-label={`${revealed ? 'Hide' : 'Reveal'} ${ariaLabel ?? 'token'}`}
+        aria-label={`${revealed ? "Hide" : "Reveal"} ${ariaLabel ?? "token"}`}
       >
-        {revealed ? 'hide' : 'show'}
+        {revealed ? "hide" : "show"}
       </button>
     </div>
   );

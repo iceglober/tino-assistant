@@ -1,16 +1,16 @@
-import { useEffect, useState, type JSX } from 'react';
-import { Header } from '../components/Header.js';
-import { HealthFooter } from '../components/HealthFooter.js';
-import { CapabilityCard, type CapabilityShape } from '../components/CapabilityCard.js';
-import { ConfigTable } from '../components/ConfigTable.js';
-import { ComplianceSection } from '../components/ComplianceSection.js';
-import { RevealInput } from '../components/RevealInput.js';
-import { SaveButton, useSaveState } from '../components/SaveButton.js';
-import { useAuth } from '../hooks/useAuth.js';
-import { useHealth } from '../hooks/useHealth.js';
-import { useToast } from '../hooks/useToast.js';
-import { getCapabilities, putConfig, getConfig, reloadSlack } from '../lib/api.js';
-import { isCapabilityConnected } from '../lib/capabilityTools.js';
+import { type JSX, useEffect, useState } from "react";
+import { CapabilityCard, type CapabilityShape } from "../components/CapabilityCard.js";
+import { ComplianceSection } from "../components/ComplianceSection.js";
+import { ConfigTable } from "../components/ConfigTable.js";
+import { Header } from "../components/Header.js";
+import { HealthFooter } from "../components/HealthFooter.js";
+import { RevealInput } from "../components/RevealInput.js";
+import { SaveButton, useSaveState } from "../components/SaveButton.js";
+import { useAuth } from "../hooks/useAuth.js";
+import { useHealth } from "../hooks/useHealth.js";
+import { useToast } from "../hooks/useToast.js";
+import { getCapabilities, getConfig, putConfig, reloadSlack } from "../lib/api.js";
+import { isCapabilityConnected } from "../lib/capabilityTools.js";
 
 /**
  * Main console — shown once Slack + basics are configured.
@@ -27,10 +27,10 @@ import { isCapabilityConnected } from '../lib/capabilityTools.js';
  *   6. Health footer
  */
 export function Console({
-  initialSlackBot = '',
-  initialSlackApp = '',
-  initialModelId = '',
-  initialAdminId = '',
+  initialSlackBot = "",
+  initialSlackApp = "",
+  initialModelId = "",
+  initialAdminId = "",
 }: {
   initialSlackBot?: string;
   initialSlackApp?: string;
@@ -41,8 +41,7 @@ export function Console({
   const { health } = useHealth();
   const toast = useToast();
 
-  const status: 'ok' | 'degraded' | 'unreachable' | 'checking' =
-    !health ? 'checking' : health.ok ? 'ok' : 'degraded';
+  const status: "ok" | "degraded" | "unreachable" | "checking" = !health ? "checking" : health.ok ? "ok" : "degraded";
 
   // ── Capabilities ────────────────────────────────────────────────────
   const [caps, setCaps] = useState<CapabilityShape[]>([]);
@@ -63,64 +62,65 @@ export function Console({
 
   useEffect(() => {
     void loadCaps();
-  }, []);
+    // biome-ignore lint/correctness/useExhaustiveDependencies: loadCaps is intentionally invoked once on mount; capturing it as a dep would re-fire each render
+  }, [loadCaps]);
 
   // ── Slack edit ──────────────────────────────────────────────────────
   const [slackBot, setSlackBot] = useState(initialSlackBot);
   const [slackApp, setSlackApp] = useState(initialSlackApp);
-  const [slackBotErr, setSlackBotErr] = useState('');
-  const [slackAppErr, setSlackAppErr] = useState('');
+  const [slackBotErr, setSlackBotErr] = useState("");
+  const [slackAppErr, setSlackAppErr] = useState("");
   const [slackOpen, setSlackOpen] = useState(false);
   const slackSave = useSaveState();
 
   const validateSlackToken = (val: string, prefix: string): string => {
-    if (!val.trim()) return 'Token is required.';
+    if (!val.trim()) return "Token is required.";
     if (!val.trim().startsWith(prefix)) return `Token must start with ${prefix}`;
-    return '';
+    return "";
   };
 
   const onSaveSlack = async (): Promise<void> => {
-    const be = validateSlackToken(slackBot, 'xoxb-');
-    const ae = validateSlackToken(slackApp, 'xapp-');
+    const be = validateSlackToken(slackBot, "xoxb-");
+    const ae = validateSlackToken(slackApp, "xapp-");
     setSlackBotErr(be);
     setSlackAppErr(ae);
     if (be || ae) return;
 
     const ok = await slackSave.run(async () => {
-      await putConfig('slack.botToken', slackBot.trim());
-      await putConfig('slack.appToken', slackApp.trim());
+      await putConfig("slack.botToken", slackBot.trim());
+      await putConfig("slack.appToken", slackApp.trim());
     });
     if (!ok) {
-      toast.show('Could not save tokens', 'err');
+      toast.show("Could not save tokens", "err");
       return;
     }
     // Wave 3.1 — apply the new tokens without a process restart.
     const reload = await reloadSlack();
-    if (reload.ok) toast.show('Slack tokens updated — reconnected', 'ok');
-    else toast.show(`Saved, but reconnect failed: ${reload.error ?? 'unknown'}`, 'err');
+    if (reload.ok) toast.show("Slack tokens updated — reconnected", "ok");
+    else toast.show(`Saved, but reconnect failed: ${reload.error ?? "unknown"}`, "err");
   };
 
   // ── Agent edit ──────────────────────────────────────────────────────
   const [modelId, setModelId] = useState(initialModelId);
   const [adminId, setAdminId] = useState(initialAdminId);
-  const [modelErr, setModelErr] = useState('');
-  const [adminErr, setAdminErr] = useState('');
+  const [modelErr, setModelErr] = useState("");
+  const [adminErr, setAdminErr] = useState("");
   const [agentOpen, setAgentOpen] = useState(false);
   const agentSave = useSaveState();
 
   const onSaveAgent = async (): Promise<void> => {
-    const me = !modelId.trim() ? 'Model ID is required' : '';
-    const ae = !adminId.trim() ? 'User ID is required' : '';
+    const me = !modelId.trim() ? "Model ID is required" : "";
+    const ae = !adminId.trim() ? "User ID is required" : "";
     setModelErr(me);
     setAdminErr(ae);
     if (me || ae) return;
 
     const ok = await agentSave.run(async () => {
-      await putConfig('bedrock.modelId', modelId.trim());
-      await putConfig('slack.adminUserId', adminId.trim());
+      await putConfig("bedrock.modelId", modelId.trim());
+      await putConfig("slack.adminUserId", adminId.trim());
     });
-    if (ok) toast.show('Agent config updated', 'ok');
-    else toast.show('Could not save', 'err');
+    if (ok) toast.show("Agent config updated", "ok");
+    else toast.show("Could not save", "err");
   };
 
   return (
@@ -150,7 +150,8 @@ export function Console({
       <div className="section-label">core config</div>
       <div className="cap-grid" style={{ marginBottom: 28 }}>
         {/* Slack card */}
-        <div className={`cap-card${slackOpen ? ' open' : ''}`}>
+        <div className={`cap-card${slackOpen ? " open" : ""}`}>
+          {/* biome-ignore lint/a11y/useSemanticElements: card-header is a click target with nested layout; replacing with <button> would alter styling/structure */}
           <div
             className="cap-card-header"
             role="button"
@@ -158,7 +159,7 @@ export function Console({
             aria-expanded={slackOpen}
             onClick={() => setSlackOpen((v) => !v)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
+              if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault();
                 setSlackOpen((v) => !v);
               }
@@ -173,7 +174,13 @@ export function Console({
               <span className="status-connected">● connected</span>
             </div>
             <svg className="cap-chevron" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-              <path d="M5 3l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              <path
+                d="M5 3l4 4-4 4"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
             </svg>
           </div>
           <div className="cap-detail-wrap">
@@ -187,9 +194,9 @@ export function Console({
                       onChange={setSlackBot}
                       ariaLabel="Slack Bot Token"
                       invalid={!!slackBotErr}
-                      onBlur={() => setSlackBotErr(validateSlackToken(slackBot, 'xoxb-'))}
+                      onBlur={() => setSlackBotErr(validateSlackToken(slackBot, "xoxb-"))}
                     />
-                    <div className={`field-error${slackBotErr ? ' visible' : ''}`} role="alert" aria-live="polite">
+                    <div className={`field-error${slackBotErr ? " visible" : ""}`} role="alert" aria-live="polite">
                       {slackBotErr}
                     </div>
                   </div>
@@ -202,20 +209,15 @@ export function Console({
                       onChange={setSlackApp}
                       ariaLabel="Slack App Token"
                       invalid={!!slackAppErr}
-                      onBlur={() => setSlackAppErr(validateSlackToken(slackApp, 'xapp-'))}
+                      onBlur={() => setSlackAppErr(validateSlackToken(slackApp, "xapp-"))}
                     />
-                    <div className={`field-error${slackAppErr ? ' visible' : ''}`} role="alert" aria-live="polite">
+                    <div className={`field-error${slackAppErr ? " visible" : ""}`} role="alert" aria-live="polite">
                       {slackAppErr}
                     </div>
                   </div>
                 </div>
                 <div className="btn-row">
-                  <SaveButton
-                    state={slackSave.state}
-                    idleLabel="save tokens"
-                    size="setup"
-                    onClick={onSaveSlack}
-                  />
+                  <SaveButton state={slackSave.state} idleLabel="save tokens" size="setup" onClick={onSaveSlack} />
                 </div>
               </div>
             </div>
@@ -223,7 +225,8 @@ export function Console({
         </div>
 
         {/* Agent card */}
-        <div className={`cap-card${agentOpen ? ' open' : ''}`}>
+        <div className={`cap-card${agentOpen ? " open" : ""}`}>
+          {/* biome-ignore lint/a11y/useSemanticElements: card-header is a click target with nested layout; replacing with <button> would alter styling/structure */}
           <div
             className="cap-card-header"
             role="button"
@@ -231,7 +234,7 @@ export function Console({
             aria-expanded={agentOpen}
             onClick={() => setAgentOpen((v) => !v)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
+              if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault();
                 setAgentOpen((v) => !v);
               }
@@ -246,7 +249,13 @@ export function Console({
               <span className="status-connected">● configured</span>
             </div>
             <svg className="cap-chevron" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-              <path d="M5 3l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              <path
+                d="M5 3l4 4-4 4"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
             </svg>
           </div>
           <div className="cap-detail-wrap">
@@ -262,10 +271,10 @@ export function Console({
                       onChange={(e) => setModelId(e.target.value)}
                       autoComplete="off"
                       aria-label="Bedrock Model ID"
-                      aria-invalid={modelErr ? 'true' : undefined}
-                      onBlur={() => setModelErr(!modelId.trim() ? 'Model ID is required' : '')}
+                      aria-invalid={modelErr ? "true" : undefined}
+                      onBlur={() => setModelErr(!modelId.trim() ? "Model ID is required" : "")}
                     />
-                    <div className={`field-error${modelErr ? ' visible' : ''}`} role="alert" aria-live="polite">
+                    <div className={`field-error${modelErr ? " visible" : ""}`} role="alert" aria-live="polite">
                       {modelErr}
                     </div>
                   </div>
@@ -280,21 +289,16 @@ export function Console({
                       onChange={(e) => setAdminId(e.target.value)}
                       autoComplete="off"
                       aria-label="Admin Slack User ID"
-                      aria-invalid={adminErr ? 'true' : undefined}
-                      onBlur={() => setAdminErr(!adminId.trim() ? 'User ID is required' : '')}
+                      aria-invalid={adminErr ? "true" : undefined}
+                      onBlur={() => setAdminErr(!adminId.trim() ? "User ID is required" : "")}
                     />
-                    <div className={`field-error${adminErr ? ' visible' : ''}`} role="alert" aria-live="polite">
+                    <div className={`field-error${adminErr ? " visible" : ""}`} role="alert" aria-live="polite">
                       {adminErr}
                     </div>
                   </div>
                 </div>
                 <div className="btn-row">
-                  <SaveButton
-                    state={agentSave.state}
-                    idleLabel="save"
-                    size="setup"
-                    onClick={onSaveAgent}
-                  />
+                  <SaveButton state={agentSave.state} idleLabel="save" size="setup" onClick={onSaveAgent} />
                 </div>
               </div>
             </div>
@@ -323,7 +327,7 @@ export async function fetchInitialConsoleValues(): Promise<{
   const entries = await getConfig();
   const get = (k: string): string => {
     const e = entries.find((x) => x.key === k);
-    if (!e) return '';
+    if (!e) return "";
     try {
       return String(JSON.parse(e.value));
     } catch {
@@ -331,9 +335,9 @@ export async function fetchInitialConsoleValues(): Promise<{
     }
   };
   return {
-    slackBot: get('slack.botToken'),
-    slackApp: get('slack.appToken'),
-    modelId: get('bedrock.modelId'),
-    adminId: get('slack.adminUserId'),
+    slackBot: get("slack.botToken"),
+    slackApp: get("slack.appToken"),
+    modelId: get("bedrock.modelId"),
+    adminId: get("slack.adminUserId"),
   };
 }

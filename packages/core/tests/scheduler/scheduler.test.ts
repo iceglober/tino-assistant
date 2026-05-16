@@ -1,18 +1,18 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { startScheduler } from '../../src/scheduler/index.js';
-import type { TaskStore, Task } from '../../src/persistence/tasks.js';
-import type { AppLogger } from '../../src/slack/app.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Task, TaskStore } from "../../src/persistence/tasks.js";
+import { startScheduler } from "../../src/scheduler/index.js";
+import type { AppLogger } from "../../src/slack/app.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 const makeTask = (overrides: Partial<Task> = {}): Task => ({
-  id: 'task-uuid-1',
-  userId: 'U1',
-  description: 'do something useful',
+  id: "task-uuid-1",
+  userId: "U1",
+  description: "do something useful",
   scheduledAt: 1000,
-  status: 'pending',
+  status: "pending",
   result: null,
   createdAt: 900,
   updatedAt: 900,
@@ -49,7 +49,7 @@ async function flushInitialTick(): Promise<void> {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('startScheduler', () => {
+describe("startScheduler", () => {
   beforeEach(() => {
     vi.useFakeTimers();
   });
@@ -59,12 +59,12 @@ describe('startScheduler', () => {
   });
 
   // 1. tick processes pending tasks and calls runTask + postResult
-  it('processes pending tasks: calls runTask and postResult, updates status to completed', async () => {
+  it("processes pending tasks: calls runTask and postResult, updates status to completed", async () => {
     const task = makeTask();
     const store = makeStore({
       listPending: vi.fn().mockReturnValue([task]),
     });
-    const runTask = vi.fn().mockResolvedValue('task output text');
+    const runTask = vi.fn().mockResolvedValue("task output text");
     const postResult = vi.fn().mockResolvedValue(undefined);
     const logger = makeLogger();
 
@@ -73,18 +73,18 @@ describe('startScheduler', () => {
     await flushInitialTick();
 
     expect(store.listPending).toHaveBeenCalled();
-    expect(store.updateStatus).toHaveBeenCalledWith(task.id, 'running');
+    expect(store.updateStatus).toHaveBeenCalledWith(task.id, "running");
     expect(runTask).toHaveBeenCalledWith(task);
-    expect(store.updateStatus).toHaveBeenCalledWith(task.id, 'completed', 'task output text');
+    expect(store.updateStatus).toHaveBeenCalledWith(task.id, "completed", "task output text");
     expect(postResult).toHaveBeenCalledOnce();
-    expect((postResult as ReturnType<typeof vi.fn>).mock.calls[0][0]).toContain('Scheduled task completed');
-    expect((postResult as ReturnType<typeof vi.fn>).mock.calls[0][0]).toContain('task output text');
+    expect((postResult as ReturnType<typeof vi.fn>).mock.calls[0][0]).toContain("Scheduled task completed");
+    expect((postResult as ReturnType<typeof vi.fn>).mock.calls[0][0]).toContain("task output text");
 
     stop();
   });
 
   // 2. tick skips tasks scheduled in the future
-  it('does not process tasks scheduled in the future (listPending returns empty)', async () => {
+  it("does not process tasks scheduled in the future (listPending returns empty)", async () => {
     const store = makeStore({
       listPending: vi.fn().mockReturnValue([]), // no pending tasks
     });
@@ -103,12 +103,12 @@ describe('startScheduler', () => {
   });
 
   // 3. failed runTask → task status set to 'failed', error posted
-  it('sets task to failed and posts error message when runTask throws', async () => {
+  it("sets task to failed and posts error message when runTask throws", async () => {
     const task = makeTask();
     const store = makeStore({
       listPending: vi.fn().mockReturnValue([task]),
     });
-    const runTask = vi.fn().mockRejectedValue(new Error('bedrock timeout'));
+    const runTask = vi.fn().mockRejectedValue(new Error("bedrock timeout"));
     const postResult = vi.fn().mockResolvedValue(undefined);
     const logger = makeLogger();
 
@@ -116,17 +116,17 @@ describe('startScheduler', () => {
 
     await flushInitialTick();
 
-    expect(store.updateStatus).toHaveBeenCalledWith(task.id, 'running');
-    expect(store.updateStatus).toHaveBeenCalledWith(task.id, 'failed', 'bedrock timeout');
+    expect(store.updateStatus).toHaveBeenCalledWith(task.id, "running");
+    expect(store.updateStatus).toHaveBeenCalledWith(task.id, "failed", "bedrock timeout");
     expect(postResult).toHaveBeenCalledOnce();
-    expect((postResult as ReturnType<typeof vi.fn>).mock.calls[0][0]).toContain('Scheduled task failed');
-    expect((postResult as ReturnType<typeof vi.fn>).mock.calls[0][0]).toContain('bedrock timeout');
+    expect((postResult as ReturnType<typeof vi.fn>).mock.calls[0][0]).toContain("Scheduled task failed");
+    expect((postResult as ReturnType<typeof vi.fn>).mock.calls[0][0]).toContain("bedrock timeout");
 
     stop();
   });
 
   // 4. no pending tasks → tick is a no-op
-  it('is a no-op when there are no pending tasks', async () => {
+  it("is a no-op when there are no pending tasks", async () => {
     const store = makeStore({
       listPending: vi.fn().mockReturnValue([]),
     });
@@ -146,7 +146,7 @@ describe('startScheduler', () => {
   });
 
   // 5. interval fires again after intervalMs
-  it('fires the tick again after the interval elapses', async () => {
+  it("fires the tick again after the interval elapses", async () => {
     const store = makeStore({
       listPending: vi.fn().mockReturnValue([]),
     });
@@ -176,7 +176,7 @@ describe('startScheduler', () => {
   });
 
   // 6. stop() clears the interval
-  it('stop() prevents further ticks', async () => {
+  it("stop() prevents further ticks", async () => {
     const store = makeStore({
       listPending: vi.fn().mockReturnValue([]),
     });

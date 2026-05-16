@@ -7,40 +7,41 @@
  *
  * findWork: stub (not yet implemented — enabled=false by default).
  */
-import type { ToolSet } from 'ai';
-import type { ConfigStore } from '../persistence/config.js';
-import type { AppLogger } from '../slack/app.js';
-import type { CapabilityConfig, CapabilityModule } from './types.js';
-import { Octokit } from '@octokit/rest';
-import { githubSearchCodeTool } from '../tools/github/search.js';
-import { githubGetFileTool } from '../tools/github/getFile.js';
-import { githubListWorkflowRunsTool, githubGetWorkflowRunLogsTool } from '../tools/github/workflows.js';
-import { parseRepoSpec, type RepoSpec } from '../tools/github/allowlist.js';
+
+import { Octokit } from "@octokit/rest";
+import type { ToolSet } from "ai";
+import type { ConfigStore } from "../persistence/config.js";
+import type { AppLogger } from "../slack/app.js";
+import { parseRepoSpec, type RepoSpec } from "../tools/github/allowlist.js";
+import { githubGetFileTool } from "../tools/github/getFile.js";
+import { githubSearchCodeTool } from "../tools/github/search.js";
+import { githubGetWorkflowRunLogsTool, githubListWorkflowRunsTool } from "../tools/github/workflows.js";
+import type { CapabilityConfig, CapabilityModule } from "./types.js";
 
 export const githubCapability: CapabilityModule = {
-  id: 'github',
-  displayName: 'GitHub',
+  id: "github",
+  displayName: "GitHub",
 
   fieldSchema: [
     {
-      key: 'token',
-      label: 'Personal Access Token',
-      target: 'credentials.token',
+      key: "token",
+      label: "Personal Access Token",
+      target: "credentials.token",
       secret: true,
-      placeholder: 'ghp_...',
+      placeholder: "ghp_...",
     },
     {
-      key: 'defaultRepo',
-      label: 'Default Repo',
-      target: 'settings.defaultRepo',
-      placeholder: 'owner/repo',
+      key: "defaultRepo",
+      label: "Default Repo",
+      target: "settings.defaultRepo",
+      placeholder: "owner/repo",
     },
     {
-      key: 'repos',
-      label: 'Repo Allowlist',
-      target: 'settings.repos',
-      kind: 'string[]',
-      placeholder: 'owner/repo, owner/other (comma or newline separated)',
+      key: "repos",
+      label: "Repo Allowlist",
+      target: "settings.repos",
+      kind: "string[]",
+      placeholder: "owner/repo, owner/other (comma or newline separated)",
     },
   ],
 
@@ -50,38 +51,38 @@ export const githubCapability: CapabilityModule = {
     logger: AppLogger,
     tools: ToolSet,
   ): Promise<void> {
-    const token = config.credentials['token'];
+    const token = config.credentials.token;
     if (!token) {
-      throw new Error('GitHub capability: credentials.token is not set');
+      throw new Error("GitHub capability: credentials.token is not set");
     }
 
-    const octokit = new Octokit({ auth: token, userAgent: 'tino/0.1' });
+    const octokit = new Octokit({ auth: token, userAgent: "tino/0.1" });
 
     // Resolve allowlist from capability settings
-    const reposRaw = (config.settings['repos'] as string[] | undefined) ?? [];
-    const allowedRepos: RepoSpec[] = reposRaw.flatMap(s => {
+    const reposRaw = (config.settings.repos as string[] | undefined) ?? [];
+    const allowedRepos: RepoSpec[] = reposRaw.flatMap((s) => {
       const parsed = parseRepoSpec(s);
       return parsed ? [parsed] : [];
     });
 
     // Resolve default repo from capability settings
     let defaultRepo: RepoSpec | undefined;
-    const defaultRepoRaw = config.settings['defaultRepo'] as string | undefined;
+    const defaultRepoRaw = config.settings.defaultRepo as string | undefined;
     if (defaultRepoRaw) {
       defaultRepo = parseRepoSpec(defaultRepoRaw) ?? undefined;
     }
 
-    tools['github_search_code'] = githubSearchCodeTool({ octokit, defaultRepo, allowedRepos });
-    tools['github_get_file'] = githubGetFileTool({ octokit, defaultRepo, allowedRepos });
-    tools['github_list_workflow_runs'] = githubListWorkflowRunsTool({ octokit, defaultRepo, allowedRepos });
-    tools['github_get_workflow_run_logs'] = githubGetWorkflowRunLogsTool({ octokit, defaultRepo, allowedRepos });
+    tools.github_search_code = githubSearchCodeTool({ octokit, defaultRepo, allowedRepos });
+    tools.github_get_file = githubGetFileTool({ octokit, defaultRepo, allowedRepos });
+    tools.github_list_workflow_runs = githubListWorkflowRunsTool({ octokit, defaultRepo, allowedRepos });
+    tools.github_get_workflow_run_logs = githubGetWorkflowRunLogsTool({ octokit, defaultRepo, allowedRepos });
 
     logger.info(
       {
         defaultRepo: defaultRepo ? `${defaultRepo.owner}/${defaultRepo.repo}` : null,
         allowedReposCount: allowedRepos.length,
       },
-      'github tools enabled',
+      "github tools enabled",
     );
   },
 };

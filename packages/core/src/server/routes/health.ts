@@ -1,5 +1,5 @@
-import { Hono } from 'hono';
-import type { CapabilityRegistry } from '../../capabilities/types.js';
+import { Hono } from "hono";
+import type { CapabilityRegistry } from "../../capabilities/types.js";
 
 /**
  * GET /api/health — liveness + tool/capability summary for the ALB.
@@ -15,7 +15,7 @@ export function createHealthRoutes(opts: {
 }): Hono {
   const app = new Hono();
 
-  app.get('/', (c) => {
+  app.get("/", (c) => {
     const capState = opts.registry?.getState() ?? {};
     return c.json({
       ok: true,

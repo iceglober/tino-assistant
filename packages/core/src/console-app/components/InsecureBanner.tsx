@@ -1,4 +1,4 @@
-import type { JSX } from 'react';
+import type { JSX } from "react";
 
 /**
  * InsecureBanner — top-of-page warning shown when the console is served
@@ -18,10 +18,10 @@ import type { JSX } from 'react';
  *     knows it's HTTP and the cookie is same-origin)
  */
 export function InsecureBanner(): JSX.Element | null {
-  if (typeof window === 'undefined') return null;
+  if (typeof window === "undefined") return null;
   const { protocol, hostname } = window.location;
-  if (protocol !== 'http:') return null;
-  if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1') {
+  if (protocol !== "http:") return null;
+  if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1") {
     return null;
   }
 
@@ -30,28 +30,27 @@ export function InsecureBanner(): JSX.Element | null {
       role="alert"
       aria-live="polite"
       style={{
-        background: 'var(--err-bg)',
-        borderBottom: '1px solid var(--err-border)',
-        color: 'var(--err)',
-        padding: '10px 16px',
-        fontSize: '0.857rem',
-        textAlign: 'center',
+        background: "var(--err-bg)",
+        borderBottom: "1px solid var(--err-border)",
+        color: "var(--err)",
+        padding: "10px 16px",
+        fontSize: "0.857rem",
+        textAlign: "center",
       }}
     >
-      <strong>Running without HTTPS.</strong>{' '}
-      <span style={{ color: 'var(--text-sec)' }}>
-        OAuth tokens and session cookies travel in plaintext on this
-        connection. Add{' '}
+      <strong>Running without HTTPS.</strong>{" "}
+      <span style={{ color: "var(--text-sec)" }}>
+        OAuth tokens and session cookies travel in plaintext on this connection. Add{" "}
         <code
           style={{
-            fontFamily: 'var(--mono)',
-            background: 'var(--bg-inset)',
-            padding: '1px 5px',
-            borderRadius: 'var(--radius-sm)',
+            fontFamily: "var(--mono)",
+            background: "var(--bg-inset)",
+            padding: "1px 5px",
+            borderRadius: "var(--radius-sm)",
           }}
         >
           consoleDomain
-        </code>{' '}
+        </code>{" "}
         to your Pulumi stack to enable HTTPS.
       </span>
     </div>

@@ -1,35 +1,27 @@
-import { tool } from 'ai';
-import { z } from 'zod';
 import {
-  StartQueryCommand,
-  GetQueryResultsCommand,
   type CloudWatchLogsClient,
+  GetQueryResultsCommand,
   type GetQueryResultsCommandOutput,
-} from '@aws-sdk/client-cloudwatch-logs';
-import type { AppLogger } from '../../slack/app.js';
-import { describeLogGroupAllowlist } from './allowlist.js';
-import { validateLogsInsightsQuery } from './validator.js';
+  StartQueryCommand,
+} from "@aws-sdk/client-cloudwatch-logs";
+import { tool } from "ai";
+import { z } from "zod";
+import type { AppLogger } from "../../slack/app.js";
+import { describeLogGroupAllowlist } from "./allowlist.js";
+import { validateLogsInsightsQuery } from "./validator.js";
 
 const DEFAULT_POLL_INTERVAL_MS = 1000;
 const DEFAULT_POLL_TIMEOUT_MS = 30_000;
 const MAX_ROWS_RETURNED = 100;
 
 const inputSchema = z.object({
-  logGroupName: z
-    .string()
-    .min(1)
-    .describe('CloudWatch log group name (must be in the allowlist)'),
+  logGroupName: z.string().min(1).describe("CloudWatch log group name (must be in the allowlist)"),
   query: z
     .string()
     .min(1)
-    .describe(
-      'CloudWatch Logs Insights query — MUST contain a `| stats` clause; raw field dumps are rejected',
-    ),
-  startTimeIso: z
-    .string()
-    .min(1)
-    .describe('ISO-8601 start time, e.g. 2026-05-12T10:00:00Z'),
-  endTimeIso: z.string().min(1).describe('ISO-8601 end time'),
+    .describe("CloudWatch Logs Insights query — MUST contain a `| stats` clause; raw field dumps are rejected"),
+  startTimeIso: z.string().min(1).describe("ISO-8601 start time, e.g. 2026-05-12T10:00:00Z"),
+  endTimeIso: z.string().min(1).describe("ISO-8601 end time"),
 });
 
 type QueryInput = z.infer<typeof inputSchema>;
@@ -75,8 +67,8 @@ export async function _executeQuery(
   // 1. Validate
   const validation = validateLogsInsightsQuery(query, logGroupName, allowlist);
   if (!validation.ok) {
-    logger.warn({ logGroupName, reason: validation.reason }, 'cloudwatch query rejected');
-    return { error: 'invalid_query', message: validation.reason };
+    logger.warn({ logGroupName, reason: validation.reason }, "cloudwatch query rejected");
+    return { error: "invalid_query", message: validation.reason };
   }
 
   const rewrittenQuery = validation.rewritten;
@@ -86,12 +78,12 @@ export async function _executeQuery(
   const endEpochSec = Math.floor(new Date(endTimeIso).getTime() / 1000);
   if (!Number.isFinite(startEpochSec) || !Number.isFinite(endEpochSec)) {
     return {
-      error: 'invalid_time',
-      message: 'startTimeIso/endTimeIso must be valid ISO-8601',
+      error: "invalid_time",
+      message: "startTimeIso/endTimeIso must be valid ISO-8601",
     };
   }
   if (endEpochSec <= startEpochSec) {
-    return { error: 'invalid_time', message: 'endTimeIso must be after startTimeIso' };
+    return { error: "invalid_time", message: "endTimeIso must be after startTimeIso" };
   }
 
   // 3. Start query
@@ -112,47 +104,47 @@ export async function _executeQuery(
   }
 
   if (!queryId) {
-    return { error: 'no_query_id', message: 'AWS did not return a queryId' };
+    return { error: "no_query_id", message: "AWS did not return a queryId" };
   }
 
   // 4. Poll for results
   const deadline = Date.now() + pollTimeoutMs;
   let result: GetQueryResultsCommandOutput | undefined;
   while (Date.now() < deadline) {
-    await new Promise(r => setTimeout(r, pollIntervalMs));
+    await new Promise((r) => setTimeout(r, pollIntervalMs));
     try {
       result = await client.send(new GetQueryResultsCommand({ queryId }));
     } catch (err: unknown) {
       return mapAwsError(err);
     }
     if (
-      result.status === 'Complete' ||
-      result.status === 'Failed' ||
-      result.status === 'Cancelled' ||
-      result.status === 'Timeout'
+      result.status === "Complete" ||
+      result.status === "Failed" ||
+      result.status === "Cancelled" ||
+      result.status === "Timeout"
     ) {
       break;
     }
   }
 
   if (!result) {
-    return { error: 'timeout', message: `query did not complete within ${pollTimeoutMs}ms` };
+    return { error: "timeout", message: `query did not complete within ${pollTimeoutMs}ms` };
   }
-  if (result.status === 'Failed') {
-    return { error: 'query_failed', message: 'AWS reported the query failed' };
+  if (result.status === "Failed") {
+    return { error: "query_failed", message: "AWS reported the query failed" };
   }
-  if (result.status === 'Cancelled' || result.status === 'Timeout') {
-    return { error: 'query_aborted', message: `AWS query status: ${result.status}` };
+  if (result.status === "Cancelled" || result.status === "Timeout") {
+    return { error: "query_aborted", message: `AWS query status: ${result.status}` };
   }
-  if (result.status !== 'Complete') {
+  if (result.status !== "Complete") {
     return {
-      error: 'timeout',
+      error: "timeout",
       message: `query did not complete within ${pollTimeoutMs}ms (last status: ${result.status})`,
     };
   }
 
   // 5. Map results — array of arrays of {field,value} → array of records.
-  const rows = (result.results ?? []).slice(0, MAX_ROWS_RETURNED).map(row => {
+  const rows = (result.results ?? []).slice(0, MAX_ROWS_RETURNED).map((row) => {
     const obj: Record<string, string | undefined> = {};
     for (const cell of row) {
       if (cell.field) obj[cell.field] = cell.value;
@@ -161,10 +153,7 @@ export async function _executeQuery(
   });
 
   const durationMs = Date.now() - start;
-  logger.info(
-    { logGroupName, rewrittenQuery, rowCount: rows.length, durationMs },
-    'cloudwatch query complete',
-  );
+  logger.info({ logGroupName, rewrittenQuery, rowCount: rows.length, durationMs }, "cloudwatch query complete");
 
   return { rowCount: rows.length, rows, rewrittenQuery };
 }
@@ -175,35 +164,35 @@ function mapAwsError(err: unknown): QueryResult {
     $metadata?: { httpStatusCode?: number };
     message?: string;
   };
-  const name = e.name ?? 'UnknownError';
+  const name = e.name ?? "UnknownError";
   const status = e.$metadata?.httpStatusCode;
-  if (name === 'AccessDeniedException' || status === 403) {
-    return { error: 'access_denied', message: `IAM denied: ${e.message ?? name}` };
+  if (name === "AccessDeniedException" || status === 403) {
+    return { error: "access_denied", message: `IAM denied: ${e.message ?? name}` };
   }
-  if (name === 'ResourceNotFoundException' || status === 404) {
+  if (name === "ResourceNotFoundException" || status === 404) {
     return {
-      error: 'log_group_not_found',
-      message: 'log group does not exist in this region/account',
+      error: "log_group_not_found",
+      message: "log group does not exist in this region/account",
     };
   }
-  if (name === 'ThrottlingException' || status === 429) {
+  if (name === "ThrottlingException" || status === 429) {
     return {
-      error: 'rate_limited',
-      message: 'CloudWatch is throttling; try again in a minute',
+      error: "rate_limited",
+      message: "CloudWatch is throttling; try again in a minute",
     };
   }
-  return { error: 'aws_error', message: `${name}: ${e.message ?? 'no message'}` };
+  return { error: "aws_error", message: `${name}: ${e.message ?? "no message"}` };
 }
 
 export function cloudwatchLogsQueryTool(deps: CloudWatchToolDeps) {
   return tool({
     description:
-      'Run a CloudWatch Logs Insights query against an allowlisted log group. ' +
-      'The query MUST contain a `| stats` clause (e.g. `stats count() by bin(5m)`); ' +
-      'raw row dumps and field extraction are not permitted. Results are capped at 100 rows. ' +
+      "Run a CloudWatch Logs Insights query against an allowlisted log group. " +
+      "The query MUST contain a `| stats` clause (e.g. `stats count() by bin(5m)`); " +
+      "raw row dumps and field extraction are not permitted. Results are capped at 100 rows. " +
       `Allowed log groups: ${describeLogGroupAllowlist(deps.allowedLogGroups)}.`,
     inputSchema,
     // Production binding: the allowlist comes from deps (resolved from ConfigStore at construction time).
-    execute: input => _executeQuery(deps, input, deps.allowedLogGroups),
+    execute: (input) => _executeQuery(deps, input, deps.allowedLogGroups),
   });
 }

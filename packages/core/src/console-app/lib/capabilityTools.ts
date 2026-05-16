@@ -14,12 +14,12 @@
  *   cloudwatch → `cloudwatch_*`
  */
 const PREFIXES: Record<string, string[]> = {
-  github: ['github_'],
-  linear: ['linear_'],
-  gmail: ['gmail_'],
-  calendar: ['calendar_'],
-  slack: ['slack_'],
-  cloudwatch: ['cloudwatch_'],
+  github: ["github_"],
+  linear: ["linear_"],
+  gmail: ["gmail_"],
+  calendar: ["calendar_"],
+  slack: ["slack_"],
+  cloudwatch: ["cloudwatch_"],
 };
 
 /** Returns true if any registered tool name matches a prefix for this capability id. */

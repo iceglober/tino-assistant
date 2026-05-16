@@ -11,16 +11,16 @@
  * `registry.tools` per-call but might capture the reference at startup)
  * see the new toolset immediately.
  */
-import type { ToolSet } from 'ai';
-import type { ConfigStore } from '../persistence/config.js';
-import type { AppLogger } from '../slack/app.js';
-import type { TaskStore } from '../persistence/tasks.js';
-import type { PreferencesStore } from '../persistence/preferences.js';
-import type { CapabilityConfig, CapabilityRegistry, CapabilityRuntimeState } from './types.js';
-import { createPreferencesStore } from '../persistence/preferences.js';
-import { setPreferenceTool, getPreferencesTool } from '../tools/preferences.js';
-import { scheduleTaskTool, listTasksTool, cancelTaskTool } from '../tools/tasks.js';
-import { ALL_CAPABILITIES } from './all.js';
+import type { ToolSet } from "ai";
+import type { ConfigStore } from "../persistence/config.js";
+import type { PreferencesStore } from "../persistence/preferences.js";
+import { createPreferencesStore } from "../persistence/preferences.js";
+import type { TaskStore } from "../persistence/tasks.js";
+import type { AppLogger } from "../slack/app.js";
+import { getPreferencesTool, setPreferenceTool } from "../tools/preferences.js";
+import { cancelTaskTool, listTasksTool, scheduleTaskTool } from "../tools/tasks.js";
+import { ALL_CAPABILITIES } from "./all.js";
+import type { CapabilityConfig, CapabilityRegistry, CapabilityRuntimeState } from "./types.js";
 
 export interface RegistryOptions {
   configStore: ConfigStore;
@@ -81,8 +81,8 @@ async function loadCapabilityTools(opts: {
     try {
       config = JSON.parse(raw) as CapabilityConfig;
     } catch {
-      logger.warn({ capabilityId: cap.id }, 'capability config is not valid JSON, skipping');
-      state[cap.id] = { toolCount: 0, lastError: 'invalid JSON in config' };
+      logger.warn({ capabilityId: cap.id }, "capability config is not valid JSON, skipping");
+      state[cap.id] = { toolCount: 0, lastError: "invalid JSON in config" };
       continue;
     }
 
@@ -103,16 +103,15 @@ async function loadCapabilityTools(opts: {
     }
 
     // Start findWork poller if configured
-    if (
-      config.findWork?.enabled &&
-      cap.startFindWork &&
-      onNewWork
-    ) {
+    if (config.findWork?.enabled && cap.startFindWork && onNewWork) {
       try {
         const stop = cap.startFindWork(config, logger, onNewWork);
         stopFns.push(stop);
       } catch (err) {
-        logger.warn({ capabilityId: cap.id, err: (err as Error).message }, `${cap.displayName} findWork failed to start`);
+        logger.warn(
+          { capabilityId: cap.id, err: (err as Error).message },
+          `${cap.displayName} findWork failed to start`,
+        );
       }
     }
   }
@@ -136,8 +135,13 @@ export async function initCapabilityRegistry(opts: RegistryOptions): Promise<Cap
 
   // ── Capability tools ──────────────────────────────────────────────────────
   await loadCapabilityTools({
-    configStore, logger, onNewWork,
-    tools, state, stopFns, loadedCapabilityIds,
+    configStore,
+    logger,
+    onNewWork,
+    tools,
+    state,
+    stopFns,
+    loadedCapabilityIds,
   });
 
   // ── Preferences tools (always available) ─────────────────────────────────
@@ -145,34 +149,38 @@ export async function initCapabilityRegistry(opts: RegistryOptions): Promise<Cap
   // Fall back to constructing a SQLite store only when no store was injected,
   // i.e. local-dev callers that haven't been threaded through `createPersistence`.
   try {
-    const prefStore =
-      preferencesStore ??
-      createPreferencesStore({ dbPath: dbPath ?? './tino.db' });
-    tools['set_preference'] = setPreferenceTool(prefStore, allowedUserId);
-    tools['get_preferences'] = getPreferencesTool(prefStore, allowedUserId);
-    logger.info('preferences tools enabled');
+    const prefStore = preferencesStore ?? createPreferencesStore({ dbPath: dbPath ?? "./tino.db" });
+    tools.set_preference = setPreferenceTool(prefStore, allowedUserId);
+    tools.get_preferences = getPreferencesTool(prefStore, allowedUserId);
+    logger.info("preferences tools enabled");
   } catch (err) {
-    logger.warn({ err: (err as Error).message }, 'preferences tools disabled');
+    logger.warn({ err: (err as Error).message }, "preferences tools disabled");
   }
 
   // ── Task tools (available when taskStore is provided) ────────────────────
   if (taskStore) {
     try {
-      tools['schedule_task'] = scheduleTaskTool(taskStore, allowedUserId);
-      tools['list_tasks'] = listTasksTool(taskStore, allowedUserId);
-      tools['cancel_task'] = cancelTaskTool(taskStore);
-      logger.info('task tools enabled');
+      tools.schedule_task = scheduleTaskTool(taskStore, allowedUserId);
+      tools.list_tasks = listTasksTool(taskStore, allowedUserId);
+      tools.cancel_task = cancelTaskTool(taskStore);
+      logger.info("task tools enabled");
     } catch (err) {
-      logger.warn({ err: (err as Error).message }, 'task tools disabled');
+      logger.warn({ err: (err as Error).message }, "task tools disabled");
     }
   }
 
   return {
     tools,
-    get capabilityIds() { return loadedCapabilityIds; },
+    get capabilityIds() {
+      return loadedCapabilityIds;
+    },
     stopAll() {
       for (const stop of stopFns) {
-        try { stop(); } catch { /* ignore */ }
+        try {
+          stop();
+        } catch {
+          /* ignore */
+        }
       }
     },
     getState() {
@@ -203,15 +211,22 @@ export async function initCapabilityRegistry(opts: RegistryOptions): Promise<Cap
         // so we know which ones to clear. We compute by exclusion: anything that
         // isn't a known non-capability tool is a capability tool.
         const NON_CAPABILITY_TOOLS = new Set([
-          'set_preference', 'get_preferences',
-          'schedule_task', 'list_tasks', 'cancel_task',
+          "set_preference",
+          "get_preferences",
+          "schedule_task",
+          "list_tasks",
+          "cancel_task",
         ]);
         const before = Object.keys(tools).filter((k) => !NON_CAPABILITY_TOOLS.has(k));
 
         // Stop existing pollers BEFORE clearing — otherwise stale callbacks
         // could fire during the swap window.
         for (const stop of stopFns) {
-          try { stop(); } catch { /* ignore */ }
+          try {
+            stop();
+          } catch {
+            /* ignore */
+          }
         }
 
         // Atomic-from-the-caller's-perspective swap: delete then repopulate.
@@ -227,13 +242,18 @@ export async function initCapabilityRegistry(opts: RegistryOptions): Promise<Cap
         loadedCapabilityIds = [];
 
         await loadCapabilityTools({
-          configStore, logger, onNewWork,
-          tools, state, stopFns, loadedCapabilityIds,
+          configStore,
+          logger,
+          onNewWork,
+          tools,
+          state,
+          stopFns,
+          loadedCapabilityIds,
         });
 
         const after = Object.keys(tools).filter((k) => !NON_CAPABILITY_TOOLS.has(k));
         // Operators grep for this exact log line to diff what changed.
-        logger.info({ before, after }, 'capabilities reloaded');
+        logger.info({ before, after }, "capabilities reloaded");
 
         return { ok: true };
       } catch (err) {

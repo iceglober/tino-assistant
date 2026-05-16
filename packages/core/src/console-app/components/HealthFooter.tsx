@@ -1,5 +1,5 @@
-import { useEffect, useState, type JSX } from 'react';
-import type { HealthResponse } from '../lib/api.js';
+import { type JSX, useEffect, useState } from "react";
+import type { HealthResponse } from "../lib/api.js";
 
 /**
  * Health footer — uptime + tool count.
@@ -7,11 +7,11 @@ import type { HealthResponse } from '../lib/api.js';
  * Mirror: `html.ts:1424-1428` + the `loadHealth` body at `html.ts:1832-1864`.
  */
 export function HealthFooter({ health }: { health: HealthResponse | null }): JSX.Element {
-  const [uptimeText, setUptimeText] = useState('');
+  const [uptimeText, setUptimeText] = useState("");
 
   useEffect(() => {
     if (!health || health.uptime == null) {
-      setUptimeText('');
+      setUptimeText("");
       return;
     }
     const update = (): void => {
@@ -19,10 +19,7 @@ export function HealthFooter({ health }: { health: HealthResponse | null }): JSX
       const elapsed = Math.floor(health.uptime);
       const m = Math.floor(elapsed / 60);
       const hrs = Math.floor(m / 60);
-      const text =
-        hrs > 0 ? `up ${hrs}h ${m % 60}m`
-        : m > 0 ? `up ${m}m`
-        : `up ${elapsed}s`;
+      const text = hrs > 0 ? `up ${hrs}h ${m % 60}m` : m > 0 ? `up ${m}m` : `up ${elapsed}s`;
       setUptimeText(text);
     };
     update();

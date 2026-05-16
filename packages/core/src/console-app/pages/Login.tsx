@@ -1,4 +1,4 @@
-import { useState, type JSX } from 'react';
+import { type JSX, useState } from "react";
 
 /**
  * Sign-in page. Mirrors the inline login HTML at `console/server.ts:396-449`
@@ -9,17 +9,17 @@ import { useState, type JSX } from 'react';
  * issues an opaque redirect — handle both.
  */
 export function Login(): JSX.Element {
-  const [error, setError] = useState<string>('');
+  const [error, setError] = useState<string>("");
 
   const signIn = async (): Promise<void> => {
-    setError('');
+    setError("");
     try {
-      const res = await fetch('/api/auth/sign-in/social', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ provider: 'google', callbackURL: '/' }),
-        redirect: 'manual',
+      const res = await fetch("/api/auth/sign-in/social", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ provider: "google", callbackURL: "/" }),
+        redirect: "manual",
       });
       if (res.status === 200) {
         const data = (await res.json()) as { url?: string };
@@ -27,14 +27,14 @@ export function Login(): JSX.Element {
           window.location.href = data.url;
           return;
         }
-      } else if (res.type === 'opaqueredirect' || res.status === 302) {
-        const location = res.headers.get('location');
+      } else if (res.type === "opaqueredirect" || res.status === 302) {
+        const location = res.headers.get("location");
         if (location) {
           window.location.href = location;
           return;
         }
       }
-      setError('sign in failed — check console');
+      setError("sign in failed — check console");
     } catch (err) {
       setError((err as Error).message);
     }

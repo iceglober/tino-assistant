@@ -1,9 +1,9 @@
-import { Hono } from 'hono';
-import type { ConfigStore } from '../../persistence/config.js';
-import type { AppLogger } from '../../slack/app.js';
-import type { CapabilityConfig } from '../../capabilities/types.js';
-import { ALL_CAPABILITIES } from '../../capabilities/all.js';
-import { buildCapabilityView, buildConfigFromPayload, findCapability } from '../../capabilities/schema.js';
+import { Hono } from "hono";
+import { ALL_CAPABILITIES } from "../../capabilities/all.js";
+import { buildCapabilityView, buildConfigFromPayload, findCapability } from "../../capabilities/schema.js";
+import type { CapabilityConfig } from "../../capabilities/types.js";
+import type { ConfigStore } from "../../persistence/config.js";
+import type { AppLogger } from "../../slack/app.js";
 
 /**
  * /api/capabilities — list and update capability configs.
@@ -19,19 +19,16 @@ import { buildCapabilityView, buildConfigFromPayload, findCapability } from '../
  * yet. PUT accepts either the schema-driven `{ enabled, fields: [{key,value}] }`
  * shape (preferred) or a raw `CapabilityConfig` blob (legacy passthrough).
  */
-export function createCapabilityRoutes(opts: {
-  config: ConfigStore;
-  logger: AppLogger;
-}): Hono {
+export function createCapabilityRoutes(opts: { config: ConfigStore; logger: AppLogger }): Hono {
   const app = new Hono();
   const { config, logger } = opts;
 
-  app.get('/', async (c) => {
+  app.get("/", async (c) => {
     const entries = await config.list();
     const stored = new Map<string, { config: CapabilityConfig | null; updatedAt: number }>();
     for (const e of entries) {
-      if (!e.key.startsWith('capability.')) continue;
-      const id = e.key.slice('capability.'.length);
+      if (!e.key.startsWith("capability.")) continue;
+      const id = e.key.slice("capability.".length);
       let parsed: CapabilityConfig | null = null;
       try {
         parsed = JSON.parse(e.value) as CapabilityConfig;
@@ -49,15 +46,15 @@ export function createCapabilityRoutes(opts: {
     return c.json(views);
   });
 
-  app.put('/:id', async (c) => {
-    const id = decodeURIComponent(c.req.param('id'));
-    if (!id) return c.json({ error: 'Missing capability id' }, 400);
+  app.put("/:id", async (c) => {
+    const id = decodeURIComponent(c.req.param("id"));
+    if (!id) return c.json({ error: "Missing capability id" }, 400);
 
     let parsed: unknown;
     try {
       parsed = await c.req.json();
     } catch {
-      return c.json({ error: 'Request body must be valid JSON' }, 400);
+      return c.json({ error: "Request body must be valid JSON" }, 400);
     }
 
     const cap = findCapability(id);
@@ -77,7 +74,7 @@ export function createCapabilityRoutes(opts: {
 
     const next = buildConfigFromPayload(cap, parsed, existing);
     await config.set(`capability.${id}`, next);
-    logger.info({ capabilityId: id }, 'capability config updated via console');
+    logger.info({ capabilityId: id }, "capability config updated via console");
     return c.json({ ok: true, id });
   });
 

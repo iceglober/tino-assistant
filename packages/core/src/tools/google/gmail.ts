@@ -1,6 +1,6 @@
-import { tool } from 'ai';
-import { z } from 'zod';
-import { google, type gmail_v1 } from 'googleapis';
+import { tool } from "ai";
+import { type gmail_v1, google } from "googleapis";
+import { z } from "zod";
 
 type OAuth2Client = InstanceType<typeof google.auth.OAuth2>;
 
@@ -11,7 +11,7 @@ type OAuth2Client = InstanceType<typeof google.auth.OAuth2>;
 const BODY_MAX_BYTES = 50 * 1024; // 50 KB — same cap as github_get_file
 
 const getMessageInputSchema = z.object({
-  messageId: z.string().min(1).describe('Gmail message ID (from gmail_search results)'),
+  messageId: z.string().min(1).describe("Gmail message ID (from gmail_search results)"),
 });
 
 type GetMessageInput = z.infer<typeof getMessageInputSchema>;
@@ -43,8 +43,8 @@ function findPart(
  */
 function decodeBase64Url(data: string): string {
   // Convert URL-safe base64 to standard base64
-  const standard = data.replace(/-/g, '+').replace(/_/g, '/');
-  return Buffer.from(standard, 'base64').toString('utf8');
+  const standard = data.replace(/-/g, "+").replace(/_/g, "/");
+  return Buffer.from(standard, "base64").toString("utf8");
 }
 
 /**
@@ -53,14 +53,14 @@ function decodeBase64Url(data: string): string {
  */
 function stripHtmlTags(html: string): string {
   return html
-    .replace(/<[^>]*>/g, ' ')
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
     .replace(/&quot;/gi, '"')
     .replace(/&#39;/gi, "'")
-    .replace(/\s+/g, ' ')
+    .replace(/\s+/g, " ")
     .trim();
 }
 
@@ -81,23 +81,22 @@ export async function _executeGmailGetMessage(
 
   try {
     const res = await gmailClient.users.messages.get({
-      userId: 'me',
+      userId: "me",
       id: messageId,
-      format: 'full',
+      format: "full",
     });
 
     const data = res.data;
     const headers = data.payload?.headers ?? [];
-    const getHeader = (name: string) =>
-      headers.find(h => h.name?.toLowerCase() === name.toLowerCase())?.value ?? '';
+    const getHeader = (name: string) => headers.find((h) => h.name?.toLowerCase() === name.toLowerCase())?.value ?? "";
 
     // Extract body: prefer text/plain, fall back to text/html
-    let rawBody = '';
-    const plainPart = findPart(data.payload ?? undefined, 'text/plain');
+    let rawBody = "";
+    const plainPart = findPart(data.payload ?? undefined, "text/plain");
     if (plainPart?.body?.data) {
       rawBody = decodeBase64Url(plainPart.body.data);
     } else {
-      const htmlPart = findPart(data.payload ?? undefined, 'text/html');
+      const htmlPart = findPart(data.payload ?? undefined, "text/html");
       if (htmlPart?.body?.data) {
         rawBody = stripHtmlTags(decodeBase64Url(htmlPart.body.data));
       }
@@ -108,9 +107,9 @@ export async function _executeGmailGetMessage(
 
     return {
       id: data.id ?? messageId,
-      threadId: data.threadId ?? '',
-      subject: getHeader('Subject'),
-      from: getHeader('From'),
+      threadId: data.threadId ?? "",
+      subject: getHeader("Subject"),
+      from: getHeader("From"),
       body,
       truncated,
     };
@@ -118,30 +117,30 @@ export async function _executeGmailGetMessage(
     const e = err as { code?: number; status?: number; message?: string };
     const code = e.code ?? e.status;
     if (code === 404) {
-      return { error: 'not_found', message: `Message ${messageId} not found.` };
+      return { error: "not_found", message: `Message ${messageId} not found.` };
     }
     if (code === 401 || code === 403) {
       return {
-        error: 'auth_error',
-        message: `Gmail auth failed (${code}): ${e.message ?? 'check refresh token and scopes'}`,
+        error: "auth_error",
+        message: `Gmail auth failed (${code}): ${e.message ?? "check refresh token and scopes"}`,
       };
     }
     return {
-      error: 'google_error',
-      message: `Gmail API error: ${e.message ?? 'unknown'}`,
+      error: "google_error",
+      message: `Gmail API error: ${e.message ?? "unknown"}`,
     };
   }
 }
 
 export function gmailGetMessageTool(auth: OAuth2Client) {
-  const gmailClient = google.gmail({ version: 'v1', auth });
+  const gmailClient = google.gmail({ version: "v1", auth });
   return tool({
     description:
-      'Read the full body of a specific Gmail message by its ID. ' +
-      'Use gmail_search first to find message IDs, then call this to read the content. ' +
-      'Returns plain text body (up to 50 KB). If the message has only HTML, tags are stripped.',
+      "Read the full body of a specific Gmail message by its ID. " +
+      "Use gmail_search first to find message IDs, then call this to read the content. " +
+      "Returns plain text body (up to 50 KB). If the message has only HTML, tags are stripped.",
     inputSchema: getMessageInputSchema,
-    execute: input => _executeGmailGetMessage(gmailClient, input),
+    execute: (input) => _executeGmailGetMessage(gmailClient, input),
   });
 }
 
@@ -158,7 +157,7 @@ const inputSchema = z.object({
     .min(1)
     .max(20)
     .default(10)
-    .describe('Maximum number of messages to return (1–20, default 10)'),
+    .describe("Maximum number of messages to return (1–20, default 10)"),
 });
 
 type GmailInput = z.infer<typeof inputSchema>;
@@ -172,9 +171,7 @@ interface GmailMessageMeta {
   internalDate: string; // epoch ms as string — that's what Gmail returns
 }
 
-type GmailResult =
-  | { messages: GmailMessageMeta[]; count: number }
-  | { error: string; message: string };
+type GmailResult = { messages: GmailMessageMeta[]; count: number } | { error: string; message: string };
 
 /**
  * Core gmail search logic, exported for unit testing.
@@ -188,23 +185,18 @@ type GmailResult =
  * The fan-out in step 2 is sequential (not batched) — fine for n≤20.
  * format: 'metadata' guarantees no body text is returned.
  */
-export async function _executeGmailSearch(
-  gmailClient: gmail_v1.Gmail,
-  input: GmailInput,
-): Promise<GmailResult> {
+export async function _executeGmailSearch(gmailClient: gmail_v1.Gmail, input: GmailInput): Promise<GmailResult> {
   const { query, maxResults } = input;
 
   try {
     // 1. List message IDs
     const listRes = await gmailClient.users.messages.list({
-      userId: 'me',
+      userId: "me",
       q: query,
       maxResults,
     });
 
-    const messageIds = (listRes.data.messages ?? [])
-      .map(m => m.id)
-      .filter(Boolean) as string[];
+    const messageIds = (listRes.data.messages ?? []).map((m) => m.id).filter(Boolean) as string[];
 
     if (messageIds.length === 0) {
       return { messages: [], count: 0 };
@@ -214,23 +206,23 @@ export async function _executeGmailSearch(
     const messages: GmailMessageMeta[] = [];
     for (const id of messageIds) {
       const msgRes = await gmailClient.users.messages.get({
-        userId: 'me',
+        userId: "me",
         id,
-        format: 'metadata',
-        metadataHeaders: ['Subject', 'From', 'Date'],
+        format: "metadata",
+        metadataHeaders: ["Subject", "From", "Date"],
       });
 
       const headers = msgRes.data.payload?.headers ?? [];
       const getHeader = (name: string) =>
-        headers.find(h => h.name?.toLowerCase() === name.toLowerCase())?.value ?? '';
+        headers.find((h) => h.name?.toLowerCase() === name.toLowerCase())?.value ?? "";
 
       messages.push({
         id,
-        threadId: msgRes.data.threadId ?? '',
-        subject: getHeader('Subject'),
-        from: getHeader('From'),
-        snippet: msgRes.data.snippet ?? '',
-        internalDate: msgRes.data.internalDate ?? '',
+        threadId: msgRes.data.threadId ?? "",
+        subject: getHeader("Subject"),
+        from: getHeader("From"),
+        snippet: msgRes.data.snippet ?? "",
+        internalDate: msgRes.data.internalDate ?? "",
       });
     }
 
@@ -239,24 +231,24 @@ export async function _executeGmailSearch(
     const e = err as { code?: number; message?: string };
     if (e.code === 401 || e.code === 403) {
       return {
-        error: 'auth_error',
-        message: `Gmail auth failed (${e.code}): ${e.message ?? 'check refresh token and scopes'}`,
+        error: "auth_error",
+        message: `Gmail auth failed (${e.code}): ${e.message ?? "check refresh token and scopes"}`,
       };
     }
     return {
-      error: 'google_error',
-      message: `Gmail API error: ${e.message ?? 'unknown'}`,
+      error: "google_error",
+      message: `Gmail API error: ${e.message ?? "unknown"}`,
     };
   }
 }
 
 export function gmailSearchTool(auth: OAuth2Client) {
-  const gmailClient = google.gmail({ version: 'v1', auth });
+  const gmailClient = google.gmail({ version: "v1", auth });
   return tool({
     description:
-      'Search Gmail messages. Returns metadata only (subject, from, snippet, date) — no message bodies. ' +
+      "Search Gmail messages. Returns metadata only (subject, from, snippet, date) — no message bodies. " +
       'Use Gmail search syntax: "from:person subject:topic", "after:2026/05/01 is:unread", etc.',
     inputSchema,
-    execute: input => _executeGmailSearch(gmailClient, input),
+    execute: (input) => _executeGmailSearch(gmailClient, input),
   });
 }

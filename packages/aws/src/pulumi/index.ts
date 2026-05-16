@@ -1,1 +1,1 @@
-export { TinoService, type TinoServiceArgs } from './tino-service.js';
+export { TinoService, type TinoServiceArgs } from "./tino-service.js";

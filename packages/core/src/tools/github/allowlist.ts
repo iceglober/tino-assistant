@@ -7,7 +7,7 @@
  *
  * Pattern matches src/tools/cloudwatch/validator.ts (allowlist as parameter).
  */
-import type { ConfigStore } from '../../persistence/config.js';
+import type { ConfigStore } from "../../persistence/config.js";
 
 export interface RepoSpec {
   readonly owner: string;
@@ -20,8 +20,8 @@ export interface RepoSpec {
  * Falls back to an empty array if not configured.
  */
 export async function getAllowedRepos(config: ConfigStore): Promise<RepoSpec[]> {
-  const raw = await config.getTyped<string[]>('github.repos', []);
-  return raw.flatMap(s => {
+  const raw = await config.getTyped<string[]>("github.repos", []);
+  return raw.flatMap((s) => {
     const parsed = parseRepoSpec(s);
     return parsed ? [parsed] : [];
   });
@@ -33,7 +33,7 @@ export async function getAllowedRepos(config: ConfigStore): Promise<RepoSpec[]> 
  * Returns undefined if not configured or malformed.
  */
 export async function getDefaultRepo(config: ConfigStore): Promise<RepoSpec | undefined> {
-  const val = await config.getTyped<string | null>('github.default_repo', null);
+  const val = await config.getTyped<string | null>("github.default_repo", null);
   if (!val) return undefined;
   return parseRepoSpec(val) ?? undefined;
 }
@@ -42,30 +42,23 @@ export async function getDefaultRepo(config: ConfigStore): Promise<RepoSpec | un
  * True iff (owner, repo) is in the allowlist. Case-insensitive on both fields.
  * The allowlist is passed as a parameter — no module-level constant lookup.
  */
-export function isAllowedRepo(
-  owner: string,
-  repo: string,
-  allowedRepos: readonly RepoSpec[],
-): boolean {
+export function isAllowedRepo(owner: string, repo: string, allowedRepos: readonly RepoSpec[]): boolean {
   const o = owner.toLowerCase();
   const r = repo.toLowerCase();
-  return allowedRepos.some(
-    spec => spec.owner.toLowerCase() === o && spec.repo.toLowerCase() === r,
-  );
+  return allowedRepos.some((spec) => spec.owner.toLowerCase() === o && spec.repo.toLowerCase() === r);
 }
 
 /** Human-readable list for error messages. */
 export function describeAllowlist(allowedRepos: readonly RepoSpec[]): string {
-  if (allowedRepos.length === 0)
-    return '(none — add via the config console at http://localhost:3001)';
-  return allowedRepos.map(s => `${s.owner}/${s.repo}`).join(', ');
+  if (allowedRepos.length === 0) return "(none — add via the config console at http://localhost:3001)";
+  return allowedRepos.map((s) => `${s.owner}/${s.repo}`).join(", ");
 }
 
 /**
  * Parse "owner/repo" into a RepoSpec. Returns null on malformed input.
  */
 export function parseRepoSpec(ownerSlashRepo: string): RepoSpec | null {
-  const parts = ownerSlashRepo.split('/');
+  const parts = ownerSlashRepo.split("/");
   if (parts.length !== 2) return null;
   const [owner, repo] = parts;
   if (!owner || !repo) return null;

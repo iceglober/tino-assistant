@@ -3,10 +3,11 @@
  *
  * All KMS calls are mocked — no real AWS credentials needed.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import crypto from 'node:crypto';
-import type { KMSClient } from '@aws-sdk/client-kms';
-import { encryptValue, decryptValue } from '../../src/encryption/envelope.js';
+
+import crypto from "node:crypto";
+import type { KMSClient } from "@aws-sdk/client-kms";
+import { describe, expect, it, vi } from "vitest";
+import { decryptValue, encryptValue } from "../../src/encryption/envelope.js";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -22,8 +23,8 @@ function fakeEncryptedKey(): Uint8Array {
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
-describe('encryptValue', () => {
-  it('returns an EncryptedValue with all three fields present and base64-encoded', async () => {
+describe("encryptValue", () => {
+  it("returns an EncryptedValue with all three fields present and base64-encoded", async () => {
     const plaintextKey = fakeAesKey();
     const encryptedKey = fakeEncryptedKey();
 
@@ -34,12 +35,12 @@ describe('encryptValue', () => {
       }),
     } as unknown as KMSClient;
 
-    const result = await encryptValue(mockKms, 'alias/tino', 'user-123', 'my-secret-token');
+    const result = await encryptValue(mockKms, "alias/tino", "user-123", "my-secret-token");
 
     // All three fields must be present
-    expect(result).toHaveProperty('ciphertext');
-    expect(result).toHaveProperty('dataKey');
-    expect(result).toHaveProperty('iv');
+    expect(result).toHaveProperty("ciphertext");
+    expect(result).toHaveProperty("dataKey");
+    expect(result).toHaveProperty("iv");
 
     // Each field must be a non-empty base64 string
     const base64Re = /^[A-Za-z0-9+/]+=*$/;
@@ -48,13 +49,13 @@ describe('encryptValue', () => {
     expect(result.iv).toMatch(base64Re);
 
     // IV must decode to 12 bytes (AES-GCM standard)
-    expect(Buffer.from(result.iv, 'base64').length).toBe(12);
+    expect(Buffer.from(result.iv, "base64").length).toBe(12);
 
     // dataKey must round-trip to the encrypted key bytes
-    expect(Buffer.from(result.dataKey, 'base64')).toEqual(Buffer.from(encryptedKey));
+    expect(Buffer.from(result.dataKey, "base64")).toEqual(Buffer.from(encryptedKey));
   });
 
-  it('passes the userId as encryptionContext to KMS GenerateDataKey', async () => {
+  it("passes the userId as encryptionContext to KMS GenerateDataKey", async () => {
     const plaintextKey = fakeAesKey();
     const encryptedKey = fakeEncryptedKey();
     const mockSend = vi.fn().mockResolvedValue({
@@ -63,27 +64,28 @@ describe('encryptValue', () => {
     });
     const mockKms = { send: mockSend } as unknown as KMSClient;
 
-    await encryptValue(mockKms, 'alias/tino', 'user-abc', 'token');
+    await encryptValue(mockKms, "alias/tino", "user-abc", "token");
 
     const sentCommand = mockSend.mock.calls[0]?.[0] as {
       input: { EncryptionContext: Record<string, string> };
     };
-    expect(sentCommand.input.EncryptionContext).toEqual({ userId: 'user-abc' });
+    expect(sentCommand.input.EncryptionContext).toEqual({ userId: "user-abc" });
   });
 });
 
-describe('decryptValue', () => {
-  it('round-trips: encrypt then decrypt recovers the original plaintext', async () => {
+describe("decryptValue", () => {
+  it("round-trips: encrypt then decrypt recovers the original plaintext", async () => {
     // Use a real AES key so the crypto operations actually work.
     // IMPORTANT: encryptValue zeroes the plaintextKey buffer after use (best-effort
     // memory hygiene). We must supply a fresh copy for the Decrypt mock so the
     // decipher has the original key bytes.
     const plaintextKeyBytes = fakeAesKey();
     const encryptedKey = fakeEncryptedKey();
-    const originalText = 'xoxp-super-secret-slack-token';
+    const originalText = "xoxp-super-secret-slack-token";
 
     const mockKms = {
-      send: vi.fn()
+      send: vi
+        .fn()
         // GenerateDataKey: return a copy so the original isn't zeroed by encryptValue
         .mockResolvedValueOnce({
           Plaintext: Uint8Array.from(plaintextKeyBytes),
@@ -93,17 +95,18 @@ describe('decryptValue', () => {
         .mockResolvedValueOnce({ Plaintext: Uint8Array.from(plaintextKeyBytes) }),
     } as unknown as KMSClient;
 
-    const encrypted = await encryptValue(mockKms, 'alias/tino', 'user-123', originalText);
-    const decrypted = await decryptValue(mockKms, 'user-123', encrypted);
+    const encrypted = await encryptValue(mockKms, "alias/tino", "user-123", originalText);
+    const decrypted = await decryptValue(mockKms, "user-123", encrypted);
 
     expect(decrypted).toBe(originalText);
   });
 
-  it('passes the userId as encryptionContext to KMS Decrypt', async () => {
+  it("passes the userId as encryptionContext to KMS Decrypt", async () => {
     const plaintextKeyBytes = fakeAesKey();
     const encryptedKey = fakeEncryptedKey();
 
-    const mockSend = vi.fn()
+    const mockSend = vi
+      .fn()
       .mockResolvedValueOnce({
         Plaintext: Uint8Array.from(plaintextKeyBytes),
         CiphertextBlob: encryptedKey,
@@ -111,17 +114,17 @@ describe('decryptValue', () => {
       .mockResolvedValueOnce({ Plaintext: Uint8Array.from(plaintextKeyBytes) });
     const mockKms = { send: mockSend } as unknown as KMSClient;
 
-    const encrypted = await encryptValue(mockKms, 'alias/tino', 'user-xyz', 'token');
-    await decryptValue(mockKms, 'user-xyz', encrypted);
+    const encrypted = await encryptValue(mockKms, "alias/tino", "user-xyz", "token");
+    await decryptValue(mockKms, "user-xyz", encrypted);
 
     // Second call is the Decrypt command
     const decryptCommand = mockSend.mock.calls[1]?.[0] as {
       input: { EncryptionContext: Record<string, string> };
     };
-    expect(decryptCommand.input.EncryptionContext).toEqual({ userId: 'user-xyz' });
+    expect(decryptCommand.input.EncryptionContext).toEqual({ userId: "user-xyz" });
   });
 
-  it('decrypt with wrong userId fails when KMS rejects the context', async () => {
+  it("decrypt with wrong userId fails when KMS rejects the context", async () => {
     const plaintextKey = fakeAesKey();
     const encryptedKey = fakeEncryptedKey();
 
@@ -131,17 +134,17 @@ describe('decryptValue', () => {
       CiphertextBlob: encryptedKey,
     });
     const encryptKms = { send: encryptMock } as unknown as KMSClient;
-    const encrypted = await encryptValue(encryptKms, 'alias/tino', 'user-A', 'secret');
+    const encrypted = await encryptValue(encryptKms, "alias/tino", "user-A", "secret");
 
     // Attempt to decrypt with user-B — KMS throws InvalidCiphertextException
-    const kmsError = new Error('The ciphertext refers to a customer master key that does not exist');
-    kmsError.name = 'InvalidCiphertextException';
+    const kmsError = new Error("The ciphertext refers to a customer master key that does not exist");
+    kmsError.name = "InvalidCiphertextException";
 
     const decryptMock = vi.fn().mockRejectedValue(kmsError);
     const decryptKms = { send: decryptMock } as unknown as KMSClient;
 
-    await expect(decryptValue(decryptKms, 'user-B', encrypted)).rejects.toMatchObject({
-      name: 'InvalidCiphertextException',
+    await expect(decryptValue(decryptKms, "user-B", encrypted)).rejects.toMatchObject({
+      name: "InvalidCiphertextException",
     });
   });
 });

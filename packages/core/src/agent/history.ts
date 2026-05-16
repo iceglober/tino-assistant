@@ -1,4 +1,4 @@
-import type { ModelMessage } from 'ai';
+import type { ModelMessage } from "ai";
 
 export interface HistoryStore {
   get(userId: string): Promise<ModelMessage[]>;
@@ -49,7 +49,7 @@ export function trim(messages: ModelMessage[], cap: number): ModelMessage[] {
 
   let start = messages.length - cap;
   // Skip any leading orphan tool-result messages.
-  while (start < messages.length && messages[start]?.role === 'tool') {
+  while (start < messages.length && messages[start]?.role === "tool") {
     start += 1;
   }
   return messages.slice(start);

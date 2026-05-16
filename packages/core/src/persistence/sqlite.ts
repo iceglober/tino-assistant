@@ -1,7 +1,7 @@
-import { Database } from 'bun:sqlite';
-import type { ModelMessage } from 'ai';
-import type { HistoryStore } from '../agent/history.js';
-import { trim } from '../agent/history.js';
+import { Database } from "bun:sqlite";
+import type { ModelMessage } from "ai";
+import type { HistoryStore } from "../agent/history.js";
+import { trim } from "../agent/history.js";
 
 /**
  * SQLite-backed HistoryStore.
@@ -12,13 +12,7 @@ import { trim } from '../agent/history.js';
  * No migrations: single CREATE TABLE IF NOT EXISTS at construction time.
  * No WAL mode, no extra pragmas, no in-memory cache — synchronous reads are sub-millisecond.
  */
-export function createSqliteHistoryStore({
-  dbPath,
-  cap = 40,
-}: {
-  dbPath: string;
-  cap?: number;
-}): HistoryStore {
+export function createSqliteHistoryStore({ dbPath, cap = 40 }: { dbPath: string; cap?: number }): HistoryStore {
   const db = new Database(dbPath);
 
   db.exec(`
@@ -29,9 +23,7 @@ export function createSqliteHistoryStore({
     )
   `);
 
-  const stmtGet = db.query(
-    'SELECT messages_json FROM conversations WHERE user_id = ?',
-  );
+  const stmtGet = db.query("SELECT messages_json FROM conversations WHERE user_id = ?");
 
   const stmtUpsert = db.query(
     `INSERT INTO conversations (user_id, messages_json, updated_at)
@@ -41,9 +33,7 @@ export function createSqliteHistoryStore({
        updated_at    = excluded.updated_at`,
   );
 
-  const stmtDelete = db.query(
-    'DELETE FROM conversations WHERE user_id = ?',
-  );
+  const stmtDelete = db.query("DELETE FROM conversations WHERE user_id = ?");
 
   return {
     get(userId: string): Promise<ModelMessage[]> {

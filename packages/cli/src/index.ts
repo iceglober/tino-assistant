@@ -7,12 +7,12 @@
  *   tino deploy   Build, push, and deploy to ECS
  */
 
-import { binary, run, subcommands } from 'cmd-ts';
-import { init } from './commands/init.js';
-import { deploy } from './commands/deploy.js';
+import { binary, run, subcommands } from "cmd-ts";
+import { deploy } from "./commands/deploy.js";
+import { init } from "./commands/init.js";
 
 const app = subcommands({
-  name: 'tino',
+  name: "tino",
   cmds: {
     init,
     deploy,

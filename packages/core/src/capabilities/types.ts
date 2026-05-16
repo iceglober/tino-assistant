@@ -5,15 +5,15 @@
  * self-contained unit with credentials, settings, and an optional findWork
  * scanner. Capabilities are stored in the config table under `capability.<id>`.
  */
-import type { ToolSet } from 'ai';
-import type { ConfigStore } from '../persistence/config.js';
-import type { AppLogger } from '../slack/app.js';
+import type { ToolSet } from "ai";
+import type { ConfigStore } from "../persistence/config.js";
+import type { AppLogger } from "../slack/app.js";
 
 /** Stored in the config table as a JSON blob under `capability.<id>`. */
 export interface CapabilityConfig {
   enabled: boolean;
-  credentials: Record<string, string>;   // tokens, API keys
-  settings: Record<string, unknown>;     // allowlists, defaults, tool-specific config
+  credentials: Record<string, string>; // tokens, API keys
+  settings: Record<string, unknown>; // allowlists, defaults, tool-specific config
   findWork?: {
     enabled: boolean;
     intervalMinutes: number;
@@ -46,8 +46,8 @@ export interface CapabilityRuntimeState {
 export interface CapField {
   key: string;
   label: string;
-  target: string;          // e.g. "credentials.token", "settings.repos"
-  kind?: 'string' | 'string[]';
+  target: string; // e.g. "credentials.token", "settings.repos"
+  kind?: "string" | "string[]";
   secret?: boolean;
   placeholder?: string;
   /** Filled in by the GET handler from the stored blob; never declared by modules. */
@@ -70,12 +70,7 @@ export interface CapabilityModule {
    * Register tools into the toolset. Called only when the capability is enabled
    * and credentials are present. Should throw if credentials are missing/invalid.
    */
-  registerTools(
-    config: CapabilityConfig,
-    configStore: ConfigStore,
-    logger: AppLogger,
-    tools: ToolSet,
-  ): Promise<void>;
+  registerTools(config: CapabilityConfig, configStore: ConfigStore, logger: AppLogger, tools: ToolSet): Promise<void>;
   /**
    * Start the findWork poller. Called only when capability.findWork.enabled is true.
    * Returns a stop function.

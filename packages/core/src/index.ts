@@ -1,16 +1,16 @@
-import 'dotenv/config';
-import { loadEnv } from './env.js';
-import { createLogger } from './logging/logger.js';
-import { createSlackApp, type DmHandler } from './slack/app.js';
-import { createBedrockModel, DEFAULT_BEDROCK_MODEL_ID, validateBedrockModel } from './agent/bedrock.js';
-import { createHistoryStore } from './agent/history.js';
-import { runAgent } from './agent/run.js';
-import { startScheduler } from './scheduler/index.js';
-import { createProactiveDm } from './slack/proactive.js';
-import { startServer } from './server/index.js';
-import { createPersistence } from './persistence/factory.js';
-import { migrateEnvToCapabilities } from './capabilities/migration.js';
-import { initCapabilityRegistry } from './capabilities/registry.js';
+import "dotenv/config";
+import { createBedrockModel, DEFAULT_BEDROCK_MODEL_ID, validateBedrockModel } from "./agent/bedrock.js";
+import { createHistoryStore } from "./agent/history.js";
+import { runAgent } from "./agent/run.js";
+import { migrateEnvToCapabilities } from "./capabilities/migration.js";
+import { initCapabilityRegistry } from "./capabilities/registry.js";
+import { loadEnv } from "./env.js";
+import { createLogger } from "./logging/logger.js";
+import { createPersistence } from "./persistence/factory.js";
+import { startScheduler } from "./scheduler/index.js";
+import { startServer } from "./server/index.js";
+import { createSlackApp, type DmHandler } from "./slack/app.js";
+import { createProactiveDm } from "./slack/proactive.js";
 
 const env = loadEnv();
 const logger = createLogger(env);
@@ -34,19 +34,20 @@ await migrateEnvToCapabilities(env, configStore, logger);
 // configStore.get returns JSON-stringified values, so parse them
 function parseConfigValue(raw: string | null): string | undefined {
   if (!raw) return undefined;
-  try { return JSON.parse(raw) as string; } catch { return raw; }
+  try {
+    return JSON.parse(raw) as string;
+  } catch {
+    return raw;
+  }
 }
-const slackBotToken = parseConfigValue(await configStore.get('slack.botToken')) ?? env.SLACK_BOT_TOKEN;
-const slackAppToken = parseConfigValue(await configStore.get('slack.appToken')) ?? env.SLACK_APP_TOKEN;
-const allowedUserId = parseConfigValue(await configStore.get('slack.adminUserId')) ?? env.ALLOWED_SLACK_USER_ID ?? '';
+const slackBotToken = parseConfigValue(await configStore.get("slack.botToken")) ?? env.SLACK_BOT_TOKEN;
+const slackAppToken = parseConfigValue(await configStore.get("slack.appToken")) ?? env.SLACK_APP_TOKEN;
+const allowedUserId = parseConfigValue(await configStore.get("slack.adminUserId")) ?? env.ALLOWED_SLACK_USER_ID ?? "";
 
 const hasSlack = Boolean(slackBotToken && slackAppToken && allowedUserId);
 
 // Read Bedrock model ID from config store; fall back to default
-const configuredModelId = await configStore.getTyped<string>(
-  'bedrock.modelId',
-  DEFAULT_BEDROCK_MODEL_ID,
-);
+const configuredModelId = await configStore.getTyped<string>("bedrock.modelId", DEFAULT_BEDROCK_MODEL_ID);
 // Validate the configured model is actually reachable with current credentials.
 // On failure, fall back to the default — never crash on an invalid saved ID.
 let bedrockModelId = configuredModelId;
@@ -54,7 +55,7 @@ const validation = await validateBedrockModel(configuredModelId, env.AWS_REGION)
 if (!validation.ok) {
   logger.error(
     { modelId: configuredModelId, err: validation.error },
-    'bedrock model validation failed — falling back to default',
+    "bedrock model validation failed — falling back to default",
   );
   if (configuredModelId !== DEFAULT_BEDROCK_MODEL_ID) {
     bedrockModelId = DEFAULT_BEDROCK_MODEL_ID;
@@ -74,11 +75,11 @@ const registry = await initCapabilityRegistry({
     // findWork callback — run the agent on the work item and post result to owner
     const taskHistory = createHistoryStore({ cap: 40 });
     const prompt = [
-      'You are executing a scheduled task. Your response will be posted directly to the owner\'s Slack DM.',
-      'Do not explain that you are a bot. Just produce the content.',
-      '',
+      "You are executing a scheduled task. Your response will be posted directly to the owner's Slack DM.",
+      "Do not explain that you are a bot. Just produce the content.",
+      "",
       summary,
-    ].join('\n');
+    ].join("\n");
 
     const result = await runAgent({
       model,
@@ -99,14 +100,14 @@ const tools = registry.tools;
 // 9g: Log tool-definition token count estimate at startup.
 const toolTokenEstimate = Math.ceil(
   Object.values(tools)
-    .map(t => {
-      const desc = (t as { description?: string }).description ?? '';
+    .map((t) => {
+      const desc = (t as { description?: string }).description ?? "";
       const schema = JSON.stringify((t as { inputSchema?: unknown }).inputSchema ?? {});
       return desc.length + schema.length;
     })
     .reduce((a, b) => a + b, 0) / 4,
 );
-logger.info({ toolCount: Object.keys(tools).length, estimatedTokens: toolTokenEstimate }, 'tool definitions loaded');
+logger.info({ toolCount: Object.keys(tools).length, estimatedTokens: toolTokenEstimate }, "tool definitions loaded");
 
 // ── Module-scoped Slack lifecycle state ──────────────────────────────────
 // `reconnectSlack()` (wave 3.1) needs to read/write these on demand: tearing
@@ -116,10 +117,14 @@ logger.info({ toolCount: Object.keys(tools).length, estimatedTokens: toolTokenEs
 // both need to call into the same lifecycle state from outside any previous
 // closure. Module-scoped `let` is the simplest correct choice; the
 // trade-off is acceptable here (single instance, single process).
-type SlackBoltApp = import('@slack/bolt').App;
+type SlackBoltApp = import("@slack/bolt").App;
 let app: SlackBoltApp | null = null;
-let postDm: (text: string) => Promise<void> = async () => { /* no-op: Slack not connected */ };
-let stopScheduler: () => void = () => { /* no-op */ };
+let postDm: (text: string) => Promise<void> = async () => {
+  /* no-op: Slack not connected */
+};
+let stopScheduler: () => void = () => {
+  /* no-op */
+};
 
 /**
  * Read the current Slack tokens from the config store and start (or restart)
@@ -132,12 +137,12 @@ let stopScheduler: () => void = () => { /* no-op */ };
  */
 async function reconnectSlack(): Promise<{ ok: boolean; error?: string }> {
   // Re-read the tokens fresh — the config store is the source of truth.
-  const botToken = parseConfigValue(await configStore.get('slack.botToken')) ?? env.SLACK_BOT_TOKEN;
-  const appToken = parseConfigValue(await configStore.get('slack.appToken')) ?? env.SLACK_APP_TOKEN;
-  const adminId = parseConfigValue(await configStore.get('slack.adminUserId')) ?? env.ALLOWED_SLACK_USER_ID ?? '';
+  const botToken = parseConfigValue(await configStore.get("slack.botToken")) ?? env.SLACK_BOT_TOKEN;
+  const appToken = parseConfigValue(await configStore.get("slack.appToken")) ?? env.SLACK_APP_TOKEN;
+  const adminId = parseConfigValue(await configStore.get("slack.adminUserId")) ?? env.ALLOWED_SLACK_USER_ID ?? "";
 
   if (!botToken || !appToken || !adminId) {
-    return { ok: false, error: 'missing slack.botToken, slack.appToken, or slack.adminUserId' };
+    return { ok: false, error: "missing slack.botToken, slack.appToken, or slack.adminUserId" };
   }
 
   // Tear down the existing connection if any. `app.stop()` may throw if
@@ -146,13 +151,17 @@ async function reconnectSlack(): Promise<{ ok: boolean; error?: string }> {
   if (app) {
     try {
       stopScheduler();
-      stopScheduler = () => { /* no-op */ };
+      stopScheduler = () => {
+        /* no-op */
+      };
       await app.stop();
     } catch (err) {
-      logger.error({ err: (err as Error).message }, 'error stopping slack app during reconnect');
+      logger.error({ err: (err as Error).message }, "error stopping slack app during reconnect");
     }
     app = null;
-    postDm = async () => { /* no-op: Slack mid-reload */ };
+    postDm = async () => {
+      /* no-op: Slack mid-reload */
+    };
   }
 
   const slackEnv = {
@@ -171,12 +180,12 @@ async function reconnectSlack(): Promise<{ ok: boolean; error?: string }> {
     await nextApp.start();
   } catch (err) {
     const msg = (err as Error).message;
-    logger.error({ err: msg }, 'slack reconnect failed');
+    logger.error({ err: msg }, "slack reconnect failed");
     return { ok: false, error: msg };
   }
 
   app = nextApp;
-  logger.info({ nodeVersion: process.version, pid: process.pid }, 'tino slack connected');
+  logger.info({ nodeVersion: process.version, pid: process.pid }, "tino slack connected");
 
   postDm = await createProactiveDm(nextApp, adminId, logger);
 
@@ -186,11 +195,11 @@ async function reconnectSlack(): Promise<{ ok: boolean; error?: string }> {
     runTask: async (task) => {
       const taskHistory = createHistoryStore({ cap: 40 });
       const taskPrompt = [
-        'You are executing a scheduled task. Your response will be posted directly to the owner\'s Slack DM — you do not need a tool to send it.',
-        'Do not explain that you are a bot or that you cannot send messages. Just produce the content the task asks for.',
-        '',
+        "You are executing a scheduled task. Your response will be posted directly to the owner's Slack DM — you do not need a tool to send it.",
+        "Do not explain that you are a bot or that you cannot send messages. Just produce the content the task asks for.",
+        "",
         `Task: ${task.description}`,
-      ].join('\n');
+      ].join("\n");
       return runAgent({
         model,
         history: taskHistory,
@@ -218,7 +227,7 @@ async function reloadCapabilities(): Promise<{ ok: boolean; error?: string }> {
     return await registry.reload();
   } catch (err) {
     const msg = (err as Error).message;
-    logger.error({ err: msg }, 'capability reload failed');
+    logger.error({ err: msg }, "capability reload failed");
     return { ok: false, error: msg };
   }
 }
@@ -229,15 +238,27 @@ async function reloadCapabilities(): Promise<{ ok: boolean; error?: string }> {
  * function is reachable from `startServer`'s `shutdown` option.
  */
 const shutdown = async (signal: string): Promise<void> => {
-  logger.info({ signal }, 'tino stopping');
-  try { stopScheduler(); } catch { /* ignore */ }
-  try { registry.stopAll(); } catch { /* ignore */ }
-  try { consoleServer.close(); } catch { /* ignore */ }
+  logger.info({ signal }, "tino stopping");
+  try {
+    stopScheduler();
+  } catch {
+    /* ignore */
+  }
+  try {
+    registry.stopAll();
+  } catch {
+    /* ignore */
+  }
+  try {
+    consoleServer.close();
+  } catch {
+    /* ignore */
+  }
   if (app) {
     try {
       await app.stop();
     } catch (err) {
-      logger.error({ err }, 'error stopping slack app');
+      logger.error({ err }, "error stopping slack app");
     }
   }
   process.exit(0);
@@ -259,14 +280,15 @@ const consoleServer = await startServer({
 if (hasSlack) {
   const initial = await reconnectSlack();
   if (!initial.ok) {
-    logger.warn({ err: initial.error }, 'initial slack connect failed — console still running');
+    logger.warn({ err: initial.error }, "initial slack connect failed — console still running");
   }
 } else {
-  logger.info(
-    { port: 3001 },
-    'no Slack tokens configured — visit http://localhost:3001 to set up',
-  );
+  logger.info({ port: 3001 }, "no Slack tokens configured — visit http://localhost:3001 to set up");
 }
 
-process.on('SIGINT',  () => { void shutdown('SIGINT'); });
-process.on('SIGTERM', () => { void shutdown('SIGTERM'); });
+process.on("SIGINT", () => {
+  void shutdown("SIGINT");
+});
+process.on("SIGTERM", () => {
+  void shutdown("SIGTERM");
+});

@@ -1,14 +1,8 @@
-import crypto from 'node:crypto';
-import {
-  GetItemCommand,
-  PutItemCommand,
-  UpdateItemCommand,
-  QueryCommand,
-  ScanCommand,
-} from 'dynamodb-toolbox';
-import type { Task, TaskStore } from '@tino/core/persistence/tasks';
-import { createTaskEntity, padScheduledAt } from './entities.js';
-import type { TinoTable } from './client.js';
+import crypto from "node:crypto";
+import type { Task, TaskStore } from "@tino/core/persistence/tasks";
+import { GetItemCommand, PutItemCommand, QueryCommand, ScanCommand, UpdateItemCommand } from "dynamodb-toolbox";
+import type { TinoTable } from "./client.js";
+import { createTaskEntity, padScheduledAt } from "./entities.js";
 
 /**
  * DynamoDB-backed TaskStore.
@@ -32,14 +26,14 @@ export function createDynamoTaskStore(table: TinoTable): TaskStore {
         .build(PutItemCommand)
         .item({
           pk: `TASK#${id}`,
-          sk: 'TASK',
-          gsi1pk: 'TASK_STATUS#pending',
+          sk: "TASK",
+          gsi1pk: "TASK_STATUS#pending",
           gsi1sk: padScheduledAt(scheduledAtEpochSec),
           taskId: id,
           userId,
           description,
           scheduledAt: scheduledAtEpochSec,
-          status: 'pending',
+          status: "pending",
           createdAt: now,
           updatedAt: now,
         })
@@ -50,7 +44,7 @@ export function createDynamoTaskStore(table: TinoTable): TaskStore {
         userId,
         description,
         scheduledAt: scheduledAtEpochSec,
-        status: 'pending',
+        status: "pending",
         result: null,
         createdAt: now,
         updatedAt: now,
@@ -60,7 +54,7 @@ export function createDynamoTaskStore(table: TinoTable): TaskStore {
     async getById(id: string): Promise<Task | null> {
       const { Item } = await entity
         .build(GetItemCommand)
-        .key({ pk: `TASK#${id}`, sk: 'TASK' })
+        .key({ pk: `TASK#${id}`, sk: "TASK" })
         .send();
 
       if (!Item) return null;
@@ -74,16 +68,20 @@ export function createDynamoTaskStore(table: TinoTable): TaskStore {
         .entities(entity)
         .options({
           filters: {
-            Task: status !== undefined
-              ? { and: [{ attr: 'userId', eq: userId }, { attr: 'status', eq: status }] }
-              : { attr: 'userId', eq: userId },
+            Task:
+              status !== undefined
+                ? {
+                    and: [
+                      { attr: "userId", eq: userId },
+                      { attr: "status", eq: status },
+                    ],
+                  }
+                : { attr: "userId", eq: userId },
           },
         })
         .send();
 
-      return (Items as unknown as TaskItem[])
-        .map(itemToTask)
-        .sort((a, b) => a.scheduledAt - b.scheduledAt);
+      return (Items as unknown as TaskItem[]).map(itemToTask).sort((a, b) => a.scheduledAt - b.scheduledAt);
     },
 
     async listPending(nowEpochSec: number): Promise<Task[]> {
@@ -91,30 +89,26 @@ export function createDynamoTaskStore(table: TinoTable): TaskStore {
         .build(QueryCommand)
         .entities(entity)
         .query({
-          index: 'gsi1',
-          partition: 'TASK_STATUS#pending',
+          index: "gsi1",
+          partition: "TASK_STATUS#pending",
           range: { lte: padScheduledAt(nowEpochSec) },
         })
         .send();
 
-      return (Items as unknown as TaskItem[])
-        .map(itemToTask)
-        .sort((a, b) => a.scheduledAt - b.scheduledAt);
+      return (Items as unknown as TaskItem[]).map(itemToTask).sort((a, b) => a.scheduledAt - b.scheduledAt);
     },
 
-    async updateStatus(id: string, status: Task['status'], result?: string): Promise<void> {
+    async updateStatus(id: string, status: Task["status"], result?: string): Promise<void> {
       const now = Math.floor(Date.now() / 1000);
 
-      const cmd = entity
-        .build(UpdateItemCommand)
-        .item({
-          pk: `TASK#${id}`,
-          sk: 'TASK',
-          status,
-          gsi1pk: `TASK_STATUS#${status}`,
-          updatedAt: now,
-          ...(result !== undefined ? { result } : {}),
-        });
+      const cmd = entity.build(UpdateItemCommand).item({
+        pk: `TASK#${id}`,
+        sk: "TASK",
+        status,
+        gsi1pk: `TASK_STATUS#${status}`,
+        updatedAt: now,
+        ...(result !== undefined ? { result } : {}),
+      });
 
       await cmd.send();
     },
@@ -127,13 +121,13 @@ export function createDynamoTaskStore(table: TinoTable): TaskStore {
           .build(UpdateItemCommand)
           .item({
             pk: `TASK#${id}`,
-            sk: 'TASK',
-            status: 'cancelled',
-            gsi1pk: 'TASK_STATUS#cancelled',
+            sk: "TASK",
+            status: "cancelled",
+            gsi1pk: "TASK_STATUS#cancelled",
             updatedAt: now,
           })
           .options({
-            condition: { attr: 'status', eq: 'pending' },
+            condition: { attr: "status", eq: "pending" },
           })
           .send();
         return true;
@@ -165,7 +159,7 @@ function itemToTask(item: TaskItem): Task {
     userId: item.userId,
     description: item.description,
     scheduledAt: item.scheduledAt,
-    status: item.status as Task['status'],
+    status: item.status as Task["status"],
     result: item.result ?? null,
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
@@ -174,8 +168,7 @@ function itemToTask(item: TaskItem): Task {
 
 function isConditionalCheckFailed(err: unknown): boolean {
   if (err instanceof Error) {
-    return err.name === 'ConditionalCheckFailedException' ||
-      err.message.includes('ConditionalCheckFailed');
+    return err.name === "ConditionalCheckFailedException" || err.message.includes("ConditionalCheckFailed");
   }
   return false;
 }

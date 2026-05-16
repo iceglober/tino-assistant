@@ -15,28 +15,28 @@ export function buildSystemPrompt(registeredToolNames?: string[]): string {
   // Full ISO-8601 with local timezone offset — this is what Claude should use
   // for all time-based tool calls. No ambiguity, no reconstruction needed.
   const tzOffsetMin = now.getTimezoneOffset();
-  const sign = tzOffsetMin <= 0 ? '+' : '-';
+  const sign = tzOffsetMin <= 0 ? "+" : "-";
   const absMin = Math.abs(tzOffsetMin);
-  const tzHH = String(Math.floor(absMin / 60)).padStart(2, '0');
-  const tzMM = String(absMin % 60).padStart(2, '0');
-  const localIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}T${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}${sign}${tzHH}:${tzMM}`;
+  const tzHH = String(Math.floor(absMin / 60)).padStart(2, "0");
+  const tzMM = String(absMin % 60).padStart(2, "0");
+  const localIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}T${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")}${sign}${tzHH}:${tzMM}`;
 
-  const dateStr = now.toLocaleDateString('en-US', {
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
+  const dateStr = now.toLocaleDateString("en-US", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
   });
-  const timeStr = now.toLocaleTimeString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-    timeZoneName: 'short',
+  const timeStr = now.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
   });
 
   // When registeredToolNames is provided, generate a dynamic tool availability note
   const dynamicToolNote = registeredToolNames
-    ? `\n\nCurrently registered tools (${registeredToolNames.length} total): ${registeredToolNames.join(', ')}.`
-    : '';
+    ? `\n\nCurrently registered tools (${registeredToolNames.length} total): ${registeredToolNames.join(", ")}.`
+    : "";
 
   return `You are tino, a personal assistant for one user (the owner of this Slack bot).
 

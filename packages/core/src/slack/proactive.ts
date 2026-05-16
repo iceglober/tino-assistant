@@ -1,5 +1,5 @@
-import type { App } from '@slack/bolt';
-import type { AppLogger } from './app.js';
+import type { App } from "@slack/bolt";
+import type { AppLogger } from "./app.js";
 
 /**
  * Resolve the DM channel ID for the owner and return a function that posts
@@ -22,7 +22,7 @@ export async function createProactiveDm(
   if (!channelId) {
     throw new Error(`Could not resolve DM channel for user ${ownerUserId}`);
   }
-  logger.info({ channelId }, 'proactive DM channel resolved');
+  logger.info({ channelId }, "proactive DM channel resolved");
 
   return async (text: string) => {
     await app.client.chat.postMessage({

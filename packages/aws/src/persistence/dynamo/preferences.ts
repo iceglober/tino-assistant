@@ -1,12 +1,7 @@
-import {
-  GetItemCommand,
-  PutItemCommand,
-  DeleteItemCommand,
-  QueryCommand,
-} from 'dynamodb-toolbox';
-import type { PreferencesStore } from '@tino/core/persistence/preferences';
-import { createPreferenceEntity } from './entities.js';
-import type { TinoTable } from './client.js';
+import type { PreferencesStore } from "@tino/core/persistence/preferences";
+import { DeleteItemCommand, GetItemCommand, PutItemCommand, QueryCommand } from "dynamodb-toolbox";
+import type { TinoTable } from "./client.js";
+import { createPreferenceEntity } from "./entities.js";
 
 /**
  * DynamoDB-backed PreferencesStore.
@@ -45,13 +40,13 @@ export function createDynamoPreferencesStore(table: TinoTable): PreferencesStore
         .entities(entity)
         .query({
           partition: `PREF#${userId}`,
-          range: { beginsWith: 'PREF#' },
+          range: { beginsWith: "PREF#" },
         })
         .send();
 
       return (Items as Array<{ sk: string; value: string }>)
-        .map(item => ({
-          key: item.sk.replace(/^PREF#/, ''),
+        .map((item) => ({
+          key: item.sk.replace(/^PREF#/, ""),
           value: item.value,
         }))
         .sort((a, b) => a.key.localeCompare(b.key));

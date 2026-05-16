@@ -1,5 +1,5 @@
-import pino from 'pino';
-import type { Env } from '../env.js';
+import pino from "pino";
+import type { Env } from "../env.js";
 
 /**
  * Create the application logger with PHI-safe redaction.
@@ -14,25 +14,23 @@ import type { Env } from '../env.js';
  */
 export function createLogger(env: Env) {
   return pino({
-    level: env.LOG_LEVEL ?? 'info',
+    level: env.LOG_LEVEL ?? "info",
     redact: {
       paths: [
-        'output',
-        'body',
-        'content',
-        'snippet',
-        'messages',
-        'messages[*].content',
-        'authorization',
-        'cookie',
-        'refresh_token',
-        'access_token',
+        "output",
+        "body",
+        "content",
+        "snippet",
+        "messages",
+        "messages[*].content",
+        "authorization",
+        "cookie",
+        "refresh_token",
+        "access_token",
       ],
-      censor: '[Redacted]',
+      censor: "[Redacted]",
     },
     transport:
-      process.env['NODE_ENV'] === 'production'
-        ? undefined
-        : { target: 'pino-pretty', options: { colorize: true } },
+      process.env.NODE_ENV === "production" ? undefined : { target: "pino-pretty", options: { colorize: true } },
   });
 }

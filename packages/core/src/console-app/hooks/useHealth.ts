@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { getHealth, type HealthResponse } from '../lib/api.js';
+import { useEffect, useState } from "react";
+import { getHealth, type HealthResponse } from "../lib/api.js";
 
 export interface UseHealthResult {
   health: HealthResponse | null;

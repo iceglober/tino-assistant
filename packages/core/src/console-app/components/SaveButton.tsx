@@ -1,6 +1,6 @@
-import { useState, type JSX } from 'react';
+import { type JSX, useState } from "react";
 
-export type SaveState = 'idle' | 'saving' | 'saved' | 'error';
+export type SaveState = "idle" | "saving" | "saved" | "error";
 
 /**
  * Primary CTA with built-in loading/saved/error visual states.
@@ -11,10 +11,10 @@ export type SaveState = 'idle' | 'saving' | 'saved' | 'error';
 export function SaveButton({
   state,
   idleLabel,
-  savingLabel = 'saving…',
-  savedLabel = '✓ saved',
-  errorLabel = 'failed — retry',
-  size = 'normal',
+  savingLabel = "saving…",
+  savedLabel = "✓ saved",
+  errorLabel = "failed — retry",
+  size = "normal",
   onClick,
   id,
   disabled,
@@ -25,25 +25,18 @@ export function SaveButton({
   savingLabel?: string;
   savedLabel?: string;
   errorLabel?: string;
-  size?: 'normal' | 'large' | 'setup';
+  size?: "normal" | "large" | "setup";
   onClick: () => void | Promise<void>;
   id?: string;
   disabled?: boolean;
   ariaDescribedBy?: string;
 }): JSX.Element {
-  const sizeClass =
-    size === 'large' ? ' btn-primary-lg' : size === 'setup' ? ' btn-setup' : '';
+  const sizeClass = size === "large" ? " btn-primary-lg" : size === "setup" ? " btn-setup" : "";
   const stateClass =
-    state === 'saving' ? ' saving'
-    : state === 'saved' ? ' saved'
-    : state === 'error' ? ' save-error'
-    : '';
+    state === "saving" ? " saving" : state === "saved" ? " saved" : state === "error" ? " save-error" : "";
 
   const label =
-    state === 'saving' ? savingLabel
-    : state === 'saved' ? savedLabel
-    : state === 'error' ? errorLabel
-    : idleLabel;
+    state === "saving" ? savingLabel : state === "saved" ? savedLabel : state === "error" ? errorLabel : idleLabel;
 
   return (
     <button
@@ -51,7 +44,7 @@ export function SaveButton({
       type="button"
       className={`btn btn-primary${sizeClass}${stateClass}`}
       onClick={() => void onClick()}
-      disabled={disabled || state === 'saving'}
+      disabled={disabled || state === "saving"}
       aria-describedby={ariaDescribedBy}
     >
       {label}
@@ -70,18 +63,18 @@ export function useSaveState(): {
   state: SaveState;
   run: (fn: () => Promise<void>) => Promise<boolean>;
 } {
-  const [state, setState] = useState<SaveState>('idle');
+  const [state, setState] = useState<SaveState>("idle");
 
   const run = async (fn: () => Promise<void>): Promise<boolean> => {
-    setState('saving');
+    setState("saving");
     try {
       await fn();
-      setState('saved');
-      setTimeout(() => setState('idle'), 2000);
+      setState("saved");
+      setTimeout(() => setState("idle"), 2000);
       return true;
     } catch {
-      setState('error');
-      setTimeout(() => setState('idle'), 3000);
+      setState("error");
+      setTimeout(() => setState("idle"), 3000);
       return false;
     }
   };

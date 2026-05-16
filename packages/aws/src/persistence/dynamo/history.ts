@@ -1,9 +1,9 @@
-import type { ModelMessage } from 'ai';
-import { GetItemCommand, PutItemCommand, DeleteItemCommand } from 'dynamodb-toolbox';
-import type { HistoryStore } from '@tino/core/agent/history';
-import { trim } from '@tino/core/agent/history';
-import { createHistoryEntity } from './entities.js';
-import type { TinoTable } from './client.js';
+import type { HistoryStore } from "@tino/core/agent/history";
+import { trim } from "@tino/core/agent/history";
+import type { ModelMessage } from "ai";
+import { DeleteItemCommand, GetItemCommand, PutItemCommand } from "dynamodb-toolbox";
+import type { TinoTable } from "./client.js";
+import { createHistoryEntity } from "./entities.js";
 
 /**
  * DynamoDB-backed HistoryStore.
@@ -21,7 +21,7 @@ export function createDynamoHistoryStore(table: TinoTable, cap = 40): HistorySto
     async get(userId: string): Promise<ModelMessage[]> {
       const { Item } = await entity
         .build(GetItemCommand)
-        .key({ pk: `HISTORY#${userId}`, sk: 'HISTORY' })
+        .key({ pk: `HISTORY#${userId}`, sk: "HISTORY" })
         .send();
 
       if (!Item) return [];
@@ -37,7 +37,7 @@ export function createDynamoHistoryStore(table: TinoTable, cap = 40): HistorySto
         .build(PutItemCommand)
         .item({
           pk: `HISTORY#${userId}`,
-          sk: 'HISTORY',
+          sk: "HISTORY",
           messagesJson: JSON.stringify(trimmed),
           updatedAt: Date.now(),
         })
@@ -47,7 +47,7 @@ export function createDynamoHistoryStore(table: TinoTable, cap = 40): HistorySto
     async reset(userId: string): Promise<void> {
       await entity
         .build(DeleteItemCommand)
-        .key({ pk: `HISTORY#${userId}`, sk: 'HISTORY' })
+        .key({ pk: `HISTORY#${userId}`, sk: "HISTORY" })
         .send();
     },
   };

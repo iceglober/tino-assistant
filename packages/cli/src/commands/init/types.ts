@@ -4,20 +4,20 @@
  */
 export interface DeployConfig {
   compliance: {
-    frameworks: ['hipaa'];
+    frameworks: ["hipaa"];
     baaStatus: {
-      aws: 'verified' | 'manual-confirmed' | 'skipped';
-      bedrock: 'verified' | 'manual-confirmed' | 'skipped';
-      github?: 'confirmed' | 'no-baa' | 'unknown';
-      google?: 'confirmed' | 'no-baa' | 'unknown';
-      linear?: 'confirmed' | 'no-baa' | 'unknown';
+      aws: "verified" | "manual-confirmed" | "skipped";
+      bedrock: "verified" | "manual-confirmed" | "skipped";
+      github?: "confirmed" | "no-baa" | "unknown";
+      google?: "confirmed" | "no-baa" | "unknown";
+      linear?: "confirmed" | "no-baa" | "unknown";
     };
   };
-  provider: 'aws';
+  provider: "aws";
   region: string;
-  iac: 'standalone' | 'existing';
-  infraPath?: string;      // path to existing Pulumi project (only for 'existing')
-  pulumiStack?: string;    // stack name (default: 'dev')
+  iac: "standalone" | "existing";
+  infraPath?: string; // path to existing Pulumi project (only for 'existing')
+  pulumiStack?: string; // stack name (default: 'dev')
   googleOAuthClientId: string;
   googleOAuthClientSecret: string;
   allowedDomain: string;

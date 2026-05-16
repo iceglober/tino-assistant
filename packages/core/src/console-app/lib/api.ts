@@ -20,7 +20,7 @@ export interface CapabilityField {
   key: string;
   label: string;
   target: string;
-  kind?: 'string' | 'string[]';
+  kind?: "string" | "string[]";
   secret?: boolean;
   placeholder?: string;
   value?: string;
@@ -49,8 +49,8 @@ export interface HealthResponse {
 
 export class UnauthorizedError extends Error {
   constructor() {
-    super('unauthorized');
-    this.name = 'UnauthorizedError';
+    super("unauthorized");
+    this.name = "UnauthorizedError";
   }
 }
 
@@ -64,15 +64,15 @@ async function unwrap<T>(res: Response): Promise<T> {
 }
 
 export async function getConfig(): Promise<ConfigEntry[]> {
-  const r = await fetch('/api/config', { credentials: 'include' });
+  const r = await fetch("/api/config", { credentials: "include" });
   return unwrap<ConfigEntry[]>(r);
 }
 
 export async function putConfig(key: string, value: unknown): Promise<{ ok: true; key: string }> {
   const r = await fetch(`/api/config/${encodeURIComponent(key)}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
     body: JSON.stringify({ value }),
   });
   return unwrap(r);
@@ -80,37 +80,34 @@ export async function putConfig(key: string, value: unknown): Promise<{ ok: true
 
 export async function deleteConfig(key: string): Promise<{ ok: true; deleted: boolean }> {
   const r = await fetch(`/api/config/${encodeURIComponent(key)}`, {
-    method: 'DELETE',
-    credentials: 'include',
+    method: "DELETE",
+    credentials: "include",
   });
   return unwrap(r);
 }
 
 export async function getHealth(): Promise<HealthResponse> {
-  const r = await fetch('/api/health', { credentials: 'include' });
+  const r = await fetch("/api/health", { credentials: "include" });
   return unwrap<HealthResponse>(r);
 }
 
 export async function getCapabilities(): Promise<CapabilityEntry[]> {
-  const r = await fetch('/api/capabilities', { credentials: 'include' });
+  const r = await fetch("/api/capabilities", { credentials: "include" });
   return unwrap<CapabilityEntry[]>(r);
 }
 
-export async function putCapability(
-  id: string,
-  data: unknown,
-): Promise<{ ok: true; id: string }> {
+export async function putCapability(id: string, data: unknown): Promise<{ ok: true; id: string }> {
   const r = await fetch(`/api/capabilities/${encodeURIComponent(id)}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
     body: JSON.stringify(data),
   });
   return unwrap(r);
 }
 
 export async function getCompliance(): Promise<unknown> {
-  const r = await fetch('/api/compliance', { credentials: 'include' });
+  const r = await fetch("/api/compliance", { credentials: "include" });
   return unwrap(r);
 }
 
@@ -120,10 +117,10 @@ export interface Session {
 
 export async function getSession(): Promise<Session | null> {
   try {
-    const r = await fetch('/api/auth/get-session', { credentials: 'include' });
+    const r = await fetch("/api/auth/get-session", { credentials: "include" });
     if (!r.ok) return null;
     const data = (await r.json()) as Session | null;
-    return data && data.user ? data : null;
+    return data?.user ? data : null;
   } catch {
     return null;
   }
@@ -131,7 +128,7 @@ export async function getSession(): Promise<Session | null> {
 
 export async function signOut(): Promise<void> {
   try {
-    await fetch('/api/auth/sign-out', { method: 'POST', credentials: 'include' });
+    await fetch("/api/auth/sign-out", { method: "POST", credentials: "include" });
   } catch {
     /* ignore */
   }
@@ -157,7 +154,7 @@ export interface ReloadResult {
  */
 export async function reloadSlack(): Promise<ReloadResult> {
   try {
-    const r = await fetch('/api/reload/slack', { method: 'POST', credentials: 'include' });
+    const r = await fetch("/api/reload/slack", { method: "POST", credentials: "include" });
     if (r.status === 401) throw new UnauthorizedError();
     return (await r.json()) as ReloadResult;
   } catch (err) {
@@ -173,7 +170,7 @@ export async function reloadSlack(): Promise<ReloadResult> {
  */
 export async function reloadCapabilities(): Promise<ReloadResult> {
   try {
-    const r = await fetch('/api/reload/capabilities', { method: 'POST', credentials: 'include' });
+    const r = await fetch("/api/reload/capabilities", { method: "POST", credentials: "include" });
     if (r.status === 401) throw new UnauthorizedError();
     return (await r.json()) as ReloadResult;
   } catch (err) {
@@ -189,7 +186,7 @@ export async function reloadCapabilities(): Promise<ReloadResult> {
  */
 export async function restartTino(): Promise<ReloadResult> {
   try {
-    const r = await fetch('/api/admin/restart', { method: 'POST', credentials: 'include' });
+    const r = await fetch("/api/admin/restart", { method: "POST", credentials: "include" });
     if (r.status === 401) throw new UnauthorizedError();
     return (await r.json()) as ReloadResult;
   } catch (err) {

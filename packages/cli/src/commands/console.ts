@@ -4,8 +4,8 @@
  * Uses AWS ECS exec to open an interactive session with the running container.
  */
 export async function openConsole(_args: string[]): Promise<void> {
-  // eslint-disable-next-line no-console
-  globalThis.console.log('tino console: ECS exec port-forward not yet implemented');
-  // eslint-disable-next-line no-console
-  globalThis.console.log('Use: aws ecs execute-command --cluster tino --task <task-id> --interactive --command /bin/sh');
+  globalThis.console.log("tino console: ECS exec port-forward not yet implemented");
+  globalThis.console.log(
+    "Use: aws ecs execute-command --cluster tino --task <task-id> --interactive --command /bin/sh",
+  );
 }

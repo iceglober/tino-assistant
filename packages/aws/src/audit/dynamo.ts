@@ -9,21 +9,17 @@
  *
  * Query by userId uses a GSI1: gsi1pk=AUDIT_USER#<userId>, gsi1sk=<timestamp zero-padded>
  */
-import {
-  PutItemCommand,
-  QueryCommand,
-  ScanCommand,
-} from 'dynamodb-toolbox';
-import { Entity, item, string, number } from 'dynamodb-toolbox';
-import type { AuditEntry, AuditLogger, AuditQueryOptions } from '@tino/core/audit/logger';
-import type { TinoTable } from '../persistence/dynamo/client.js';
+
+import type { AuditEntry, AuditLogger, AuditQueryOptions } from "@tino/core/audit/logger";
+import { Entity, item, number, PutItemCommand, QueryCommand, ScanCommand, string } from "dynamodb-toolbox";
+import type { TinoTable } from "../persistence/dynamo/client.js";
 
 /** Default retention: 90 days in seconds. */
 const DEFAULT_RETENTION_SECONDS = 90 * 24 * 60 * 60;
 
 function createAuditEntity(table: TinoTable) {
   return new Entity({
-    name: 'Audit',
+    name: "Audit",
     table,
     schema: item({
       pk: string().key(),
@@ -35,7 +31,7 @@ function createAuditEntity(table: TinoTable) {
       action: string(),
       toolName: string().optional(),
       capabilityInstanceId: string().optional(),
-      inputKeys: string().optional(),   // JSON array stored as string
+      inputKeys: string().optional(), // JSON array stored as string
       durationMs: number().optional(),
       status: string(),
       errorMessage: string().optional(),
@@ -47,17 +43,14 @@ function createAuditEntity(table: TinoTable) {
 
 /** Zero-pad a millisecond timestamp to 16 digits for lexicographic sort. */
 function padTimestamp(ms: number): string {
-  return String(ms).padStart(16, '0');
+  return String(ms).padStart(16, "0");
 }
 
-export function createDynamoAuditLogger(
-  table: TinoTable,
-  retentionSeconds = DEFAULT_RETENTION_SECONDS,
-): AuditLogger {
+export function createDynamoAuditLogger(table: TinoTable, retentionSeconds = DEFAULT_RETENTION_SECONDS): AuditLogger {
   const entity = createAuditEntity(table);
 
   return {
-    async log(entry: Omit<AuditEntry, 'timestamp'>): Promise<void> {
+    async log(entry: Omit<AuditEntry, "timestamp">): Promise<void> {
       const ts = Date.now();
       const ttl = Math.floor(ts / 1000) + retentionSeconds;
 
@@ -65,7 +58,7 @@ export function createDynamoAuditLogger(
         .build(PutItemCommand)
         .item({
           pk: `AUDIT#${padTimestamp(ts)}#${entry.userId}`,
-          sk: 'AUDIT',
+          sk: "AUDIT",
           gsi1pk: `AUDIT_USER#${entry.userId}`,
           gsi1sk: padTimestamp(ts),
           timestamp: ts,
@@ -91,11 +84,9 @@ export function createDynamoAuditLogger(
           .build(QueryCommand)
           .entities(entity)
           .query({
-            index: 'gsi1',
+            index: "gsi1",
             partition: `AUDIT_USER#${opts.userId}`,
-            ...(opts.since !== undefined
-              ? { range: { gte: padTimestamp(opts.since) } }
-              : {}),
+            ...(opts.since !== undefined ? { range: { gte: padTimestamp(opts.since) } } : {}),
           })
           .send();
         rawItems = Items as unknown as AuditItem[];
@@ -106,9 +97,7 @@ export function createDynamoAuditLogger(
           .entities(entity)
           .options({
             filters: {
-              Audit: opts.since !== undefined
-                ? { attr: 'timestamp', gte: opts.since }
-                : { attr: 'sk', eq: 'AUDIT' },
+              Audit: opts.since !== undefined ? { attr: "timestamp", gte: opts.since } : { attr: "sk", eq: "AUDIT" },
             },
           })
           .send();
@@ -118,7 +107,7 @@ export function createDynamoAuditLogger(
       let entries = rawItems.map(itemToEntry);
 
       if (opts.action !== undefined) {
-        entries = entries.filter(e => e.action === opts.action);
+        entries = entries.filter((e) => e.action === opts.action);
       }
 
       // Sort newest first
@@ -138,7 +127,7 @@ export function createDynamoAuditLogger(
         .entities(entity)
         .options({
           filters: {
-            Audit: { attr: 'sk', eq: 'AUDIT' },
+            Audit: { attr: "sk", eq: "AUDIT" },
           },
         })
         .send();
@@ -152,13 +141,13 @@ export function createDynamoAuditLogger(
         .entities(entity)
         .options({
           filters: {
-            Audit: { attr: 'sk', eq: 'AUDIT' },
+            Audit: { attr: "sk", eq: "AUDIT" },
           },
         })
         .send();
 
       if (Items.length === 0) return undefined;
-      const timestamps = (Items as unknown as AuditItem[]).map(i => i.timestamp);
+      const timestamps = (Items as unknown as AuditItem[]).map((i) => i.timestamp);
       return Math.max(...timestamps);
     },
   };
@@ -182,14 +171,12 @@ function itemToEntry(item: AuditItem): AuditEntry {
   return {
     timestamp: item.timestamp,
     userId: item.userId,
-    action: item.action as AuditEntry['action'],
+    action: item.action as AuditEntry["action"],
     ...(item.toolName !== undefined ? { toolName: item.toolName } : {}),
     ...(item.capabilityInstanceId !== undefined ? { capabilityInstanceId: item.capabilityInstanceId } : {}),
-    ...(item.inputKeys !== undefined
-      ? { inputKeys: JSON.parse(item.inputKeys) as string[] }
-      : {}),
+    ...(item.inputKeys !== undefined ? { inputKeys: JSON.parse(item.inputKeys) as string[] } : {}),
     ...(item.durationMs !== undefined ? { durationMs: item.durationMs } : {}),
-    status: item.status as AuditEntry['status'],
+    status: item.status as AuditEntry["status"],
     ...(item.errorMessage !== undefined ? { errorMessage: item.errorMessage } : {}),
   };
 }

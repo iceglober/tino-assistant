@@ -1,5 +1,5 @@
-import { KMSClient } from '@aws-sdk/client-kms';
-import { encryptValue, decryptValue, type EncryptedValue } from './envelope.js';
+import type { KMSClient } from "@aws-sdk/client-kms";
+import { decryptValue, type EncryptedValue, encryptValue } from "./envelope.js";
 
 /**
  * EncryptionProvider abstracts envelope encryption so that:
@@ -38,12 +38,7 @@ export class KmsEncryptionProvider implements EncryptionProvider {
   }
 
   async encrypt(userId: string, plaintext: string): Promise<string> {
-    const encrypted = await encryptValue(
-      this.kmsClient,
-      this.kmsKeyId,
-      userId,
-      plaintext,
-    );
+    const encrypted = await encryptValue(this.kmsClient, this.kmsKeyId, userId, plaintext);
     return JSON.stringify(encrypted);
   }
 

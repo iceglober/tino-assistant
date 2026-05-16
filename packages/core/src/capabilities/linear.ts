@@ -7,37 +7,38 @@
  * findWork: polls for issues assigned to tino in autoPickupStates.
  * Migrated from src/scheduler/linear-poller.ts.
  */
-import type { ToolSet } from 'ai';
-import type { ConfigStore } from '../persistence/config.js';
-import type { AppLogger } from '../slack/app.js';
-import type { CapabilityConfig, CapabilityModule } from './types.js';
-import { LinearClient } from '@linear/sdk';
+
+import { LinearClient } from "@linear/sdk";
+import type { ToolSet } from "ai";
+import type { ConfigStore } from "../persistence/config.js";
+import type { AppLogger } from "../slack/app.js";
 import {
-  linearSearchIssuesTool,
-  linearGetIssueTool,
-  linearCreateIssueTool,
-  linearUpdateIssueTool,
   linearAddCommentTool,
+  linearCreateIssueTool,
+  linearGetIssueTool,
   linearListMyIssuesTool,
-} from '../tools/linear/issues.js';
+  linearSearchIssuesTool,
+  linearUpdateIssueTool,
+} from "../tools/linear/issues.js";
+import type { CapabilityConfig, CapabilityModule } from "./types.js";
 
 export const linearCapability: CapabilityModule = {
-  id: 'linear',
-  displayName: 'Linear',
+  id: "linear",
+  displayName: "Linear",
 
   fieldSchema: [
     {
-      key: 'token',
-      label: 'Developer Token',
-      target: 'credentials.token',
+      key: "token",
+      label: "Developer Token",
+      target: "credentials.token",
       secret: true,
-      placeholder: 'lin_api_...',
+      placeholder: "lin_api_...",
     },
     {
-      key: 'defaultTeamKey',
-      label: 'Default Team Key',
-      target: 'settings.defaultTeamKey',
-      placeholder: 'GEN',
+      key: "defaultTeamKey",
+      label: "Default Team Key",
+      target: "settings.defaultTeamKey",
+      placeholder: "GEN",
     },
   ],
 
@@ -47,21 +48,21 @@ export const linearCapability: CapabilityModule = {
     logger: AppLogger,
     tools: ToolSet,
   ): Promise<void> {
-    const token = config.credentials['token'];
+    const token = config.credentials.token;
     if (!token) {
-      throw new Error('Linear capability: credentials.token is not set');
+      throw new Error("Linear capability: credentials.token is not set");
     }
 
     const linearClient = new LinearClient({ apiKey: token });
 
-    tools['linear_search_issues'] = linearSearchIssuesTool(linearClient);
-    tools['linear_get_issue'] = linearGetIssueTool(linearClient);
-    tools['linear_create_issue'] = linearCreateIssueTool(linearClient);
-    tools['linear_update_issue'] = linearUpdateIssueTool(linearClient);
-    tools['linear_add_comment'] = linearAddCommentTool(linearClient);
-    tools['linear_list_my_issues'] = linearListMyIssuesTool(linearClient);
+    tools.linear_search_issues = linearSearchIssuesTool(linearClient);
+    tools.linear_get_issue = linearGetIssueTool(linearClient);
+    tools.linear_create_issue = linearCreateIssueTool(linearClient);
+    tools.linear_update_issue = linearUpdateIssueTool(linearClient);
+    tools.linear_add_comment = linearAddCommentTool(linearClient);
+    tools.linear_list_my_issues = linearListMyIssuesTool(linearClient);
 
-    logger.info('linear tools enabled');
+    logger.info("linear tools enabled");
   },
 
   startFindWork(
@@ -69,9 +70,9 @@ export const linearCapability: CapabilityModule = {
     logger: AppLogger,
     onNewWork: (summary: string) => Promise<void>,
   ): () => void {
-    const token = config.credentials['token'];
+    const token = config.credentials.token;
     if (!token) {
-      logger.warn('linear findWork: credentials.token not set, skipping');
+      logger.warn("linear findWork: credentials.token not set, skipping");
       return () => {};
     }
 
@@ -86,20 +87,20 @@ export const linearCapability: CapabilityModule = {
         const assignedIssues = await linearClient.issues({
           filter: {
             assignee: { id: { eq: me.id } },
-            state: { type: { in: ['backlog', 'unstarted'] } },
+            state: { type: { in: ["backlog", "unstarted"] } },
           },
           first: 20,
         });
 
         const issues = assignedIssues.nodes;
-        const newIssues = issues.filter(i => !seenIssueIds.has(i.id));
+        const newIssues = issues.filter((i) => !seenIssueIds.has(i.id));
 
         if (newIssues.length === 0) {
-          logger.debug('linear findWork: no new assigned issues');
+          logger.debug("linear findWork: no new assigned issues");
           return;
         }
 
-        logger.info({ count: newIssues.length }, 'linear findWork: found new assigned issues');
+        logger.info({ count: newIssues.length }, "linear findWork: found new assigned issues");
 
         for (const issue of newIssues) {
           seenIssueIds.add(issue.id);
@@ -109,18 +110,20 @@ export const linearCapability: CapabilityModule = {
               `- Identifier: ${issue.identifier}`,
               `- Title: ${issue.title}`,
               `- URL: ${issue.url}`,
-              issue.description ? `- Description: ${issue.description}` : '',
-            ].filter(Boolean).join('\n');
+              issue.description ? `- Description: ${issue.description}` : "",
+            ]
+              .filter(Boolean)
+              .join("\n");
             await onNewWork(summary);
           } catch (err) {
             logger.error(
               { issueId: issue.id, identifier: issue.identifier, err: (err as Error).message },
-              'linear findWork: failed to process issue',
+              "linear findWork: failed to process issue",
             );
           }
         }
       } catch (err) {
-        logger.error({ err: (err as Error).message }, 'linear findWork: poll failed');
+        logger.error({ err: (err as Error).message }, "linear findWork: poll failed");
       }
     };
 
@@ -128,7 +131,7 @@ export const linearCapability: CapabilityModule = {
     void poll();
     const handle = setInterval(() => void poll(), intervalMs);
 
-    logger.info({ intervalMinutes }, 'linear findWork poller started');
+    logger.info({ intervalMinutes }, "linear findWork poller started");
     return () => clearInterval(handle);
   },
 };

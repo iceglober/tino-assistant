@@ -6,27 +6,28 @@
  *
  * findWork: stub (not yet implemented — enabled=false by default).
  */
-import type { ToolSet } from 'ai';
-import { webApi } from '@slack/bolt';
-import type { ConfigStore } from '../persistence/config.js';
-import type { AppLogger } from '../slack/app.js';
-import type { CapabilityConfig, CapabilityModule } from './types.js';
-import { createUserCache } from '../slack/userCache.js';
-import { slackSearchMessagesTool } from '../tools/slack/search.js';
-import { slackReadThreadTool } from '../tools/slack/thread.js';
-import { slackListDmsTool, slackReadDmTool } from '../tools/slack/dms.js';
+
+import { webApi } from "@slack/bolt";
+import type { ToolSet } from "ai";
+import type { ConfigStore } from "../persistence/config.js";
+import type { AppLogger } from "../slack/app.js";
+import { createUserCache } from "../slack/userCache.js";
+import { slackListDmsTool, slackReadDmTool } from "../tools/slack/dms.js";
+import { slackSearchMessagesTool } from "../tools/slack/search.js";
+import { slackReadThreadTool } from "../tools/slack/thread.js";
+import type { CapabilityConfig, CapabilityModule } from "./types.js";
 
 export const slackCapability: CapabilityModule = {
-  id: 'slack',
-  displayName: 'Slack',
+  id: "slack",
+  displayName: "Slack",
 
   fieldSchema: [
     {
-      key: 'userToken',
-      label: 'User Token (xoxp-)',
-      target: 'credentials.userToken',
+      key: "userToken",
+      label: "User Token (xoxp-)",
+      target: "credentials.userToken",
       secret: true,
-      placeholder: 'xoxp-...',
+      placeholder: "xoxp-...",
     },
   ],
 
@@ -36,9 +37,9 @@ export const slackCapability: CapabilityModule = {
     logger: AppLogger,
     tools: ToolSet,
   ): Promise<void> {
-    const userToken = config.credentials['userToken'];
+    const userToken = config.credentials.userToken;
     if (!userToken) {
-      throw new Error('Slack capability: credentials.userToken is not set');
+      throw new Error("Slack capability: credentials.userToken is not set");
     }
 
     const userClient = new webApi.WebClient(userToken);
@@ -49,15 +50,15 @@ export const slackCapability: CapabilityModule = {
     } catch (cacheErr) {
       logger.warn(
         { err: (cacheErr as Error).message },
-        'slack user cache failed to load — tools will use user IDs instead of display names',
+        "slack user cache failed to load — tools will use user IDs instead of display names",
       );
     }
 
-    tools['slack_search_messages'] = slackSearchMessagesTool(userClient, userCache);
-    tools['slack_read_thread'] = slackReadThreadTool(userClient, userCache);
-    tools['slack_list_dms'] = slackListDmsTool(userClient, userCache);
-    tools['slack_read_dm'] = slackReadDmTool(userClient, userCache);
+    tools.slack_search_messages = slackSearchMessagesTool(userClient, userCache);
+    tools.slack_read_thread = slackReadThreadTool(userClient, userCache);
+    tools.slack_list_dms = slackListDmsTool(userClient, userCache);
+    tools.slack_read_dm = slackReadDmTool(userClient, userCache);
 
-    logger.info({ userCacheLoaded: !!userCache }, 'slack reading tools enabled');
+    logger.info({ userCacheLoaded: !!userCache }, "slack reading tools enabled");
   },
 };

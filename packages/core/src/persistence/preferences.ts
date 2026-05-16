@@ -1,4 +1,4 @@
-import { Database } from 'bun:sqlite';
+import { Database } from "bun:sqlite";
 
 /**
  * Simple key-value preference store backed by SQLite.
@@ -29,9 +29,7 @@ export function createPreferencesStore({ dbPath }: { dbPath: string }): Preferen
     )
   `);
 
-  const stmtGet = db.query(
-    'SELECT value FROM preferences WHERE user_id = ? AND key = ?',
-  );
+  const stmtGet = db.query("SELECT value FROM preferences WHERE user_id = ? AND key = ?");
 
   const stmtUpsert = db.query(
     `INSERT INTO preferences (user_id, key, value, updated_at)
@@ -41,13 +39,9 @@ export function createPreferencesStore({ dbPath }: { dbPath: string }): Preferen
        updated_at = excluded.updated_at`,
   );
 
-  const stmtList = db.query(
-    'SELECT key, value FROM preferences WHERE user_id = ? ORDER BY key',
-  );
+  const stmtList = db.query("SELECT key, value FROM preferences WHERE user_id = ? ORDER BY key");
 
-  const stmtDelete = db.query(
-    'DELETE FROM preferences WHERE user_id = ? AND key = ?',
-  );
+  const stmtDelete = db.query("DELETE FROM preferences WHERE user_id = ? AND key = ?");
 
   return {
     get(userId: string, key: string): Promise<string | null> {

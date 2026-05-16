@@ -1,6 +1,6 @@
-import { useState, type JSX } from 'react';
-import type { Session } from '../lib/api.js';
-import { restartTino } from '../lib/api.js';
+import { type JSX, useState } from "react";
+import type { Session } from "../lib/api.js";
+import { restartTino } from "../lib/api.js";
 
 /**
  * Console header — logo, wordmark, status dot, signed-in user, sign out, restart.
@@ -23,7 +23,7 @@ export function Header({
   session,
   onSignOut,
 }: {
-  status: 'ok' | 'degraded' | 'unreachable' | 'checking';
+  status: "ok" | "degraded" | "unreachable" | "checking";
   session: Session | null;
   onSignOut: () => void;
 }): JSX.Element {
@@ -31,16 +31,19 @@ export function Header({
   const [restartError, setRestartError] = useState<string | null>(null);
 
   const statusText =
-    status === 'ok' ? 'running'
-    : status === 'degraded' ? 'degraded'
-    : status === 'unreachable' ? 'unreachable'
-    : 'checking…';
+    status === "ok"
+      ? "running"
+      : status === "degraded"
+        ? "degraded"
+        : status === "unreachable"
+          ? "unreachable"
+          : "checking…";
 
   const onRestart = async (): Promise<void> => {
     if (restarting) return;
-    if (typeof window !== 'undefined') {
+    if (typeof window !== "undefined") {
       const ok = window.confirm(
-        'Restart tino? The console will be unreachable for ~30 seconds while ECS rolls the task.',
+        "Restart tino? The console will be unreachable for ~30 seconds while ECS rolls the task.",
       );
       if (!ok) return;
     }
@@ -48,12 +51,12 @@ export function Header({
     setRestartError(null);
     const result = await restartTino();
     if (!result.ok) {
-      setRestartError(result.error ?? 'restart request failed');
+      setRestartError(result.error ?? "restart request failed");
       setRestarting(false);
       return;
     }
     // Wait 30 seconds for ECS to roll the task, then refresh.
-    if (typeof window !== 'undefined') {
+    if (typeof window !== "undefined") {
       window.setTimeout(() => window.location.reload(), 30000);
     }
   };
@@ -67,7 +70,7 @@ export function Header({
           <div className="header-sub">personal assistant</div>
         </div>
         <div className="header-status" aria-live="polite">
-          <div className={`status-dot${status === 'ok' ? ' ok' : ''}`} />
+          <div className={`status-dot${status === "ok" ? " ok" : ""}`} />
           <span>{statusText}</span>
         </div>
         {session?.user.email ? (
@@ -90,7 +93,7 @@ export function Header({
           </div>
         ) : null}
         {restartError ? (
-          <div role="alert" style={{ color: 'var(--err)', marginLeft: 12 }}>
+          <div role="alert" style={{ color: "var(--err)", marginLeft: 12 }}>
             {restartError}
           </div>
         ) : null}
@@ -112,25 +115,21 @@ function RestartOverlay(): JSX.Element {
       aria-live="assertive"
       aria-label="Restarting tino"
       style={{
-        position: 'fixed',
+        position: "fixed",
         inset: 0,
-        background: 'var(--bg-deep)',
+        background: "var(--bg-deep)",
         opacity: 0.95,
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
         zIndex: 9999,
         gap: 16,
-        color: 'var(--accent)',
+        color: "var(--accent)",
       }}
     >
-      <div style={{ fontSize: 28, fontWeight: 600, letterSpacing: '0.05em' }}>
-        restarting tino…
-      </div>
-      <div style={{ fontSize: 14, opacity: 0.8 }}>
-        ECS is rolling the task. This page will refresh in ~30 seconds.
-      </div>
+      <div style={{ fontSize: 28, fontWeight: 600, letterSpacing: "0.05em" }}>restarting tino…</div>
+      <div style={{ fontSize: 14, opacity: 0.8 }}>ECS is rolling the task. This page will refresh in ~30 seconds.</div>
     </div>
   );
 }

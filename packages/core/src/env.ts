@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from "zod";
 
 /**
  * Bootstrap-only environment schema.
@@ -21,7 +21,7 @@ import { z } from 'zod';
 const EnvSchema = z.object({
   // Persistence adapter selection. Default: 'sqlite' (local dev).
   // Set to 'dynamodb' in production (requires DYNAMODB_TABLE_NAME).
-  PERSISTENCE_ADAPTER: z.enum(['sqlite', 'dynamodb']).optional(),
+  PERSISTENCE_ADAPTER: z.enum(["sqlite", "dynamodb"]).optional(),
 
   // Optional: path to the SQLite database file for conversation history.
   // Default applied at consumption time: './tino.db'.
@@ -35,7 +35,7 @@ const EnvSchema = z.object({
   // When unset, the SDK connects to AWS (table must already exist via CDK).
   DYNAMODB_ENDPOINT: z.string().url().optional(),
 
-  LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']).default('info'),
+  LOG_LEVEL: z.enum(["trace", "debug", "info", "warn", "error", "fatal"]).default("info"),
 
   NODE_ENV: z.string().optional(),
 
@@ -76,7 +76,7 @@ export type Env = z.infer<typeof EnvSchema>;
 function stripEmpty(bag: NodeJS.ProcessEnv): Record<string, string | undefined> {
   const out: Record<string, string | undefined> = {};
   for (const [k, v] of Object.entries(bag)) {
-    if (v !== undefined && v !== '') out[k] = v;
+    if (v !== undefined && v !== "") out[k] = v;
   }
   return out;
 }
@@ -84,7 +84,7 @@ function stripEmpty(bag: NodeJS.ProcessEnv): Record<string, string | undefined> 
 export function loadEnv(): Env {
   const result = EnvSchema.safeParse(stripEmpty(process.env));
   if (!result.success) {
-    const issues = result.error.issues.map(i => `  ${i.path.join('.')}: ${i.message}`).join('\n');
+    const issues = result.error.issues.map((i) => `  ${i.path.join(".")}: ${i.message}`).join("\n");
     throw new Error(`Environment validation failed:\n${issues}\n\nSee .env.example for required variables.`);
   }
   return result.data;

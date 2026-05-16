@@ -1,10 +1,10 @@
-import type { Env } from '../env.js';
-import type { AppLogger } from '../slack/app.js';
-import type { HistoryStore } from '../agent/history.js';
-import type { TaskStore } from './tasks.js';
-import type { PreferencesStore } from './preferences.js';
-import type { ConfigStore } from './config.js';
-import type { AuditLogger } from '../audit/logger.js';
+import type { HistoryStore } from "../agent/history.js";
+import type { AuditLogger } from "../audit/logger.js";
+import type { Env } from "../env.js";
+import type { AppLogger } from "../slack/app.js";
+import type { ConfigStore } from "./config.js";
+import type { PreferencesStore } from "./preferences.js";
+import type { TaskStore } from "./tasks.js";
 
 export interface Persistence {
   history: HistoryStore;
@@ -35,24 +35,23 @@ export interface Persistence {
  * Dynamic imports keep the DynamoDB SDK out of the bundle when using SQLite.
  */
 export async function createPersistence(env: Env, logger: AppLogger): Promise<Persistence> {
-  const adapter = env.PERSISTENCE_ADAPTER ?? 'sqlite';
+  const adapter = env.PERSISTENCE_ADAPTER ?? "sqlite";
 
-  if (adapter === 'dynamodb') {
+  if (adapter === "dynamodb") {
     // Dynamic import keeps @tino/aws out of core's dependency tree
     // when using SQLite. The import only resolves if @tino/aws is installed.
-    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-    // @ts-ignore — @tino/aws is an optional peer; not in core's dep tree
-    const { createDynamoPersistence } = await import('@tino/aws/persistence');
+    // @ts-expect-error — @tino/aws is an optional peer; not in core's dep tree
+    const { createDynamoPersistence } = await import("@tino/aws/persistence");
     return createDynamoPersistence(env, logger);
   }
 
   // Default: SQLite
-  const dbPath = env.DB_PATH ?? './tino.db';
-  const { createSqliteHistoryStore } = await import('./sqlite.js');
-  const { createTaskStore } = await import('./tasks.js');
-  const { createPreferencesStore } = await import('./preferences.js');
-  const { createConfigStore } = await import('./config.js');
-  const { createMemoryAuditLogger } = await import('../audit/memory.js');
+  const dbPath = env.DB_PATH ?? "./tino.db";
+  const { createSqliteHistoryStore } = await import("./sqlite.js");
+  const { createTaskStore } = await import("./tasks.js");
+  const { createPreferencesStore } = await import("./preferences.js");
+  const { createConfigStore } = await import("./config.js");
+  const { createMemoryAuditLogger } = await import("../audit/memory.js");
 
   const history = createSqliteHistoryStore({ dbPath, cap: 40 });
   const tasks = createTaskStore({ dbPath });
@@ -60,6 +59,6 @@ export async function createPersistence(env: Env, logger: AppLogger): Promise<Pe
   const config = createConfigStore({ dbPath });
   const auditLogger = createMemoryAuditLogger();
 
-  logger.info({ adapter: 'sqlite', dbPath }, 'persistence initialized');
+  logger.info({ adapter: "sqlite", dbPath }, "persistence initialized");
   return { history, tasks, preferences, config, auditLogger };
 }

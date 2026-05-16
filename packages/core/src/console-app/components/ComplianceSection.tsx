@@ -1,5 +1,5 @@
-import { useEffect, useState, type JSX } from 'react';
-import { getCompliance } from '../lib/api.js';
+import { type JSX, useEffect, useState } from "react";
+import { getCompliance } from "../lib/api.js";
 
 interface ComplianceData {
   hipaa?: {
@@ -11,7 +11,7 @@ interface ComplianceData {
   };
 }
 
-type Status = 'ok' | 'warn' | 'err' | 'dim';
+type Status = "ok" | "warn" | "err" | "dim";
 
 interface Row {
   service: string;
@@ -50,7 +50,7 @@ export function ComplianceSection(): JSX.Element {
   }, [open, rows.length, loading]);
 
   return (
-    <div className={`compliance-section${open ? ' open' : ''}`}>
+    <div className={`compliance-section${open ? " open" : ""}`}>
       <button
         className="compliance-toggle"
         type="button"
@@ -109,19 +109,19 @@ function deriveRows(data: ComplianceData): Row[] {
   // Audit logging
   if (h.auditLogging) {
     rows.push({
-      service: 'audit logging',
-      status: h.auditLogging.enabled ? 'ok' : 'warn',
+      service: "audit logging",
+      status: h.auditLogging.enabled ? "ok" : "warn",
       detail: h.auditLogging.enabled
         ? `${h.auditLogging.entryCount} entries, ${h.auditLogging.retentionDays}d retention`
-        : 'disabled',
+        : "disabled",
     });
   }
 
   // Data retention
   if (h.dataRetention) {
     rows.push({
-      service: 'data retention',
-      status: h.dataRetention.ttlEnabled ? 'ok' : 'warn',
+      service: "data retention",
+      status: h.dataRetention.ttlEnabled ? "ok" : "warn",
       detail: `history ${h.dataRetention.historyRetentionDays}d, audit ${h.dataRetention.auditRetentionDays}d`,
     });
   }
@@ -131,7 +131,7 @@ function deriveRows(data: ComplianceData): Row[] {
     for (const [svc, state] of Object.entries(h.encryption)) {
       rows.push({
         service: `encryption · ${svc}`,
-        status: state === 'enabled' ? 'ok' : state === 'disabled' ? 'err' : 'dim',
+        status: state === "enabled" ? "ok" : state === "disabled" ? "err" : "dim",
         detail: state,
       });
     }
@@ -140,7 +140,7 @@ function deriveRows(data: ComplianceData): Row[] {
   // BAA status
   if (h.baaStatus) {
     for (const [svc, state] of Object.entries(h.baaStatus)) {
-      const status: Status = state === 'signed' ? 'ok' : state === 'no-baa' ? 'err' : 'dim';
+      const status: Status = state === "signed" ? "ok" : state === "no-baa" ? "err" : "dim";
       rows.push({ service: `BAA · ${svc}`, status, detail: state });
     }
   }
@@ -148,8 +148,8 @@ function deriveRows(data: ComplianceData): Row[] {
   // Access control
   if (h.accessControl) {
     rows.push({
-      service: 'access control',
-      status: 'ok',
+      service: "access control",
+      status: "ok",
       detail: `${h.accessControl.userCount} user(s), ${h.accessControl.adminCount} admin(s)`,
     });
   }

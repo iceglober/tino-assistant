@@ -1,6 +1,6 @@
-import { createContext, useContext, useState, useRef, type ReactNode, type JSX } from 'react';
+import { createContext, type JSX, type ReactNode, useContext, useRef, useState } from "react";
 
-export type ToastLevel = 'ok' | 'err' | '';
+export type ToastLevel = "ok" | "err" | "";
 
 interface ToastState {
   msg: string;
@@ -23,8 +23,8 @@ const ToastContext = createContext<ToastApi | null>(null);
  */
 export function ToastProvider({ children }: { children: ReactNode }): JSX.Element {
   const [state, setState] = useState<ToastState>({
-    msg: '',
-    level: '',
+    msg: "",
+    level: "",
     undoFn: null,
     visible: false,
   });
@@ -35,12 +35,15 @@ export function ToastProvider({ children }: { children: ReactNode }): JSX.Elemen
     setState((s) => ({ ...s, visible: false }));
   };
 
-  const show: ToastApi['show'] = (msg, level = '', undoFn = null) => {
+  const show: ToastApi["show"] = (msg, level = "", undoFn = null) => {
     if (timerRef.current) clearTimeout(timerRef.current);
     setState({ msg, level, undoFn, visible: true });
-    timerRef.current = setTimeout(() => {
-      setState((s) => ({ ...s, visible: false }));
-    }, undoFn ? 5000 : 2500);
+    timerRef.current = setTimeout(
+      () => {
+        setState((s) => ({ ...s, visible: false }));
+      },
+      undoFn ? 5000 : 2500,
+    );
   };
 
   const handleUndo = (): void => {
@@ -51,10 +54,12 @@ export function ToastProvider({ children }: { children: ReactNode }): JSX.Elemen
   return (
     <ToastContext.Provider value={{ show, hide }}>
       {children}
-      <div id="toast" className={state.visible ? `show ${state.level}` : ''} role="status" aria-live="polite">
+      <div id="toast" className={state.visible ? `show ${state.level}` : ""} role="status" aria-live="polite">
         <span id="toast-msg">{state.msg}</span>
         {state.undoFn ? (
-          <button id="toast-undo" onClick={handleUndo} type="button">undo</button>
+          <button id="toast-undo" onClick={handleUndo} type="button">
+            undo
+          </button>
         ) : null}
       </div>
     </ToastContext.Provider>
@@ -63,6 +68,6 @@ export function ToastProvider({ children }: { children: ReactNode }): JSX.Elemen
 
 export function useToast(): ToastApi {
   const ctx = useContext(ToastContext);
-  if (!ctx) throw new Error('useToast must be used inside <ToastProvider>');
+  if (!ctx) throw new Error("useToast must be used inside <ToastProvider>");
   return ctx;
 }

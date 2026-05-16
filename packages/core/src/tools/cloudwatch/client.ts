@@ -1,6 +1,6 @@
-import { CloudWatchLogsClient } from '@aws-sdk/client-cloudwatch-logs';
-import { fromNodeProviderChain } from '@aws-sdk/credential-providers';
-import type { Env } from '../../env.js';
+import { CloudWatchLogsClient } from "@aws-sdk/client-cloudwatch-logs";
+import { fromNodeProviderChain } from "@aws-sdk/credential-providers";
+import type { Env } from "../../env.js";
 
 /**
  * Single shared CloudWatch Logs client.

@@ -1,17 +1,17 @@
-import { useEffect, useState, type JSX } from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import { Login } from './pages/Login.js';
-import { Setup } from './pages/Setup.js';
-import { Console, fetchInitialConsoleValues } from './pages/Console.js';
-import { ToastProvider } from './hooks/useToast.js';
-import { InsecureBanner } from './components/InsecureBanner.js';
-import { getConfig, getSession, type Session, UnauthorizedError } from './lib/api.js';
+import { type JSX, useEffect, useState } from "react";
+import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { InsecureBanner } from "./components/InsecureBanner.js";
+import { ToastProvider } from "./hooks/useToast.js";
+import { getConfig, type Session, UnauthorizedError } from "./lib/api.js";
+import { Console, fetchInitialConsoleValues } from "./pages/Console.js";
+import { Login } from "./pages/Login.js";
+import { Setup } from "./pages/Setup.js";
 
 type AppState =
-  | { kind: 'loading' }
-  | { kind: 'login' }
-  | { kind: 'setup'; step: 1 | 2 }
-  | { kind: 'console'; values: Awaited<ReturnType<typeof fetchInitialConsoleValues>> };
+  | { kind: "loading" }
+  | { kind: "login" }
+  | { kind: "setup"; step: 1 | 2 }
+  | { kind: "console"; values: Awaited<ReturnType<typeof fetchInitialConsoleValues>> };
 
 /**
  * Top-level routing logic.
@@ -32,7 +32,7 @@ type AppState =
  * behaviour where the inline JS just reloaded on 401.
  */
 function AppRouter(): JSX.Element {
-  const [state, setState] = useState<AppState>({ kind: 'loading' });
+  const [state, setState] = useState<AppState>({ kind: "loading" });
 
   useEffect(() => {
     void (async () => {
@@ -52,37 +52,41 @@ function AppRouter(): JSX.Element {
           }),
         ) as Record<string, unknown>;
 
-        const hasSlack = !!(cfg['slack.botToken'] && cfg['slack.appToken']);
-        const hasBasics = !!(cfg['bedrock.modelId'] && cfg['slack.adminUserId']);
+        const hasSlack = !!(cfg["slack.botToken"] && cfg["slack.appToken"]);
+        const hasBasics = !!(cfg["bedrock.modelId"] && cfg["slack.adminUserId"]);
 
         if (!hasSlack) {
-          setState({ kind: 'setup', step: 1 });
+          setState({ kind: "setup", step: 1 });
           return;
         }
         if (!hasBasics) {
-          setState({ kind: 'setup', step: 2 });
+          setState({ kind: "setup", step: 2 });
           return;
         }
 
         const values = await fetchInitialConsoleValues();
-        setState({ kind: 'console', values });
+        setState({ kind: "console", values });
       } catch (err) {
         if (err instanceof UnauthorizedError) {
-          setState({ kind: 'login' });
+          setState({ kind: "login" });
         } else {
           // Couldn't reach the API — best fallback is the welcome screen so
           // the user at least sees something useful (matches legacy behaviour).
-          setState({ kind: 'setup', step: 1 });
+          setState({ kind: "setup", step: 1 });
         }
       }
     })();
   }, []);
 
-  if (state.kind === 'loading') {
-    return <div className="page" style={{ color: 'var(--text-dim)' }}>loading…</div>;
+  if (state.kind === "loading") {
+    return (
+      <div className="page" style={{ color: "var(--text-dim)" }}>
+        loading…
+      </div>
+    );
   }
-  if (state.kind === 'login') return <Login />;
-  if (state.kind === 'setup') return <Setup initialStep={state.step} />;
+  if (state.kind === "login") return <Login />;
+  if (state.kind === "setup") return <Setup initialStep={state.step} />;
   return (
     <Console
       initialSlackBot={state.values.slackBot}

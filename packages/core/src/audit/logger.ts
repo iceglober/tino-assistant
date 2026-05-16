@@ -15,21 +15,21 @@ export interface AuditEntry {
   timestamp: number;
   userId: string;
   action:
-    | 'tool_call'
-    | 'config_change'
-    | 'login'
-    | 'capability_toggle'
-    | 'task_scheduled'
-    | 'task_executed'
-    | 'injection_suspected'
-    | 'user_deprovisioned'
-    | 'admin_restart';
+    | "tool_call"
+    | "config_change"
+    | "login"
+    | "capability_toggle"
+    | "task_scheduled"
+    | "task_executed"
+    | "injection_suspected"
+    | "user_deprovisioned"
+    | "admin_restart";
   toolName?: string;
   capabilityInstanceId?: string;
   /** Parameter KEYS only — never values (values may contain PII or secrets). */
   inputKeys?: string[];
   durationMs?: number;
-  status: 'success' | 'error' | 'denied';
+  status: "success" | "error" | "denied";
   errorMessage?: string;
 }
 
@@ -41,7 +41,7 @@ export interface AuditQueryOptions {
 }
 
 export interface AuditLogger {
-  log(entry: Omit<AuditEntry, 'timestamp'>): Promise<void>;
+  log(entry: Omit<AuditEntry, "timestamp">): Promise<void>;
   query(opts: AuditQueryOptions): Promise<AuditEntry[]>;
   /** Total number of entries stored. */
   count(): Promise<number>;

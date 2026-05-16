@@ -1,8 +1,8 @@
-import { betterAuth, type Auth } from 'better-auth';
-import { getMigrations } from 'better-auth/db/migration';
-import { Database } from 'bun:sqlite';
-import type { MiddlewareHandler } from 'hono';
-import type { AppLogger } from '../../slack/app.js';
+import { Database } from "bun:sqlite";
+import { type Auth, betterAuth } from "better-auth";
+import { getMigrations } from "better-auth/db/migration";
+import type { MiddlewareHandler } from "hono";
+import type { AppLogger } from "../../slack/app.js";
 
 /**
  * Build a better-auth instance.
@@ -37,14 +37,14 @@ export async function createAuth(opts: {
   dbPath?: string;
   logger?: AppLogger;
 }): Promise<Auth> {
-  const envSecret = process.env['BETTER_AUTH_SECRET'];
+  const envSecret = process.env.BETTER_AUTH_SECRET;
   if (!envSecret) {
     // Without a stable secret, every process restart silently invalidates
     // ALL outstanding sessions. Use a per-process random fallback so dev
     // works, but warn loudly so production deployments fix it.
     opts.logger?.warn(
-      { fix: 'set BETTER_AUTH_SECRET env var (Pulumi: SecretsManager)' },
-      'BETTER_AUTH_SECRET not set — sessions will be invalidated on every restart',
+      { fix: "set BETTER_AUTH_SECRET env var (Pulumi: SecretsManager)" },
+      "BETTER_AUTH_SECRET not set — sessions will be invalidated on every restart",
     );
   }
   const secret = envSecret ?? crypto.randomUUID();
@@ -52,7 +52,7 @@ export async function createAuth(opts: {
   const auth = betterAuth({
     baseURL: opts.baseUrl,
     secret,
-    database: new Database(opts.dbPath ?? './tino-auth.db'),
+    database: new Database(opts.dbPath ?? "./tino-auth.db"),
     socialProviders: {
       google: {
         clientId: opts.googleClientId,
@@ -65,7 +65,7 @@ export async function createAuth(opts: {
   // Auto-create tables on first run.
   // `auth.options` is a BetterAuthOptions but the public type is loose; cast
   // through `any` matches the legacy behaviour at the old `console/auth.ts:28`.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // biome-ignore lint/suspicious/noExplicitAny: better-auth options bag is untyped
   const { runMigrations } = await getMigrations((auth as any).options);
   await runMigrations();
 
@@ -108,11 +108,7 @@ export function buildAuthMiddleware(opts: {
     const url = c.req.path;
 
     // Public paths that bypass auth (auth routes themselves, health for ALB, static assets)
-    if (
-      url.startsWith('/api/auth/') ||
-      url === '/api/health' ||
-      url.startsWith('/assets/')
-    ) {
+    if (url.startsWith("/api/auth/") || url === "/api/health" || url.startsWith("/assets/")) {
       await next();
       return;
     }
@@ -127,8 +123,8 @@ export function buildAuthMiddleware(opts: {
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
 
     if (!session) {
-      if (url.startsWith('/api/')) {
-        return c.json({ error: 'unauthorized', message: 'sign in required' }, 401);
+      if (url.startsWith("/api/")) {
+        return c.json({ error: "unauthorized", message: "sign in required" }, 401);
       }
       // Non-API: fall through. Hono's SPA fallback serves index.html and the
       // React app shows the <Login> page when /api/auth/get-session returns null.
@@ -138,14 +134,11 @@ export function buildAuthMiddleware(opts: {
 
     // Domain allowlist
     if (allowedDomain && !session.user.email?.endsWith(`@${allowedDomain}`)) {
-      return c.json(
-        { error: 'forbidden', message: `Only @${allowedDomain} accounts allowed` },
-        403,
-      );
+      return c.json({ error: "forbidden", message: `Only @${allowedDomain} accounts allowed` }, 403);
     }
 
     // Stash user on context for downstream handlers
-    c.set('user', {
+    c.set("user", {
       id: session.user.id,
       email: session.user.email,
       name: session.user.name,

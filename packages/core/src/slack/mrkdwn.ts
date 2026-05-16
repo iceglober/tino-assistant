@@ -29,17 +29,19 @@
  *   worry about it — Claude almost never nests these.
  */
 export function toSlackMrkdwn(text: string): string {
-  return text
-    // Headers: # Header → *Header* (and strip the # prefix)
-    // Match start-of-line, 1-6 # chars, optional space, then the header text.
-    .replace(/^(#{1,6})\s+(.+)$/gm, '*$2*')
-    // Bold: **foo** → *foo*. Use a lazy match to avoid swallowing across
-    // multiple bold spans on the same line.
-    .replace(/\*\*([^*\n]+?)\*\*/g, '*$1*')
-    // Bold (alt): __foo__ → *foo*
-    .replace(/__([^_\n]+?)__/g, '*$1*')
-    // Strike: ~~foo~~ → ~foo~
-    .replace(/~~([^~\n]+?)~~/g, '~$1~')
-    // Links: [text](url) → <url|text>
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<$2|$1>');
+  return (
+    text
+      // Headers: # Header → *Header* (and strip the # prefix)
+      // Match start-of-line, 1-6 # chars, optional space, then the header text.
+      .replace(/^(#{1,6})\s+(.+)$/gm, "*$2*")
+      // Bold: **foo** → *foo*. Use a lazy match to avoid swallowing across
+      // multiple bold spans on the same line.
+      .replace(/\*\*([^*\n]+?)\*\*/g, "*$1*")
+      // Bold (alt): __foo__ → *foo*
+      .replace(/__([^_\n]+?)__/g, "*$1*")
+      // Strike: ~~foo~~ → ~foo~
+      .replace(/~~([^~\n]+?)~~/g, "~$1~")
+      // Links: [text](url) → <url|text>
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, "<$2|$1>")
+  );
 }

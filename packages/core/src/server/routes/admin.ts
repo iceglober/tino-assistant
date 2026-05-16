@@ -1,6 +1,6 @@
-import { Hono } from 'hono';
-import type { AppLogger } from '../../slack/app.js';
-import type { AuditLogger } from '../../audit/logger.js';
+import { Hono } from "hono";
+import type { AuditLogger } from "../../audit/logger.js";
+import type { AppLogger } from "../../slack/app.js";
 
 /**
  * /api/admin — admin-only operational endpoints.
@@ -29,20 +29,20 @@ export function createAdminRoutes(opts: {
   const app = new Hono();
   const { logger, auditLogger, shutdown } = opts;
 
-  app.post('/restart', async (c) => {
+  app.post("/restart", async (c) => {
     if (auditLogger) {
       await auditLogger.log({
-        userId: 'console',
-        action: 'admin_restart',
-        status: 'success',
+        userId: "console",
+        action: "admin_restart",
+        status: "success",
       });
     }
-    logger.info('admin restart requested via console');
+    logger.info("admin restart requested via console");
 
     // Defer the actual shutdown so the 202 response flushes first.
     setTimeout(() => {
-      void Promise.resolve(shutdown('admin')).catch((err: unknown) => {
-        logger.error({ err: (err as Error).message }, 'shutdown callback threw');
+      void Promise.resolve(shutdown("admin")).catch((err: unknown) => {
+        logger.error({ err: (err as Error).message }, "shutdown callback threw");
       });
     }, 100);
 

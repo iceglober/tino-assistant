@@ -1,7 +1,7 @@
-import { Hono } from 'hono';
-import type { ConfigStore } from '../../persistence/config.js';
-import type { AppLogger } from '../../slack/app.js';
-import type { AuditLogger } from '../../audit/logger.js';
+import { Hono } from "hono";
+import type { AuditLogger } from "../../audit/logger.js";
+import type { ConfigStore } from "../../persistence/config.js";
+import type { AppLogger } from "../../slack/app.js";
 
 /**
  * /api/users — admin user-management endpoints.
@@ -21,12 +21,12 @@ export function createUsersRoutes(opts: {
   const app = new Hono();
   const { config, logger, auditLogger } = opts;
 
-  app.delete('/:userId', async (c) => {
-    const targetUserId = decodeURIComponent(c.req.param('userId'));
-    if (!targetUserId) return c.json({ error: 'Missing userId' }, 400);
+  app.delete("/:userId", async (c) => {
+    const targetUserId = decodeURIComponent(c.req.param("userId"));
+    if (!targetUserId) return c.json({ error: "Missing userId" }, 400);
 
     // 1. Set user status to deactivated
-    await config.set(`user.${targetUserId}.status`, 'deactivated');
+    await config.set(`user.${targetUserId}.status`, "deactivated");
 
     // 2. Delete personal capability tokens
     const entries = await config.list();
@@ -40,15 +40,15 @@ export function createUsersRoutes(opts: {
     // 3. Audit
     if (auditLogger) {
       await auditLogger.log({
-        userId: 'console',
-        action: 'user_deprovisioned',
+        userId: "console",
+        action: "user_deprovisioned",
         toolName: targetUserId,
-        status: 'success',
+        status: "success",
       });
     }
 
-    logger.info({ targetUserId }, 'user deprovisioned via console');
-    return c.json({ ok: true, userId: targetUserId, status: 'deactivated' });
+    logger.info({ targetUserId }, "user deprovisioned via console");
+    return c.json({ ok: true, userId: targetUserId, status: "deactivated" });
   });
 
   return app;

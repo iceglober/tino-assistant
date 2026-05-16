@@ -1,4 +1,4 @@
-import { Database } from 'bun:sqlite';
+import { Database } from "bun:sqlite";
 
 /**
  * System-wide runtime configuration store backed by SQLite.
@@ -42,9 +42,7 @@ export function createConfigStore({ dbPath }: { dbPath: string }): ConfigStore {
     )
   `);
 
-  const stmtGet = db.query(
-    'SELECT value FROM config WHERE key = ?',
-  );
+  const stmtGet = db.query("SELECT value FROM config WHERE key = ?");
 
   const stmtUpsert = db.query(
     `INSERT INTO config (key, value, updated_at)
@@ -54,13 +52,9 @@ export function createConfigStore({ dbPath }: { dbPath: string }): ConfigStore {
        updated_at = excluded.updated_at`,
   );
 
-  const stmtList = db.query(
-    'SELECT key, value, updated_at FROM config ORDER BY key',
-  );
+  const stmtList = db.query("SELECT key, value, updated_at FROM config ORDER BY key");
 
-  const stmtDelete = db.query(
-    'DELETE FROM config WHERE key = ?',
-  );
+  const stmtDelete = db.query("DELETE FROM config WHERE key = ?");
 
   return {
     get(key: string): Promise<string | null> {
@@ -84,11 +78,13 @@ export function createConfigStore({ dbPath }: { dbPath: string }): ConfigStore {
     },
 
     list(): Promise<Array<{ key: string; value: string; updatedAt: number }>> {
-      return Promise.resolve((stmtList.all() as ConfigRow[]).map(row => ({
-        key: row.key,
-        value: row.value,
-        updatedAt: row.updated_at,
-      })));
+      return Promise.resolve(
+        (stmtList.all() as ConfigRow[]).map((row) => ({
+          key: row.key,
+          value: row.value,
+          updatedAt: row.updated_at,
+        })),
+      );
     },
 
     delete(key: string): Promise<boolean> {

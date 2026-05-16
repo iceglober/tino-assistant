@@ -7,9 +7,9 @@
  *
  * Subsequent startups read from the config table only.
  */
-import type { ConfigStore } from '../persistence/config.js';
-import type { AppLogger } from '../slack/app.js';
-import type { CapabilityConfig } from './types.js';
+import type { ConfigStore } from "../persistence/config.js";
+import type { AppLogger } from "../slack/app.js";
+import type { CapabilityConfig } from "./types.js";
 
 /** Subset of env vars that may contain legacy credentials. */
 export interface LegacyEnv {
@@ -28,8 +28,8 @@ export interface LegacyEnv {
 }
 
 export interface MigrationResult {
-  migrated: string[];   // capability IDs that were written
-  skipped: string[];    // capability IDs that had no env vars
+  migrated: string[]; // capability IDs that were written
+  skipped: string[]; // capability IDs that had no env vars
   alreadyPresent: string[]; // capability IDs already in config table
 }
 
@@ -44,7 +44,7 @@ export async function migrateEnvToCapabilities(
 ): Promise<MigrationResult> {
   const result: MigrationResult = { migrated: [], skipped: [], alreadyPresent: [] };
 
-  const capabilityIds = ['github', 'linear', 'slack', 'gmail', 'calendar', 'cloudwatch'];
+  const capabilityIds = ["github", "linear", "slack", "gmail", "calendar", "cloudwatch"];
 
   // Migrate Slack connection tokens (stored separately from the slack capability).
   //
@@ -53,45 +53,45 @@ export async function migrateEnvToCapabilities(
   // configures Slack. We write both the flat keys (the live shape) AND a
   // legacy `slack.connection` JSON blob so existing readers keep working.
   if (env.SLACK_BOT_TOKEN) {
-    const existing = await configStore.get('slack.botToken');
+    const existing = await configStore.get("slack.botToken");
     if (existing === null) {
-      await configStore.set('slack.botToken', env.SLACK_BOT_TOKEN);
-      result.migrated.push('slack.botToken');
+      await configStore.set("slack.botToken", env.SLACK_BOT_TOKEN);
+      result.migrated.push("slack.botToken");
     }
   }
   if (env.SLACK_APP_TOKEN) {
-    const existing = await configStore.get('slack.appToken');
+    const existing = await configStore.get("slack.appToken");
     if (existing === null) {
-      await configStore.set('slack.appToken', env.SLACK_APP_TOKEN);
-      result.migrated.push('slack.appToken');
+      await configStore.set("slack.appToken", env.SLACK_APP_TOKEN);
+      result.migrated.push("slack.appToken");
     }
   }
   if (env.ALLOWED_SLACK_USER_ID) {
-    const existing = await configStore.get('slack.adminUserId');
+    const existing = await configStore.get("slack.adminUserId");
     if (existing === null) {
-      await configStore.set('slack.adminUserId', env.ALLOWED_SLACK_USER_ID);
-      result.migrated.push('slack.adminUserId');
+      await configStore.set("slack.adminUserId", env.ALLOWED_SLACK_USER_ID);
+      result.migrated.push("slack.adminUserId");
     }
   }
   // Bedrock model ID — read at startup as `bedrock.modelId`. Optional in env.
   // Migration only writes if the env var was explicitly set.
   if (env.BEDROCK_MODEL_ID) {
-    const existing = await configStore.get('bedrock.modelId');
+    const existing = await configStore.get("bedrock.modelId");
     if (existing === null) {
-      await configStore.set('bedrock.modelId', env.BEDROCK_MODEL_ID);
-      result.migrated.push('bedrock.modelId');
+      await configStore.set("bedrock.modelId", env.BEDROCK_MODEL_ID);
+      result.migrated.push("bedrock.modelId");
     }
   }
   // Legacy single-blob form — preserved so older readers continue working.
-  const existingSlackConn = await configStore.get('slack.connection');
+  const existingSlackConn = await configStore.get("slack.connection");
   if (existingSlackConn === null && (env.SLACK_BOT_TOKEN || env.SLACK_APP_TOKEN || env.ALLOWED_SLACK_USER_ID)) {
-    await configStore.set('slack.connection', {
-      botToken: env.SLACK_BOT_TOKEN ?? '',
-      appToken: env.SLACK_APP_TOKEN ?? '',
-      allowedUserId: env.ALLOWED_SLACK_USER_ID ?? '',
+    await configStore.set("slack.connection", {
+      botToken: env.SLACK_BOT_TOKEN ?? "",
+      appToken: env.SLACK_APP_TOKEN ?? "",
+      allowedUserId: env.ALLOWED_SLACK_USER_ID ?? "",
     });
-    result.migrated.push('slack.connection');
-    logger.info({ capabilityId: 'slack.connection' }, 'capability migration: wrote config from env vars');
+    result.migrated.push("slack.connection");
+    logger.info({ capabilityId: "slack.connection" }, "capability migration: wrote config from env vars");
   }
 
   // Check which capabilities already have config entries
@@ -104,7 +104,7 @@ export async function migrateEnvToCapabilities(
 
   // If ALL capabilities are already present, nothing to do
   if (result.alreadyPresent.length === capabilityIds.length) {
-    logger.debug('capability migration: all capabilities already configured, skipping');
+    logger.debug("capability migration: all capabilities already configured, skipping");
     return result;
   }
 
@@ -112,14 +112,14 @@ export async function migrateEnvToCapabilities(
   const toMigrate: Array<{ id: string; config: CapabilityConfig }> = [];
 
   // github
-  if (!result.alreadyPresent.includes('github') && env.GITHUB_TOKEN) {
+  if (!result.alreadyPresent.includes("github") && env.GITHUB_TOKEN) {
     const settings: Record<string, unknown> = {};
     if (env.GITHUB_DEFAULT_REPO) {
-      settings['defaultRepo'] = env.GITHUB_DEFAULT_REPO;
-      settings['repos'] = [env.GITHUB_DEFAULT_REPO];
+      settings.defaultRepo = env.GITHUB_DEFAULT_REPO;
+      settings.repos = [env.GITHUB_DEFAULT_REPO];
     }
     toMigrate.push({
-      id: 'github',
+      id: "github",
       config: {
         enabled: true,
         credentials: { token: env.GITHUB_TOKEN },
@@ -130,15 +130,15 @@ export async function migrateEnvToCapabilities(
   }
 
   // linear
-  if (!result.alreadyPresent.includes('linear') && env.LINEAR_DEVELOPER_TOKEN) {
+  if (!result.alreadyPresent.includes("linear") && env.LINEAR_DEVELOPER_TOKEN) {
     toMigrate.push({
-      id: 'linear',
+      id: "linear",
       config: {
         enabled: true,
         credentials: { token: env.LINEAR_DEVELOPER_TOKEN },
         settings: {
-          defaultTeamKey: 'GEN',
-          autoPickupStates: ['backlog', 'unstarted'],
+          defaultTeamKey: "GEN",
+          autoPickupStates: ["backlog", "unstarted"],
         },
         findWork: { enabled: true, intervalMinutes: 15 },
       },
@@ -146,9 +146,9 @@ export async function migrateEnvToCapabilities(
   }
 
   // slack
-  if (!result.alreadyPresent.includes('slack') && env.SLACK_USER_TOKEN) {
+  if (!result.alreadyPresent.includes("slack") && env.SLACK_USER_TOKEN) {
     toMigrate.push({
-      id: 'slack',
+      id: "slack",
       config: {
         enabled: true,
         credentials: { userToken: env.SLACK_USER_TOKEN },
@@ -160,14 +160,17 @@ export async function migrateEnvToCapabilities(
 
   // gmail + calendar (share Google OAuth credentials)
   const hasGoogle = env.GOOGLE_OAUTH_CLIENT_ID && env.GOOGLE_OAUTH_CLIENT_SECRET && env.GOOGLE_OAUTH_REFRESH_TOKEN;
-  if (!result.alreadyPresent.includes('gmail') && hasGoogle) {
+  if (!result.alreadyPresent.includes("gmail") && hasGoogle) {
     toMigrate.push({
-      id: 'gmail',
+      id: "gmail",
       config: {
         enabled: true,
         credentials: {
+          // biome-ignore lint/style/noNonNullAssertion: hasGoogle narrows env vars to non-null
           clientId: env.GOOGLE_OAUTH_CLIENT_ID!,
+          // biome-ignore lint/style/noNonNullAssertion: hasGoogle narrows env vars to non-null
           clientSecret: env.GOOGLE_OAUTH_CLIENT_SECRET!,
+          // biome-ignore lint/style/noNonNullAssertion: hasGoogle narrows env vars to non-null
           refreshToken: env.GOOGLE_OAUTH_REFRESH_TOKEN!,
         },
         settings: {},
@@ -176,32 +179,35 @@ export async function migrateEnvToCapabilities(
     });
   }
 
-  if (!result.alreadyPresent.includes('calendar') && hasGoogle) {
+  if (!result.alreadyPresent.includes("calendar") && hasGoogle) {
     toMigrate.push({
-      id: 'calendar',
+      id: "calendar",
       config: {
         enabled: true,
         credentials: {
+          // biome-ignore lint/style/noNonNullAssertion: hasGoogle narrows env vars to non-null
           clientId: env.GOOGLE_OAUTH_CLIENT_ID!,
+          // biome-ignore lint/style/noNonNullAssertion: hasGoogle narrows env vars to non-null
           clientSecret: env.GOOGLE_OAUTH_CLIENT_SECRET!,
+          // biome-ignore lint/style/noNonNullAssertion: hasGoogle narrows env vars to non-null
           refreshToken: env.GOOGLE_OAUTH_REFRESH_TOKEN!,
         },
-        settings: { calendarId: 'primary' },
+        settings: { calendarId: "primary" },
         findWork: { enabled: false, intervalMinutes: 60 },
       },
     });
   }
 
   // cloudwatch — uses AWS default credential chain, no explicit credentials needed
-  if (!result.alreadyPresent.includes('cloudwatch')) {
+  if (!result.alreadyPresent.includes("cloudwatch")) {
     toMigrate.push({
-      id: 'cloudwatch',
+      id: "cloudwatch",
       config: {
         enabled: true,
         credentials: {},
         settings: {
           logGroups: [],
-          region: env.AWS_REGION ?? '',
+          region: env.AWS_REGION ?? "",
         },
         findWork: { enabled: false, intervalMinutes: 60 },
       },
@@ -212,7 +218,7 @@ export async function migrateEnvToCapabilities(
   for (const { id, config } of toMigrate) {
     await configStore.set(`capability.${id}`, config);
     result.migrated.push(id);
-    logger.info({ capabilityId: id }, 'capability migration: wrote config from env vars');
+    logger.info({ capabilityId: id }, "capability migration: wrote config from env vars");
   }
 
   // Track skipped (no env vars, not already present)
@@ -225,7 +231,7 @@ export async function migrateEnvToCapabilities(
   if (result.migrated.length > 0) {
     logger.info(
       { migrated: result.migrated, skipped: result.skipped },
-      'capability migration complete — credentials moved from env vars to config table',
+      "capability migration complete — credentials moved from env vars to config table",
     );
   }
 

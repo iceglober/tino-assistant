@@ -1,5 +1,5 @@
-import { Octokit } from '@octokit/rest';
-import type { Env } from '../../env.js';
+import { Octokit } from "@octokit/rest";
+import type { Env } from "../../env.js";
 
 /**
  * Single shared Octokit instance.
@@ -10,11 +10,11 @@ import type { Env } from '../../env.js';
  */
 export function createOctokit(env: Env): Octokit {
   if (!env.GITHUB_TOKEN) {
-    throw new Error('GITHUB_TOKEN is not set — GitHub tools are disabled');
+    throw new Error("GITHUB_TOKEN is not set — GitHub tools are disabled");
   }
 
   return new Octokit({
     auth: env.GITHUB_TOKEN,
-    userAgent: 'tino/0.1',
+    userAgent: "tino/0.1",
   });
 }

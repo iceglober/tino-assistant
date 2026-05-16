@@ -1,5 +1,5 @@
-import type { TaskStore, Task } from '../persistence/tasks.js';
-import type { AppLogger } from '../slack/app.js';
+import type { Task, TaskStore } from "../persistence/tasks.js";
+import type { AppLogger } from "../slack/app.js";
 
 export interface SchedulerDeps {
   taskStore: TaskStore;
@@ -29,23 +29,23 @@ export function startScheduler(deps: SchedulerDeps): () => void {
     const pending = await taskStore.listPending(now);
 
     if (pending.length === 0) {
-      logger.debug({ now }, 'scheduler tick: no pending tasks');
+      logger.debug({ now }, "scheduler tick: no pending tasks");
     }
 
     for (const task of pending) {
-      logger.info({ taskId: task.id, description: task.description }, 'executing scheduled task');
-      await taskStore.updateStatus(task.id, 'running');
+      logger.info({ taskId: task.id, description: task.description }, "executing scheduled task");
+      await taskStore.updateStatus(task.id, "running");
 
       try {
         const result = await runTask(task);
-        await taskStore.updateStatus(task.id, 'completed', result);
+        await taskStore.updateStatus(task.id, "completed", result);
         await postResult(`📋 *Scheduled task completed:*\n\n_${task.description}_\n\n${result}`);
-        logger.info({ taskId: task.id }, 'scheduled task completed');
+        logger.info({ taskId: task.id }, "scheduled task completed");
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        await taskStore.updateStatus(task.id, 'failed', msg);
+        await taskStore.updateStatus(task.id, "failed", msg);
         await postResult(`⚠️ *Scheduled task failed:*\n\n_${task.description}_\n\nError: ${msg}`);
-        logger.error({ taskId: task.id, err: msg }, 'scheduled task failed');
+        logger.error({ taskId: task.id, err: msg }, "scheduled task failed");
       }
     }
   };

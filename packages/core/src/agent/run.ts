@@ -1,9 +1,9 @@
-import { generateText, stepCountIs, type LanguageModel, type ToolSet } from 'ai';
-import type { HistoryStore } from './history.js';
-import type { AppLogger } from '../slack/app.js';
-import { buildSystemPrompt } from './systemPrompt.js';
-import type { AuditLogger } from '../audit/logger.js';
-import { validateAgentOutput } from './output-validator.js';
+import { generateText, type LanguageModel, stepCountIs, type ToolSet } from "ai";
+import type { AuditLogger } from "../audit/logger.js";
+import type { AppLogger } from "../slack/app.js";
+import type { HistoryStore } from "./history.js";
+import { validateAgentOutput } from "./output-validator.js";
+import { buildSystemPrompt } from "./systemPrompt.js";
 
 export interface RunAgentParams {
   model: LanguageModel;
@@ -37,7 +37,7 @@ export interface RunAgentParams {
 export async function runAgent(params: RunAgentParams): Promise<string> {
   const { model, history, logger, tools, userId, text, auditLogger, activeCapabilities = [] } = params;
 
-  await history.append(userId, [{ role: 'user', content: text }]);
+  await history.append(userId, [{ role: "user", content: text }]);
 
   const start = Date.now();
   const result = await generateText({
@@ -55,14 +55,14 @@ export async function runAgent(params: RunAgentParams): Promise<string> {
   if (auditLogger) {
     for (const step of result.steps) {
       for (const toolCall of step.toolCalls ?? []) {
-        const toolStart = step.usage ? start : start; // best-effort; step timing not exposed
+        const _toolStart = step.usage ? start : start; // best-effort; step timing not exposed
         await auditLogger.log({
           userId,
-          action: 'tool_call',
+          action: "tool_call",
           toolName: toolCall.toolName,
           inputKeys: Object.keys(toolCall.input as Record<string, unknown>),
           durationMs,
-          status: 'success',
+          status: "success",
         });
       }
     }
@@ -76,21 +76,21 @@ export async function runAgent(params: RunAgentParams): Promise<string> {
       finishReason: result.finishReason,
       usage: result.usage,
     },
-    'agent run complete',
+    "agent run complete",
   );
 
-  const responseText = result.text || '(no response)';
+  const responseText = result.text || "(no response)";
 
   // ── Output validation ─────────────────────────────────────────────────────
   const validation = validateAgentOutput(responseText, { userId, activeCapabilities });
   if (!validation.safe) {
-    logger.warn({ userId, reason: validation.reason }, 'agent output flagged by safety filter');
+    logger.warn({ userId, reason: validation.reason }, "agent output flagged by safety filter");
 
     if (auditLogger) {
       await auditLogger.log({
         userId,
-        action: 'injection_suspected',
-        status: 'denied',
+        action: "injection_suspected",
+        status: "denied",
         errorMessage: validation.reason,
       });
     }

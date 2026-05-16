@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { getConfig, type ConfigEntry, UnauthorizedError } from '../lib/api.js';
+import { useEffect, useState } from "react";
+import { type ConfigEntry, getConfig, UnauthorizedError } from "../lib/api.js";
 
 export interface UseConfigResult {
   entries: ConfigEntry[];
@@ -39,7 +39,8 @@ export function useConfig(): UseConfigResult {
 
   useEffect(() => {
     void refresh();
-  }, []);
+    // biome-ignore lint/correctness/useExhaustiveDependencies: refresh is intentionally invoked once on mount
+  }, [refresh]);
 
   return { entries, loading, error, unauthorized, refresh };
 }

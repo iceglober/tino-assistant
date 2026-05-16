@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitest/config';
+import { defineConfig } from "vitest/config";
 
 // Vitest config for `packages/core` tests.
 //
@@ -16,12 +16,12 @@ import { defineConfig } from 'vitest/config';
 // zod's `index.js` re-export under vitest's Module Runner.
 export default defineConfig({
   test: {
-    include: ['tests/**/*.{test,spec}.{ts,tsx}', 'src/**/*.{test,spec}.{ts,tsx}'],
-    exclude: ['**/node_modules/**', 'src/console-app/**'],
-    pool: 'forks',
+    include: ["tests/**/*.{test,spec}.{ts,tsx}", "src/**/*.{test,spec}.{ts,tsx}"],
+    exclude: ["**/node_modules/**", "src/console-app/**"],
+    pool: "forks",
     server: {
       deps: {
-        inline: ['zod'],
+        inline: ["zod"],
       },
     },
   },

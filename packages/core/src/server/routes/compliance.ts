@@ -1,7 +1,7 @@
-import { Hono } from 'hono';
-import fs from 'node:fs';
-import type { ConfigStore } from '../../persistence/config.js';
-import type { AuditLogger } from '../../audit/logger.js';
+import fs from "node:fs";
+import { Hono } from "hono";
+import type { AuditLogger } from "../../audit/logger.js";
+import type { ConfigStore } from "../../persistence/config.js";
 
 /**
  * GET /api/compliance — HIPAA compliance status snapshot.
@@ -30,44 +30,39 @@ import type { AuditLogger } from '../../audit/logger.js';
  *   - BAA: read from `tino.deploy.json compliance.baaStatus` (the shape the
  *     CLI writes). Fall back gracefully when the file is missing.
  */
-export function createComplianceRoutes(opts: {
-  config: ConfigStore;
-  auditLogger: AuditLogger | undefined;
-}): Hono {
+export function createComplianceRoutes(opts: { config: ConfigStore; auditLogger: AuditLogger | undefined }): Hono {
   const app = new Hono();
   const { config, auditLogger } = opts;
 
-  app.get('/', async (c) => {
+  app.get("/", async (c) => {
     // ── tino.deploy.json — BAA + retention ────────────────────────────
     // Resolve relative to the compiled module location
     // (dist/server/routes/compliance.js) — tino.deploy.json sits at the
     // repo root, five levels up.
     let baaStatus: Record<string, string> = {
-      aws: 'unknown',
-      bedrock: 'unknown',
-      github: 'unknown',
-      slack: 'no-baa',
+      aws: "unknown",
+      bedrock: "unknown",
+      github: "unknown",
+      slack: "no-baa",
     };
     let auditRetentionDays = 90;
     let historyRetentionDays = 30;
     try {
-      const deployJsonPath = new URL('../../../../../tino.deploy.json', import.meta.url);
-      const deployJson = JSON.parse(fs.readFileSync(deployJsonPath, 'utf8')) as {
+      const deployJsonPath = new URL("../../../../../tino.deploy.json", import.meta.url);
+      const deployJson = JSON.parse(fs.readFileSync(deployJsonPath, "utf8")) as {
         compliance?: { baaStatus?: Record<string, string> };
         hipaa?: { auditRetentionDays?: number; historyRetentionDays?: number };
       };
       // The CLI writes `compliance.baaStatus`; an older path was `baa`.
       // Read both for backward compatibility, preferring the canonical path.
-      const candidate =
-        deployJson.compliance?.baaStatus ??
-        (deployJson as { baa?: Record<string, string> }).baa;
+      const candidate = deployJson.compliance?.baaStatus ?? (deployJson as { baa?: Record<string, string> }).baa;
       if (candidate) {
         baaStatus = { ...baaStatus, ...candidate };
       }
-      if (typeof deployJson.hipaa?.auditRetentionDays === 'number') {
+      if (typeof deployJson.hipaa?.auditRetentionDays === "number") {
         auditRetentionDays = deployJson.hipaa.auditRetentionDays;
       }
-      if (typeof deployJson.hipaa?.historyRetentionDays === 'number') {
+      if (typeof deployJson.hipaa?.historyRetentionDays === "number") {
         historyRetentionDays = deployJson.hipaa.historyRetentionDays;
       }
     } catch {
@@ -81,22 +76,22 @@ export function createComplianceRoutes(opts: {
     // used in this codebase — runtime config lives in DynamoDB, so the
     // honest answer is "n/a", reported as "unknown" to avoid widening the
     // status vocabulary.
-    const adapter = process.env['PERSISTENCE_ADAPTER'];
-    const isDynamo = adapter === 'dynamodb';
+    const adapter = process.env.PERSISTENCE_ADAPTER;
+    const isDynamo = adapter === "dynamodb";
     const encryption = isDynamo
       ? {
-          dynamodb: 'cmk',
+          dynamodb: "cmk",
           // No secrets are stored in Secrets Manager — credentials live
           // in the encrypted DynamoDB config store. Reporting "unknown"
           // here reflects that no Secrets-Manager-encrypted secret exists,
           // not that we couldn't determine the state.
-          secretsManager: 'unknown',
-          cloudwatchLogs: 'cmk',
+          secretsManager: "unknown",
+          cloudwatchLogs: "cmk",
         }
       : {
-          dynamodb: 'unknown',
-          secretsManager: 'unknown',
-          cloudwatchLogs: 'unknown',
+          dynamodb: "unknown",
+          secretsManager: "unknown",
+          cloudwatchLogs: "unknown",
         };
 
     // ── Audit logger stats ────────────────────────────────────────────
@@ -105,8 +100,8 @@ export function createComplianceRoutes(opts: {
 
     // ── Access control — counts of user/admin config entries ──────────
     const entries = await config.list();
-    const userEntries = entries.filter((e) => e.key.startsWith('user.'));
-    const adminEntries = entries.filter((e) => e.key.startsWith('admin.'));
+    const userEntries = entries.filter((e) => e.key.startsWith("user."));
+    const adminEntries = entries.filter((e) => e.key.startsWith("admin."));
 
     return c.json({
       hipaa: {

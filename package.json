@@ -1,14 +1,21 @@
 {
   "name": "tino-assistant",
   "private": true,
-  "workspaces": ["packages/*"],
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
     "build": "bun run --filter @tino/core build && bun run --filter @tino/aws build && bun run --filter @tino/cli build",
     "dev": "bun run --filter @tino/core dev",
     "test": "bun run --filter '*' test",
     "typecheck": "bun run --filter '*' typecheck",
+    "lint": "bun run --filter '*' lint",
+    "lint:fix": "biome check --write .",
     "deploy": "bun run --filter @tino/aws deploy",
     "deploy:app": "bash scripts/deploy.sh",
     "tino": "bun run --filter @tino/cli start"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.15"
   }
 }

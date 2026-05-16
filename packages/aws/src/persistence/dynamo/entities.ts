@@ -1,5 +1,5 @@
-import { Entity, item, string, number } from 'dynamodb-toolbox';
-import type { TinoTable } from './client.js';
+import { Entity, item, number, string } from "dynamodb-toolbox";
+import type { TinoTable } from "./client.js";
 
 /**
  * DynamoDB Toolbox v2 entity definitions for all four stores.
@@ -18,7 +18,7 @@ import type { TinoTable } from './client.js';
 
 export function createHistoryEntity(table: TinoTable) {
   return new Entity({
-    name: 'History',
+    name: "History",
     table,
     schema: item({
       pk: string().key(),
@@ -34,7 +34,7 @@ export function createHistoryEntity(table: TinoTable) {
 
 export function createTaskEntity(table: TinoTable) {
   return new Entity({
-    name: 'Task',
+    name: "Task",
     table,
     schema: item({
       pk: string().key(),
@@ -58,7 +58,7 @@ export function createTaskEntity(table: TinoTable) {
 
 export function createPreferenceEntity(table: TinoTable) {
   return new Entity({
-    name: 'Preference',
+    name: "Preference",
     table,
     schema: item({
       pk: string().key(),
@@ -74,7 +74,7 @@ export function createPreferenceEntity(table: TinoTable) {
 
 export function createConfigEntity(table: TinoTable) {
   return new Entity({
-    name: 'Config',
+    name: "Config",
     table,
     schema: item({
       pk: string().key(),
@@ -90,5 +90,5 @@ export function createConfigEntity(table: TinoTable) {
 
 /** Zero-pad a scheduledAt epoch-seconds value to 13 digits for lexicographic sort. */
 export function padScheduledAt(epochSec: number): string {
-  return String(epochSec).padStart(13, '0');
+  return String(epochSec).padStart(13, "0");
 }

@@ -7,7 +7,7 @@
  *
  * Pattern matches src/tools/cloudwatch/validator.ts (allowlist as parameter).
  */
-import type { ConfigStore } from '../../persistence/config.js';
+import type { ConfigStore } from "../../persistence/config.js";
 
 /**
  * Read the allowed log groups from the config store.
@@ -15,13 +15,13 @@ import type { ConfigStore } from '../../persistence/config.js';
  * Falls back to an empty array if not configured (fail-closed).
  */
 export async function getAllowedLogGroups(config: ConfigStore): Promise<readonly string[]> {
-  return config.getTyped<string[]>('cloudwatch.log_groups', []);
+  return config.getTyped<string[]>("cloudwatch.log_groups", []);
 }
 
 /** Human-readable list for error messages. */
 export function describeLogGroupAllowlist(allowedLogGroups: readonly string[]): string {
   if (allowedLogGroups.length === 0) {
-    return '(none — add via the config console at http://localhost:3001)';
+    return "(none — add via the config console at http://localhost:3001)";
   }
-  return allowedLogGroups.join(', ');
+  return allowedLogGroups.join(", ");
 }

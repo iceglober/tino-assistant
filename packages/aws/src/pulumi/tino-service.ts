@@ -1,6 +1,6 @@
 import * as aws from "@pulumi/aws";
-import * as pulumi from "@pulumi/pulumi";
 import * as dockerBuild from "@pulumi/docker-build";
+import * as pulumi from "@pulumi/pulumi";
 
 export interface TinoServiceArgs {
   /**
@@ -178,14 +178,16 @@ function discoverSubnets(vpcId: pulumi.Input<string>): pulumi.Output<string[]> {
 
   // When there are no private subnets, fall back to all subnets in the VPC.
   // We use pulumi.all to flatten the conditional Output<string[]> result.
-  return privateSubnets.ids.apply(ids => {
-    if (ids.length > 0) {
-      return pulumi.output(ids);
-    }
-    return aws.ec2.getSubnetsOutput({
-      filters: [{ name: "vpc-id", values: [vpcId] }],
-    }).ids;
-  }).apply(ids => ids as string[]);
+  return privateSubnets.ids
+    .apply((ids) => {
+      if (ids.length > 0) {
+        return pulumi.output(ids);
+      }
+      return aws.ec2.getSubnetsOutput({
+        filters: [{ name: "vpc-id", values: [vpcId] }],
+      }).ids;
+    })
+    .apply((ids) => ids as string[]);
 }
 
 /**
@@ -264,8 +266,8 @@ export class TinoService extends pulumi.ComponentResource {
     super("tino:aws:TinoService", name, {}, opts);
 
     const hipaaCompliance = args.compliance?.hipaa !== false; // default true
-    const soc2Compliance = args.compliance?.soc2 !== false;   // default true
-    const gdprCompliance = args.compliance?.gdpr === true;    // default false
+    const soc2Compliance = args.compliance?.soc2 !== false; // default true
+    const gdprCompliance = args.compliance?.gdpr === true; // default false
     const hitrustCompliance = args.compliance?.hitrust === true; // default false
 
     // HITRUST is a superset of HIPAA — if HITRUST is on, HIPAA is on
@@ -354,8 +356,7 @@ export class TinoService extends pulumi.ComponentResource {
 
     // ── Subnets ───────────────────────────────────────────────────────────
     // Private subnets for ECS task (existing logic).
-    const subnetIds: pulumi.Input<pulumi.Input<string>[]> =
-      args.subnets ?? discoverSubnets(vpcId);
+    const subnetIds: pulumi.Input<pulumi.Input<string>[]> = args.subnets ?? discoverSubnets(vpcId);
 
     // Public subnets for ALB (internet-facing).
     const publicSubnetIds = aws.ec2.getSubnetsOutput({
@@ -370,48 +371,50 @@ export class TinoService extends pulumi.ComponentResource {
     const currentRegion = aws.getRegionOutput();
     const accountId = callerIdentity.accountId;
 
-    const kmsKey = new aws.kms.Key(`${name}-kms`, {
-      description: `tino encryption key (${name})`,
-      enableKeyRotation: true,
-      policy: pulumi.all([accountId, currentRegion.name]).apply(([acctId, region]) =>
-        JSON.stringify({
-          Version: "2012-10-17",
-          Statement: [
-            {
-              Sid: "EnableRootAccountFullAccess",
-              Effect: "Allow",
-              Principal: { AWS: `arn:aws:iam::${acctId}:root` },
-              Action: "kms:*",
-              Resource: "*",
-            },
-            {
-              Sid: "AllowCloudWatchLogs",
-              Effect: "Allow",
-              Principal: { Service: `logs.${region}.amazonaws.com` },
-              Action: [
-                "kms:Encrypt",
-                "kms:Decrypt",
-                "kms:ReEncrypt*",
-                "kms:GenerateDataKey*",
-                "kms:DescribeKey",
-              ],
-              Resource: "*",
-              Condition: {
-                ArnLike: {
-                  "kms:EncryptionContext:aws:logs:arn": `arn:aws:logs:${region}:${acctId}:log-group:*`,
+    const kmsKey = new aws.kms.Key(
+      `${name}-kms`,
+      {
+        description: `tino encryption key (${name})`,
+        enableKeyRotation: true,
+        policy: pulumi.all([accountId, currentRegion.name]).apply(([acctId, region]) =>
+          JSON.stringify({
+            Version: "2012-10-17",
+            Statement: [
+              {
+                Sid: "EnableRootAccountFullAccess",
+                Effect: "Allow",
+                Principal: { AWS: `arn:aws:iam::${acctId}:root` },
+                Action: "kms:*",
+                Resource: "*",
+              },
+              {
+                Sid: "AllowCloudWatchLogs",
+                Effect: "Allow",
+                Principal: { Service: `logs.${region}.amazonaws.com` },
+                Action: ["kms:Encrypt", "kms:Decrypt", "kms:ReEncrypt*", "kms:GenerateDataKey*", "kms:DescribeKey"],
+                Resource: "*",
+                Condition: {
+                  ArnLike: {
+                    "kms:EncryptionContext:aws:logs:arn": `arn:aws:logs:${region}:${acctId}:log-group:*`,
+                  },
                 },
               },
-            },
-          ],
-        }),
-      ),
-      tags,
-    }, { parent: this });
+            ],
+          }),
+        ),
+        tags,
+      },
+      { parent: this },
+    );
 
-    new aws.kms.Alias(`${name}-kms-alias`, {
-      name: `alias/${prefix}`,
-      targetKeyId: kmsKey.id,
-    }, { parent: this });
+    new aws.kms.Alias(
+      `${name}-kms-alias`,
+      {
+        name: `alias/${prefix}`,
+        targetKeyId: kmsKey.id,
+      },
+      { parent: this },
+    );
 
     this.kmsKeyArn = kmsKey.arn;
 
@@ -420,29 +423,35 @@ export class TinoService extends pulumi.ComponentResource {
     // Managed via the console — not in this component.
     // deletionProtectionEnabled: true prevents accidental `pulumi destroy`.
     // To destroy the table, disable deletion protection in the console first.
-    const table = new aws.dynamodb.Table(`${name}-table`, {
-      name: `${prefix}`,
-      billingMode: "PAY_PER_REQUEST",
-      hashKey: "pk",
-      rangeKey: "sk",
-      attributes: [
-        { name: "pk", type: "S" },
-        { name: "sk", type: "S" },
-        { name: "gsi1pk", type: "S" },
-        { name: "gsi1sk", type: "S" },
-      ],
-      globalSecondaryIndexes: [{
-        name: "gsi1",
-        hashKey: "gsi1pk",
-        rangeKey: "gsi1sk",
-        projectionType: "ALL",
-      }],
-      pointInTimeRecovery: { enabled: true },
-      ttl: { attributeName: "ttl", enabled: true },
-      serverSideEncryption: { enabled: true, kmsKeyArn: kmsKey.arn },
-      deletionProtectionEnabled: true,
-      tags,
-    }, { parent: this });
+    const table = new aws.dynamodb.Table(
+      `${name}-table`,
+      {
+        name: `${prefix}`,
+        billingMode: "PAY_PER_REQUEST",
+        hashKey: "pk",
+        rangeKey: "sk",
+        attributes: [
+          { name: "pk", type: "S" },
+          { name: "sk", type: "S" },
+          { name: "gsi1pk", type: "S" },
+          { name: "gsi1sk", type: "S" },
+        ],
+        globalSecondaryIndexes: [
+          {
+            name: "gsi1",
+            hashKey: "gsi1pk",
+            rangeKey: "gsi1sk",
+            projectionType: "ALL",
+          },
+        ],
+        pointInTimeRecovery: { enabled: true },
+        ttl: { attributeName: "ttl", enabled: true },
+        serverSideEncryption: { enabled: true, kmsKeyArn: kmsKey.arn },
+        deletionProtectionEnabled: true,
+        tags,
+      },
+      { parent: this },
+    );
 
     this.tableName = table.name;
 
@@ -450,12 +459,16 @@ export class TinoService extends pulumi.ComponentResource {
     // GDPR right-to-erasure: application logs are retained for 30 days.
     // Non-GDPR deployments retain logs for 90 days.
     const logRetentionDays = gdprCompliance ? 30 : 90;
-    const logGroup = new aws.cloudwatch.LogGroup(`${name}-logs`, {
-      name: `/ecs/${prefix}`,
-      retentionInDays: logRetentionDays,
-      kmsKeyId: kmsKey.arn,
-      tags,
-    }, { parent: this });
+    const logGroup = new aws.cloudwatch.LogGroup(
+      `${name}-logs`,
+      {
+        name: `/ecs/${prefix}`,
+        retentionInDays: logRetentionDays,
+        kmsKeyId: kmsKey.arn,
+        tags,
+      },
+      { parent: this },
+    );
 
     this.logGroupName = logGroup.name;
 
@@ -464,107 +477,143 @@ export class TinoService extends pulumi.ComponentResource {
     // AWS allows multiple flow logs per VPC — this adds tino's own destination
     // without conflicting with any existing flow log configuration.
     if (soc2Compliance) {
-      const flowLogRole = new aws.iam.Role(`${name}-flow-log-role`, {
-        assumeRolePolicy: JSON.stringify({
-          Version: "2012-10-17",
-          Statement: [{
-            Action: "sts:AssumeRole",
-            Effect: "Allow",
-            Principal: { Service: "vpc-flow-logs.amazonaws.com" },
-          }],
-        }),
-        tags,
-      }, { parent: this });
-
-      new aws.iam.RolePolicy(`${name}-flow-log-policy`, {
-        role: flowLogRole.name,
-        policy: pulumi.all([logGroup.arn]).apply(([logArn]) =>
-          JSON.stringify({
+      const flowLogRole = new aws.iam.Role(
+        `${name}-flow-log-role`,
+        {
+          assumeRolePolicy: JSON.stringify({
             Version: "2012-10-17",
-            Statement: [{
-              Effect: "Allow",
-              Action: [
-                "logs:CreateLogGroup",
-                "logs:CreateLogStream",
-                "logs:PutLogEvents",
-                "logs:DescribeLogGroups",
-                "logs:DescribeLogStreams",
-              ],
-              Resource: ["*"],
-            }],
+            Statement: [
+              {
+                Action: "sts:AssumeRole",
+                Effect: "Allow",
+                Principal: { Service: "vpc-flow-logs.amazonaws.com" },
+              },
+            ],
           }),
-        ),
-      }, { parent: this });
+          tags,
+        },
+        { parent: this },
+      );
+
+      new aws.iam.RolePolicy(
+        `${name}-flow-log-policy`,
+        {
+          role: flowLogRole.name,
+          policy: pulumi.all([logGroup.arn]).apply(([_logArn]) =>
+            JSON.stringify({
+              Version: "2012-10-17",
+              Statement: [
+                {
+                  Effect: "Allow",
+                  Action: [
+                    "logs:CreateLogGroup",
+                    "logs:CreateLogStream",
+                    "logs:PutLogEvents",
+                    "logs:DescribeLogGroups",
+                    "logs:DescribeLogStreams",
+                  ],
+                  Resource: ["*"],
+                },
+              ],
+            }),
+          ),
+        },
+        { parent: this },
+      );
 
       // Dedicated log group for flow logs — separate from tino's app logs.
       // Encrypted with tino's KMS key; 90-day retention for SOC 2 audit trail.
-      const flowLogGroup = new aws.cloudwatch.LogGroup(`${name}-flow-logs`, {
-        name: `/vpc/${prefix}`,
-        retentionInDays: 90,
-        kmsKeyId: kmsKey.arn,
-        tags,
-      }, { parent: this });
+      const flowLogGroup = new aws.cloudwatch.LogGroup(
+        `${name}-flow-logs`,
+        {
+          name: `/vpc/${prefix}`,
+          retentionInDays: 90,
+          kmsKeyId: kmsKey.arn,
+          tags,
+        },
+        { parent: this },
+      );
 
-      new aws.ec2.FlowLog(`${name}-vpc-flow-log`, {
-        vpcId: vpcId,
-        trafficType: "ALL",
-        logDestinationType: "cloud-watch-logs",
-        // logDestination takes the log group ARN; replaces the deprecated
-        // logGroupName field. The provider may show this as a replacement on
-        // an existing stack — that's fine, flow logs are not stateful and a
-        // few seconds of missing 1-minute granularity is acceptable.
-        logDestination: flowLogGroup.arn,
-        iamRoleArn: flowLogRole.arn,
-        maxAggregationInterval: 60, // 1-minute granularity (most detailed)
-        tags: { ...tags, "tino:resource": "vpc-flow-log" },
-      }, { parent: this });
+      new aws.ec2.FlowLog(
+        `${name}-vpc-flow-log`,
+        {
+          vpcId: vpcId,
+          trafficType: "ALL",
+          logDestinationType: "cloud-watch-logs",
+          // logDestination takes the log group ARN; replaces the deprecated
+          // logGroupName field. The provider may show this as a replacement on
+          // an existing stack — that's fine, flow logs are not stateful and a
+          // few seconds of missing 1-minute granularity is acceptable.
+          logDestination: flowLogGroup.arn,
+          iamRoleArn: flowLogRole.arn,
+          maxAggregationInterval: 60, // 1-minute granularity (most detailed)
+          tags: { ...tags, "tino:resource": "vpc-flow-log" },
+        },
+        { parent: this },
+      );
     }
 
     // ── Security alarms (always) ─────────────────────────────────────────
     // SNS topic is created; subscriptions are managed via the console.
     // Encrypted with the component's KMS key.
-    const snsTopic = new aws.sns.Topic(`${name}-alerts`, {
-      name: `${prefix}-security-alerts`,
-      kmsMasterKeyId: kmsKey.id,
-      tags,
-    }, { parent: this });
+    const snsTopic = new aws.sns.Topic(
+      `${name}-alerts`,
+      {
+        name: `${prefix}-security-alerts`,
+        kmsMasterKeyId: kmsKey.id,
+        tags,
+      },
+      { parent: this },
+    );
 
     this.alertTopicArn = snsTopic.arn;
 
-    const metricFilter = new aws.cloudwatch.LogMetricFilter(`${name}-security-events`, {
-      logGroupName: logGroup.name,
-      pattern: '"access_denied" OR "auth_error" OR "permission_denied" OR "injection_suspected"',
-      metricTransformation: {
-        name: `${prefix}-security-events`,
-        namespace: "Tino/Security",
-        value: "1",
+    const metricFilter = new aws.cloudwatch.LogMetricFilter(
+      `${name}-security-events`,
+      {
+        logGroupName: logGroup.name,
+        pattern: '"access_denied" OR "auth_error" OR "permission_denied" OR "injection_suspected"',
+        metricTransformation: {
+          name: `${prefix}-security-events`,
+          namespace: "Tino/Security",
+          value: "1",
+        },
       },
-    }, { parent: this });
+      { parent: this },
+    );
 
-    new aws.cloudwatch.MetricAlarm(`${name}-security-alarm`, {
-      name: `${prefix}-security-events`,
-      comparisonOperator: "GreaterThanThreshold",
-      evaluationPeriods: 1,
-      metricName: metricFilter.metricTransformation.name,
-      namespace: "Tino/Security",
-      period: 900, // 15 minutes
-      statistic: "Sum",
-      threshold: 5,
-      alarmActions: [snsTopic.arn],
-      tags,
-    }, { parent: this });
+    new aws.cloudwatch.MetricAlarm(
+      `${name}-security-alarm`,
+      {
+        name: `${prefix}-security-events`,
+        comparisonOperator: "GreaterThanThreshold",
+        evaluationPeriods: 1,
+        metricName: metricFilter.metricTransformation.name,
+        namespace: "Tino/Security",
+        period: 900, // 15 minutes
+        statistic: "Sum",
+        threshold: 5,
+        alarmActions: [snsTopic.arn],
+        tags,
+      },
+      { parent: this },
+    );
 
     // ── ECR repository ───────────────────────────────────────────────────
     // imageTagMutability: MUTABLE allows pushing updated images to the same tag.
     // The docker-build provider pushes to :latest on each deploy.
     // Image scanning on push provides the security control.
-    const ecrRepo = new aws.ecr.Repository(`${name}-ecr`, {
-      name: `${prefix}`,
-      forceDelete: false,
-      imageScanningConfiguration: { scanOnPush: true },
-      imageTagMutability: "MUTABLE",
-      tags,
-    }, { parent: this });
+    const ecrRepo = new aws.ecr.Repository(
+      `${name}-ecr`,
+      {
+        name: `${prefix}`,
+        forceDelete: false,
+        imageScanningConfiguration: { scanOnPush: true },
+        imageTagMutability: "MUTABLE",
+        tags,
+      },
+      { parent: this },
+    );
 
     this.ecrRepoUri = ecrRepo.repositoryUrl;
 
@@ -575,86 +624,102 @@ export class TinoService extends pulumi.ComponentResource {
     const tinoConfig = new pulumi.Config("tino");
     const dockerContext = tinoConfig.get("dockerContext") ?? ".";
 
-    const builtImage = new dockerBuild.Image(`${name}-image`, {
-      tags: [pulumi.interpolate`${ecrRepo.repositoryUrl}:latest`],
-      context: {
-        location: dockerContext,
+    const builtImage = new dockerBuild.Image(
+      `${name}-image`,
+      {
+        tags: [pulumi.interpolate`${ecrRepo.repositoryUrl}:latest`],
+        context: {
+          location: dockerContext,
+        },
+        // Push to ECR after build
+        push: true,
+        // ECR auth — AWS credentials come from the environment (same as pulumi up)
+        registries: [
+          {
+            address: ecrRepo.repositoryUrl,
+            username: "AWS",
+            password: aws.ecr.getAuthorizationTokenOutput({
+              registryId: ecrRepo.registryId,
+            }).password,
+          },
+        ],
+        // Build for linux/amd64 (Fargate)
+        platforms: [dockerBuild.Platform.Linux_amd64],
       },
-      // Push to ECR after build
-      push: true,
-      // ECR auth — AWS credentials come from the environment (same as pulumi up)
-      registries: [{
-        address: ecrRepo.repositoryUrl,
-        username: "AWS",
-        password: aws.ecr.getAuthorizationTokenOutput({
-          registryId: ecrRepo.registryId,
-        }).password,
-      }],
-      // Build for linux/amd64 (Fargate)
-      platforms: [dockerBuild.Platform.Linux_amd64],
-    }, { parent: this });
+      { parent: this },
+    );
 
     this.imageUri = builtImage.ref;
 
     // ── IAM roles ────────────────────────────────────────────────────────
-    const taskExecutionRole = new aws.iam.Role(`${name}-exec-role`, {
-      assumeRolePolicy: JSON.stringify({
-        Version: "2012-10-17",
-        Statement: [{
-          Action: "sts:AssumeRole",
-          Effect: "Allow",
-          Principal: { Service: "ecs-tasks.amazonaws.com" },
-        }],
-      }),
-      tags,
-    }, { parent: this });
-
-    // Execution role: custom policy — ECR pull + CloudWatch Logs write only.
-    // Replaces the broad AmazonECSTaskExecutionRolePolicy managed policy.
-    new aws.iam.RolePolicy(`${name}-exec-policy`, {
-      role: taskExecutionRole.name,
-      policy: pulumi.all([ecrRepo.arn, logGroup.arn]).apply(([ecrArn, logArn]) =>
-        JSON.stringify({
+    const taskExecutionRole = new aws.iam.Role(
+      `${name}-exec-role`,
+      {
+        assumeRolePolicy: JSON.stringify({
           Version: "2012-10-17",
           Statement: [
             {
+              Action: "sts:AssumeRole",
               Effect: "Allow",
-              Action: [
-                "ecr:GetDownloadUrlForLayer",
-                "ecr:BatchGetImage",
-              ],
-              Resource: [ecrArn],
-            },
-            {
-              // GetAuthorizationToken does not support resource-level permissions.
-              Effect: "Allow",
-              Action: ["ecr:GetAuthorizationToken"],
-              Resource: ["*"],
-            },
-            {
-              Effect: "Allow",
-              Action: [
-                "logs:CreateLogStream",
-                "logs:PutLogEvents",
-              ],
-              Resource: [logArn, `${logArn}:*`],
+              Principal: { Service: "ecs-tasks.amazonaws.com" },
             },
           ],
         }),
-      ),
-    }, { parent: this });
+        tags,
+      },
+      { parent: this },
+    );
 
-    const taskRole = new aws.iam.Role(`${name}-task-role`, {
-      assumeRolePolicy: JSON.stringify({
-        Version: "2012-10-17",
-        Statement: [{
-          Action: "sts:AssumeRole",
-          Effect: "Allow",
-          Principal: { Service: "ecs-tasks.amazonaws.com" },
-        }],
-      }),
-      tags,
-    }, { parent: this });
+    // Execution role: custom policy — ECR pull + CloudWatch Logs write only.
+    // Replaces the broad AmazonECSTaskExecutionRolePolicy managed policy.
+    new aws.iam.RolePolicy(
+      `${name}-exec-policy`,
+      {
+        role: taskExecutionRole.name,
+        policy: pulumi.all([ecrRepo.arn, logGroup.arn]).apply(([ecrArn, logArn]) =>
+          JSON.stringify({
+            Version: "2012-10-17",
+            Statement: [
+              {
+                Effect: "Allow",
+                Action: ["ecr:GetDownloadUrlForLayer", "ecr:BatchGetImage"],
+                Resource: [ecrArn],
+              },
+              {
+                // GetAuthorizationToken does not support resource-level permissions.
+                Effect: "Allow",
+                Action: ["ecr:GetAuthorizationToken"],
+                Resource: ["*"],
+              },
+              {
+                Effect: "Allow",
+                Action: ["logs:CreateLogStream", "logs:PutLogEvents"],
+                Resource: [logArn, `${logArn}:*`],
+              },
+            ],
+          }),
+        ),
+      },
+      { parent: this },
+    );
+
+    const taskRole = new aws.iam.Role(
+      `${name}-task-role`,
+      {
+        assumeRolePolicy: JSON.stringify({
+          Version: "2012-10-17",
+          Statement: [
+            {
+              Action: "sts:AssumeRole",
+              Effect: "Allow",
+              Principal: { Service: "ecs-tasks.amazonaws.com" },
+            },
+          ],
+        }),
+        tags,
+      },
+      { parent: this },
+    );
 
     // Task role: DynamoDB (config store + app data), Bedrock, KMS, CloudWatch Logs.
     // All resources are scoped — no wildcards except where AWS requires it.
@@ -663,18 +728,13 @@ export class TinoService extends pulumi.ComponentResource {
     const extraLogGroupArns: pulumi.Input<string>[] = args.cloudwatchLogGroupArns ?? [];
     const region = aws.config.region ?? "us-east-1";
     const bedrockResources = gdprCompliance
-      ? [
-          `arn:aws:bedrock:${region}:*:inference-profile/*`,
-          `arn:aws:bedrock:${region}::foundation-model/*`,
-        ]
-      : [
-          "arn:aws:bedrock:*:*:inference-profile/*",
-          "arn:aws:bedrock:*::foundation-model/*",
-        ];
-    new aws.iam.RolePolicy(`${name}-task-policy`, {
-      role: taskRole.name,
-      policy: pulumi.all([table.arn, kmsKey.arn, logGroup.arn, ...extraLogGroupArns]).apply(
-        (resolved) => {
+      ? [`arn:aws:bedrock:${region}:*:inference-profile/*`, `arn:aws:bedrock:${region}::foundation-model/*`]
+      : ["arn:aws:bedrock:*:*:inference-profile/*", "arn:aws:bedrock:*::foundation-model/*"];
+    new aws.iam.RolePolicy(
+      `${name}-task-policy`,
+      {
+        role: taskRole.name,
+        policy: pulumi.all([table.arn, kmsKey.arn, logGroup.arn, ...extraLogGroupArns]).apply((resolved) => {
           const tableArn = resolved[0] as string;
           const kmsArn = resolved[1] as string;
           const logArn = resolved[2] as string;
@@ -694,8 +754,12 @@ export class TinoService extends pulumi.ComponentResource {
             {
               Effect: "Allow",
               Action: [
-                "dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem",
-                "dynamodb:DeleteItem", "dynamodb:Query", "dynamodb:Scan",
+                "dynamodb:GetItem",
+                "dynamodb:PutItem",
+                "dynamodb:UpdateItem",
+                "dynamodb:DeleteItem",
+                "dynamodb:Query",
+                "dynamodb:Scan",
               ],
               Resource: [tableArn, `${tableArn}/index/*`],
             },
@@ -725,156 +789,222 @@ export class TinoService extends pulumi.ComponentResource {
           ];
 
           return JSON.stringify({ Version: "2012-10-17", Statement: statements });
-        },
-      ),
-    }, { parent: this });
+        }),
+      },
+      { parent: this },
+    );
 
     // ── ECS cluster (create or reuse) ────────────────────────────────────
     // Container Insights is always enabled for audit trail depth.
-    const cluster = args.cluster ?? new aws.ecs.Cluster(`${name}-cluster`, {
-      name: `${prefix}`,
-      settings: [{ name: "containerInsights", value: "enabled" }],
-      tags,
-    }, { parent: this });
+    const cluster =
+      args.cluster ??
+      new aws.ecs.Cluster(
+        `${name}-cluster`,
+        {
+          name: `${prefix}`,
+          settings: [{ name: "containerInsights", value: "enabled" }],
+          tags,
+        },
+        { parent: this },
+      );
 
     this.clusterName = cluster.name;
 
     // ── ALB security group ───────────────────────────────────────────────
     // Allow inbound on 443 (with custom domain) or 80 (without) from anywhere.
-    const albSg = new aws.ec2.SecurityGroup(`${name}-alb-sg`, {
-      vpcId,
-      description: "tino console ALB",
-      ingress: [{
-        protocol: "tcp",
-        fromPort: args.consoleDomain ? 443 : 80,
-        toPort: args.consoleDomain ? 443 : 80,
-        cidrBlocks: ["0.0.0.0/0"],
-        description: "Console access",
-      }],
-      egress: [{
-        protocol: "-1",
-        fromPort: 0,
-        toPort: 0,
-        cidrBlocks: ["0.0.0.0/0"],
-      }],
-      tags,
-    }, { parent: this });
+    const albSg = new aws.ec2.SecurityGroup(
+      `${name}-alb-sg`,
+      {
+        vpcId,
+        description: "tino console ALB",
+        ingress: [
+          {
+            protocol: "tcp",
+            fromPort: args.consoleDomain ? 443 : 80,
+            toPort: args.consoleDomain ? 443 : 80,
+            cidrBlocks: ["0.0.0.0/0"],
+            description: "Console access",
+          },
+        ],
+        egress: [
+          {
+            protocol: "-1",
+            fromPort: 0,
+            toPort: 0,
+            cidrBlocks: ["0.0.0.0/0"],
+          },
+        ],
+        tags,
+      },
+      { parent: this },
+    );
 
     // ── ALB ──────────────────────────────────────────────────────────────
-    const alb = new aws.lb.LoadBalancer(`${name}-alb`, {
-      internal: false,
-      loadBalancerType: "application",
-      securityGroups: [albSg.id],
-      subnets: publicSubnetIds,
-      tags,
-    }, { parent: this });
+    const alb = new aws.lb.LoadBalancer(
+      `${name}-alb`,
+      {
+        internal: false,
+        loadBalancerType: "application",
+        securityGroups: [albSg.id],
+        subnets: publicSubnetIds,
+        tags,
+      },
+      { parent: this },
+    );
 
     // ── Target group ─────────────────────────────────────────────────────
     // Points to the ECS task on port 3001.
-    const tg = new aws.lb.TargetGroup(`${name}-tg`, {
-      port: 3001,
-      protocol: "HTTP",
-      targetType: "ip",
-      vpcId,
-      healthCheck: {
-        path: "/api/health",
-        port: "3001",
+    const tg = new aws.lb.TargetGroup(
+      `${name}-tg`,
+      {
+        port: 3001,
         protocol: "HTTP",
-        healthyThreshold: 2,
-        unhealthyThreshold: 3,
-        interval: 30,
-        timeout: 5,
+        targetType: "ip",
+        vpcId,
+        healthCheck: {
+          path: "/api/health",
+          port: "3001",
+          protocol: "HTTP",
+          healthyThreshold: 2,
+          unhealthyThreshold: 3,
+          interval: 30,
+          timeout: 5,
+        },
+        tags,
       },
-      tags,
-    }, { parent: this });
+      { parent: this },
+    );
 
     // ── HTTPS with custom domain ──────────────────────────────────────────
     if (args.consoleDomain && args.hostedZoneId) {
-      const cert = new aws.acm.Certificate(`${name}-cert`, {
-        domainName: args.consoleDomain,
-        validationMethod: "DNS",
-        tags,
-      }, { parent: this });
+      const cert = new aws.acm.Certificate(
+        `${name}-cert`,
+        {
+          domainName: args.consoleDomain,
+          validationMethod: "DNS",
+          tags,
+        },
+        { parent: this },
+      );
 
-      const validationRecord = new aws.route53.Record(`${name}-cert-validation`, {
-        zoneId: args.hostedZoneId,
-        name: cert.domainValidationOptions.apply(opts => opts[0]!.resourceRecordName),
-        type: cert.domainValidationOptions.apply(opts => opts[0]!.resourceRecordType),
-        records: [cert.domainValidationOptions.apply(opts => opts[0]!.resourceRecordValue)],
-        ttl: 60,
-      }, { parent: this });
+      const validationRecord = new aws.route53.Record(
+        `${name}-cert-validation`,
+        {
+          zoneId: args.hostedZoneId,
+          // biome-ignore lint/style/noNonNullAssertion: pulumi cert.domainValidationOptions[0] is guaranteed by ACM
+          name: cert.domainValidationOptions.apply((opts) => opts[0]!.resourceRecordName),
+          // biome-ignore lint/style/noNonNullAssertion: pulumi cert.domainValidationOptions[0] is guaranteed by ACM
+          type: cert.domainValidationOptions.apply((opts) => opts[0]!.resourceRecordType),
+          // biome-ignore lint/style/noNonNullAssertion: pulumi cert.domainValidationOptions[0] is guaranteed by ACM
+          records: [cert.domainValidationOptions.apply((opts) => opts[0]!.resourceRecordValue)],
+          ttl: 60,
+        },
+        { parent: this },
+      );
 
-      const certValidation = new aws.acm.CertificateValidation(`${name}-cert-valid`, {
-        certificateArn: cert.arn,
-        validationRecordFqdns: [validationRecord.fqdn],
-      }, { parent: this });
+      const certValidation = new aws.acm.CertificateValidation(
+        `${name}-cert-valid`,
+        {
+          certificateArn: cert.arn,
+          validationRecordFqdns: [validationRecord.fqdn],
+        },
+        { parent: this },
+      );
 
-      new aws.lb.Listener(`${name}-https`, {
-        loadBalancerArn: alb.arn,
-        port: 443,
-        protocol: "HTTPS",
-        certificateArn: certValidation.certificateArn,
-        defaultActions: [{ type: "forward", targetGroupArn: tg.arn }],
-      }, { parent: this });
+      new aws.lb.Listener(
+        `${name}-https`,
+        {
+          loadBalancerArn: alb.arn,
+          port: 443,
+          protocol: "HTTPS",
+          certificateArn: certValidation.certificateArn,
+          defaultActions: [{ type: "forward", targetGroupArn: tg.arn }],
+        },
+        { parent: this },
+      );
 
-      new aws.lb.Listener(`${name}-http-redirect`, {
-        loadBalancerArn: alb.arn,
-        port: 80,
-        protocol: "HTTP",
-        defaultActions: [{
-          type: "redirect",
-          redirect: { protocol: "HTTPS", port: "443", statusCode: "HTTP_301" },
-        }],
-      }, { parent: this });
+      new aws.lb.Listener(
+        `${name}-http-redirect`,
+        {
+          loadBalancerArn: alb.arn,
+          port: 80,
+          protocol: "HTTP",
+          defaultActions: [
+            {
+              type: "redirect",
+              redirect: { protocol: "HTTPS", port: "443", statusCode: "HTTP_301" },
+            },
+          ],
+        },
+        { parent: this },
+      );
 
-      new aws.route53.Record(`${name}-dns`, {
-        zoneId: args.hostedZoneId,
-        name: args.consoleDomain,
-        type: "A",
-        aliases: [{
-          name: alb.dnsName,
-          zoneId: alb.zoneId,
-          evaluateTargetHealth: true,
-        }],
-      }, { parent: this });
+      new aws.route53.Record(
+        `${name}-dns`,
+        {
+          zoneId: args.hostedZoneId,
+          name: args.consoleDomain,
+          type: "A",
+          aliases: [
+            {
+              name: alb.dnsName,
+              zoneId: alb.zoneId,
+              evaluateTargetHealth: true,
+            },
+          ],
+        },
+        { parent: this },
+      );
     }
 
     // ── HTTP without custom domain ────────────────────────────────────────
     if (!args.consoleDomain) {
-      new aws.lb.Listener(`${name}-http`, {
-        loadBalancerArn: alb.arn,
-        port: 80,
-        protocol: "HTTP",
-        defaultActions: [{ type: "forward", targetGroupArn: tg.arn }],
-      }, { parent: this });
+      new aws.lb.Listener(
+        `${name}-http`,
+        {
+          loadBalancerArn: alb.arn,
+          port: 80,
+          protocol: "HTTP",
+          defaultActions: [{ type: "forward", targetGroupArn: tg.arn }],
+        },
+        { parent: this },
+      );
     }
 
     // ── Console URL output ────────────────────────────────────────────────
     this.consoleUrl = args.consoleDomain
       ? pulumi.output(`https://${args.consoleDomain}`)
-      : alb.dnsName.apply(dns => `http://${dns}`);
+      : alb.dnsName.apply((dns) => `http://${dns}`);
 
     // ── ECS security group ───────────────────────────────────────────────
     // Allows inbound from the ALB on port 3001; all outbound allowed.
-    const sg = new aws.ec2.SecurityGroup(`${name}-sg`, {
-      vpcId,
-      description: "tino ECS task",
-      ingress: [{
-        protocol: "tcp",
-        fromPort: 3001,
-        toPort: 3001,
-        securityGroups: [albSg.id],
-        description: "Allow traffic from ALB to console",
-      }],
-      egress: [{
-        protocol: "-1",
-        fromPort: 0,
-        toPort: 0,
-        cidrBlocks: ["0.0.0.0/0"],
-        description: "Allow all outbound",
-      }],
-      tags,
-    }, { parent: this });
+    const sg = new aws.ec2.SecurityGroup(
+      `${name}-sg`,
+      {
+        vpcId,
+        description: "tino ECS task",
+        ingress: [
+          {
+            protocol: "tcp",
+            fromPort: 3001,
+            toPort: 3001,
+            securityGroups: [albSg.id],
+            description: "Allow traffic from ALB to console",
+          },
+        ],
+        egress: [
+          {
+            protocol: "-1",
+            fromPort: 0,
+            toPort: 0,
+            cidrBlocks: ["0.0.0.0/0"],
+            description: "Allow all outbound",
+          },
+        ],
+        tags,
+      },
+      { parent: this },
+    );
 
     // ── ECS task definition ──────────────────────────────────────────────
     // All runtime config (credentials, model ID, Slack tokens) is read from
@@ -886,104 +1016,126 @@ export class TinoService extends pulumi.ComponentResource {
     // NOTE: @tino/core's console server must bind to 0.0.0.0:3001 when
     // CONSOLE_BASE_URL is set (production). This change is in @tino/core,
     // not in this component.
-    const taskDef = new aws.ecs.TaskDefinition(`${name}-task`, {
-      family: `${prefix}`,
-      networkMode: "awsvpc",
-      requiresCompatibilities: ["FARGATE"],
-      cpu: args.cpu ?? "256",
-      memory: args.memory ?? "512",
-      executionRoleArn: taskExecutionRole.arn,
-      taskRoleArn: taskRole.arn,
-      // Ephemeral volume for /tmp (required when readonlyRootFilesystem is true).
-      volumes: [{
-        name: "tmp",
-        // Fargate ephemeral storage — no host path needed.
-      }],
-      containerDefinitions: pulumi.all([
-        logGroup.name,
-        this.consoleUrl,
-        pulumi.output(args.googleOAuthClientId),
-        pulumi.output(args.googleOAuthClientSecret),
-        builtImage.ref,
-      ]).apply(
-        ([logName, consoleBaseUrl, googleClientId, googleClientSecret, imageRef]) => JSON.stringify([{
-          name: "tino",
-          image: imageRef,
-          essential: true,
-          readonlyRootFilesystem: true,
-          portMappings: [{
-            containerPort: 3001,
-            protocol: "tcp",
-          }],
-          mountPoints: [{
-            sourceVolume: "tmp",
-            containerPath: "/tmp",
-            readOnly: false,
-          }],
-          environment: [
-            { name: "NODE_ENV", value: "production" },
-            { name: "PERSISTENCE_ADAPTER", value: "dynamodb" },
-            { name: "DYNAMODB_TABLE_NAME", value: `${prefix}` },
-            { name: "LOG_LEVEL", value: "info" },
-            { name: "GOOGLE_OAUTH_CLIENT_ID", value: googleClientId },
-            { name: "GOOGLE_OAUTH_CLIENT_SECRET", value: googleClientSecret },
-            { name: "CONSOLE_ALLOWED_DOMAIN", value: args.allowedDomain ?? "" },
-            { name: "CONSOLE_BASE_URL", value: consoleBaseUrl },
-            { name: "AUDIT_RETENTION_DAYS", value: String(args.auditRetentionDays ?? 90) },
-          ],
-          // No secrets block — credentials come from the DynamoDB config store
-          logConfiguration: {
-            logDriver: "awslogs",
-            options: {
-              "awslogs-group": logName,
-              "awslogs-region": aws.config.region ?? "us-east-1",
-              "awslogs-stream-prefix": "tino",
-            },
+    const taskDef = new aws.ecs.TaskDefinition(
+      `${name}-task`,
+      {
+        family: `${prefix}`,
+        networkMode: "awsvpc",
+        requiresCompatibilities: ["FARGATE"],
+        cpu: args.cpu ?? "256",
+        memory: args.memory ?? "512",
+        executionRoleArn: taskExecutionRole.arn,
+        taskRoleArn: taskRole.arn,
+        // Ephemeral volume for /tmp (required when readonlyRootFilesystem is true).
+        volumes: [
+          {
+            name: "tmp",
+            // Fargate ephemeral storage — no host path needed.
           },
-        }]),
-      ),
-      tags,
-    }, { parent: this });
+        ],
+        containerDefinitions: pulumi
+          .all([
+            logGroup.name,
+            this.consoleUrl,
+            pulumi.output(args.googleOAuthClientId),
+            pulumi.output(args.googleOAuthClientSecret),
+            builtImage.ref,
+          ])
+          .apply(([logName, consoleBaseUrl, googleClientId, googleClientSecret, imageRef]) =>
+            JSON.stringify([
+              {
+                name: "tino",
+                image: imageRef,
+                essential: true,
+                readonlyRootFilesystem: true,
+                portMappings: [
+                  {
+                    containerPort: 3001,
+                    protocol: "tcp",
+                  },
+                ],
+                mountPoints: [
+                  {
+                    sourceVolume: "tmp",
+                    containerPath: "/tmp",
+                    readOnly: false,
+                  },
+                ],
+                environment: [
+                  { name: "NODE_ENV", value: "production" },
+                  { name: "PERSISTENCE_ADAPTER", value: "dynamodb" },
+                  { name: "DYNAMODB_TABLE_NAME", value: `${prefix}` },
+                  { name: "LOG_LEVEL", value: "info" },
+                  { name: "GOOGLE_OAUTH_CLIENT_ID", value: googleClientId },
+                  { name: "GOOGLE_OAUTH_CLIENT_SECRET", value: googleClientSecret },
+                  { name: "CONSOLE_ALLOWED_DOMAIN", value: args.allowedDomain ?? "" },
+                  { name: "CONSOLE_BASE_URL", value: consoleBaseUrl },
+                  { name: "AUDIT_RETENTION_DAYS", value: String(args.auditRetentionDays ?? 90) },
+                ],
+                // No secrets block — credentials come from the DynamoDB config store
+                logConfiguration: {
+                  logDriver: "awslogs",
+                  options: {
+                    "awslogs-group": logName,
+                    "awslogs-region": aws.config.region ?? "us-east-1",
+                    "awslogs-stream-prefix": "tino",
+                  },
+                },
+              },
+            ]),
+          ),
+        tags,
+      },
+      { parent: this },
+    );
 
     // ── ECS service ──────────────────────────────────────────────────────
     // enableExecuteCommand defaults to false (secure default).
     // Set enableExec: true in args to enable for debugging.
-    const service = new aws.ecs.Service(`${name}-service`, {
-      name: `${prefix}`,
-      cluster: cluster.arn,
-      taskDefinition: taskDef.arn,
-      desiredCount: 1,
-      launchType: "FARGATE",
-      networkConfiguration: {
-        subnets: subnetIds,
-        securityGroups: [sg.id],
-        // assignPublicIp: true when no explicit subnets provided (default VPC
-        // has no NAT gateway, so the task needs a public IP for outbound access
-        // to ECR, Slack, Bedrock, etc.). When the user passes private subnets
-        // from their own VPC (which should have a NAT gateway), this is false.
-        assignPublicIp: !args.subnets,
+    const service = new aws.ecs.Service(
+      `${name}-service`,
+      {
+        name: `${prefix}`,
+        cluster: cluster.arn,
+        taskDefinition: taskDef.arn,
+        desiredCount: 1,
+        launchType: "FARGATE",
+        networkConfiguration: {
+          subnets: subnetIds,
+          securityGroups: [sg.id],
+          // assignPublicIp: true when no explicit subnets provided (default VPC
+          // has no NAT gateway, so the task needs a public IP for outbound access
+          // to ECR, Slack, Bedrock, etc.). When the user passes private subnets
+          // from their own VPC (which should have a NAT gateway), this is false.
+          assignPublicIp: !args.subnets,
+        },
+        loadBalancers: [
+          {
+            targetGroupArn: tg.arn,
+            containerName: "tino",
+            containerPort: 3001,
+          },
+        ],
+        enableExecuteCommand: args.enableExec ?? false,
+        tags,
       },
-      loadBalancers: [{
-        targetGroupArn: tg.arn,
-        containerName: "tino",
-        containerPort: 3001,
-      }],
-      enableExecuteCommand: args.enableExec ?? false,
-      tags,
-    }, { parent: this });
+      { parent: this },
+    );
 
     this.serviceName = service.name;
 
     // ── Console access note ──────────────────────────────────────────────
-    this.consoleNote = pulumi.all([cluster.name, service.name]).apply(
-      ([clusterName, serviceName]) =>
-        `ECS Exec is ${args.enableExec ? "enabled" : "disabled"}.\n` +
-        (args.enableExec
-          ? `Access the running container:\n` +
-            `  1. Find the task ID: aws ecs list-tasks --cluster ${clusterName} --service-name ${serviceName}\n` +
-            `  2. Exec in:          aws ecs execute-command --cluster ${clusterName} --task <task-id> --container tino --interactive --command /bin/sh`
-          : `To enable, set enableExec: true in TinoServiceArgs (debugging only).`),
-    );
+    this.consoleNote = pulumi
+      .all([cluster.name, service.name])
+      .apply(
+        ([clusterName, serviceName]) =>
+          `ECS Exec is ${args.enableExec ? "enabled" : "disabled"}.\n` +
+          (args.enableExec
+            ? `Access the running container:\n` +
+              `  1. Find the task ID: aws ecs list-tasks --cluster ${clusterName} --service-name ${serviceName}\n` +
+              `  2. Exec in:          aws ecs execute-command --cluster ${clusterName} --task <task-id> --container tino --interactive --command /bin/sh`
+            : `To enable, set enableExec: true in TinoServiceArgs (debugging only).`),
+      );
 
     this.registerOutputs({
       tableName: this.tableName,

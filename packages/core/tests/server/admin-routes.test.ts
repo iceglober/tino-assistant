@@ -13,11 +13,12 @@
  *   3. Schedule shutdown via setTimeout(..., 100ms) so the response leaves
  *      the wire before the process tears down.
  */
-import { describe, it, expect, vi } from 'vitest';
-import { Hono } from 'hono';
-import { createAdminRoutes } from '../../src/server/routes/admin.js';
-import { createMemoryAuditLogger } from '../../src/audit/memory.js';
-import type { AppLogger } from '../../src/slack/app.js';
+
+import { Hono } from "hono";
+import { describe, expect, it, vi } from "vitest";
+import { createMemoryAuditLogger } from "../../src/audit/memory.js";
+import { createAdminRoutes } from "../../src/server/routes/admin.js";
+import type { AppLogger } from "../../src/slack/app.js";
 
 function noopLogger(): AppLogger {
   return { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
@@ -25,19 +26,19 @@ function noopLogger(): AppLogger {
 
 function mountAdmin(opts: Parameters<typeof createAdminRoutes>[0]): Hono {
   const app = new Hono();
-  app.route('/api/admin', createAdminRoutes(opts));
+  app.route("/api/admin", createAdminRoutes(opts));
   return app;
 }
 
-describe('POST /api/admin/restart (wave 3.4)', () => {
-  it('returns 202 with { ok: true } before the shutdown callback fires', async () => {
+describe("POST /api/admin/restart (wave 3.4)", () => {
+  it("returns 202 with { ok: true } before the shutdown callback fires", async () => {
     vi.useFakeTimers();
     try {
       const shutdown = vi.fn(async () => {});
       const audit = createMemoryAuditLogger();
       const app = mountAdmin({ logger: noopLogger(), auditLogger: audit, shutdown });
 
-      const res = await app.request('/api/admin/restart', { method: 'POST' });
+      const res = await app.request("/api/admin/restart", { method: "POST" });
 
       // Response is fully formed BEFORE shutdown runs.
       expect(res.status).toBe(202);
@@ -50,25 +51,25 @@ describe('POST /api/admin/restart (wave 3.4)', () => {
       // Advance fake timers past the 100ms defer.
       await vi.advanceTimersByTimeAsync(150);
       expect(shutdown).toHaveBeenCalledTimes(1);
-      expect(shutdown).toHaveBeenCalledWith('admin');
+      expect(shutdown).toHaveBeenCalledWith("admin");
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it('audit-logs an admin_restart entry attributed to the console', async () => {
+  it("audit-logs an admin_restart entry attributed to the console", async () => {
     vi.useFakeTimers();
     try {
       const shutdown = vi.fn(async () => {});
       const audit = createMemoryAuditLogger();
       const app = mountAdmin({ logger: noopLogger(), auditLogger: audit, shutdown });
 
-      await app.request('/api/admin/restart', { method: 'POST' });
+      await app.request("/api/admin/restart", { method: "POST" });
 
-      const entries = await audit.query({ action: 'admin_restart' });
+      const entries = await audit.query({ action: "admin_restart" });
       expect(entries).toHaveLength(1);
-      expect(entries[0]!.userId).toBe('console');
-      expect(entries[0]!.status).toBe('success');
+      expect(entries[0]?.userId).toBe("console");
+      expect(entries[0]?.status).toBe("success");
 
       await vi.advanceTimersByTimeAsync(150);
     } finally {
@@ -76,38 +77,40 @@ describe('POST /api/admin/restart (wave 3.4)', () => {
     }
   });
 
-  it('does not throw when shutdown callback rejects (logs the error instead)', async () => {
+  it("does not throw when shutdown callback rejects (logs the error instead)", async () => {
     // A buggy shutdown shouldn't crash the response path — the response is
     // already sent by the time shutdown fires. The error logger captures it.
     vi.useFakeTimers();
     try {
-      const shutdown = vi.fn(async () => { throw new Error('teardown failed'); });
+      const shutdown = vi.fn(async () => {
+        throw new Error("teardown failed");
+      });
       const errorLog = vi.fn();
       const logger: AppLogger = { debug: () => {}, info: () => {}, warn: () => {}, error: errorLog };
       const audit = createMemoryAuditLogger();
       const app = mountAdmin({ logger, auditLogger: audit, shutdown });
 
-      const res = await app.request('/api/admin/restart', { method: 'POST' });
+      const res = await app.request("/api/admin/restart", { method: "POST" });
       expect(res.status).toBe(202);
 
       await vi.advanceTimersByTimeAsync(150);
       // The throw was caught and logged.
       expect(errorLog).toHaveBeenCalledWith(
-        expect.objectContaining({ err: 'teardown failed' }),
-        expect.stringContaining('shutdown callback threw'),
+        expect.objectContaining({ err: "teardown failed" }),
+        expect.stringContaining("shutdown callback threw"),
       );
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it('omits audit logging when no auditLogger is provided', async () => {
+  it("omits audit logging when no auditLogger is provided", async () => {
     vi.useFakeTimers();
     try {
       const shutdown = vi.fn(async () => {});
       const app = mountAdmin({ logger: noopLogger(), auditLogger: undefined, shutdown });
 
-      const res = await app.request('/api/admin/restart', { method: 'POST' });
+      const res = await app.request("/api/admin/restart", { method: "POST" });
       expect(res.status).toBe(202);
 
       await vi.advanceTimersByTimeAsync(150);

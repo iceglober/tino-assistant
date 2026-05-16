@@ -30,24 +30,24 @@
  *
  *   Tracked: see "## Open questions" item 1 in wave_3.md.
  */
-import { describe, it, expect, vi } from 'vitest';
-import { executeDeploy } from '../../../cli/src/commands/deploy-executor.js';
-import type { DeployConfig } from '../../../cli/src/commands/init/types.js';
+import { describe, expect, it, vi } from "vitest";
+import { executeDeploy } from "../../../cli/src/commands/deploy-executor.js";
+import type { DeployConfig } from "../../../cli/src/commands/init/types.js";
 
 const MINIMAL_CONFIG: DeployConfig = {
   compliance: {
-    frameworks: ['hipaa'],
-    baaStatus: { aws: 'verified', bedrock: 'verified' },
+    frameworks: ["hipaa"],
+    baaStatus: { aws: "verified", bedrock: "verified" },
   },
-  provider: 'aws',
-  region: 'us-west-2',
-  iac: 'standalone',
-  pulumiStack: 'dev',
-  googleOAuthClientId: 'gid',
-  googleOAuthClientSecret: 'gsec',
-  allowedDomain: 'example.com',
+  provider: "aws",
+  region: "us-west-2",
+  iac: "standalone",
+  pulumiStack: "dev",
+  googleOAuthClientId: "gid",
+  googleOAuthClientSecret: "gsec",
+  allowedDomain: "example.com",
   hipaa: {
-    kmsKeyAlias: 'alias/tino',
+    kmsKeyAlias: "alias/tino",
     auditRetentionDays: 365,
     historyRetentionDays: 90,
     enforceEncryption: true,
@@ -56,22 +56,22 @@ const MINIMAL_CONFIG: DeployConfig = {
   },
 };
 
-describe('executeDeploy (wave 3.3 regression — missing-dir abort path)', () => {
-  it('calls displayError + process.exit(1) when the infra directory does not exist', async () => {
+describe("executeDeploy (wave 3.3 regression — missing-dir abort path)", () => {
+  it("calls displayError + process.exit(1) when the infra directory does not exist", async () => {
     // `process.exit` would kill the test runner; turn it into a thrown
     // sentinel so we can assert it was reached and inspect the side effects.
-    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
       throw new Error(`__exit_${code}`);
     }) as never);
 
     const config: DeployConfig = {
       ...MINIMAL_CONFIG,
-      infraPath: '/this/path/does/not/exist/anywhere/__tino_test__',
+      infraPath: "/this/path/does/not/exist/anywhere/__tino_test__",
     };
 
     // The abort runs before any `pulumi` shell-out, so the real execa is
     // never invoked. This test does not depend on cross-package mocking.
-    await expect(executeDeploy(config)).rejects.toThrow('__exit_1');
+    await expect(executeDeploy(config)).rejects.toThrow("__exit_1");
 
     exitSpy.mockRestore();
   });

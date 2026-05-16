@@ -11,8 +11,9 @@
  *   - `credentials.<name>` → string
  *   - `settings.<name>`    → string OR string[] (when `kind: 'string[]'`)
  */
-import type { CapabilityConfig, CapField, CapabilityModule } from './types.js';
-import { ALL_CAPABILITIES } from './all.js';
+
+import { ALL_CAPABILITIES } from "./all.js";
+import type { CapabilityConfig, CapabilityModule, CapField } from "./types.js";
 
 /** Public-facing shape returned by GET /api/capabilities. */
 export interface CapabilityView {
@@ -20,7 +21,7 @@ export interface CapabilityView {
   displayName: string;
   enabled: boolean;
   fields: CapField[];
-  findWork?: CapabilityConfig['findWork'];
+  findWork?: CapabilityConfig["findWork"];
   updatedAt?: number;
 }
 
@@ -28,12 +29,12 @@ export interface CapabilityView {
  * Parse a `target` string like "credentials.token" into its segments.
  * Returns null if malformed (defensive — schemas should never produce these).
  */
-function parseTarget(target: string): { section: 'credentials' | 'settings'; name: string } | null {
-  const dot = target.indexOf('.');
+function parseTarget(target: string): { section: "credentials" | "settings"; name: string } | null {
+  const dot = target.indexOf(".");
   if (dot < 1) return null;
   const section = target.slice(0, dot);
   const name = target.slice(dot + 1);
-  if (section !== 'credentials' && section !== 'settings') return null;
+  if (section !== "credentials" && section !== "settings") return null;
   if (!name) return null;
   return { section, name };
 }
@@ -41,14 +42,14 @@ function parseTarget(target: string): { section: 'credentials' | 'settings'; nam
 /** Read the value at `target` from a stored blob and stringify it for the input. */
 function readField(config: CapabilityConfig, field: CapField): string {
   const t = parseTarget(field.target);
-  if (!t) return '';
-  const bag = t.section === 'credentials' ? config.credentials : config.settings;
+  if (!t) return "";
+  const bag = t.section === "credentials" ? config.credentials : config.settings;
   const raw = bag?.[t.name];
-  if (raw === undefined || raw === null) return '';
-  if (field.kind === 'string[]') {
-    return Array.isArray(raw) ? raw.join(', ') : String(raw);
+  if (raw === undefined || raw === null) return "";
+  if (field.kind === "string[]") {
+    return Array.isArray(raw) ? raw.join(", ") : String(raw);
   }
-  return typeof raw === 'string' ? raw : String(raw);
+  return typeof raw === "string" ? raw : String(raw);
 }
 
 /**
@@ -82,8 +83,8 @@ export function buildCapabilityView(
 
 /** Coerce a string into the target shape (string vs string[]). */
 function coerce(field: CapField, raw: unknown): string | string[] {
-  const s = typeof raw === 'string' ? raw : String(raw ?? '');
-  if (field.kind === 'string[]') {
+  const s = typeof raw === "string" ? raw : String(raw ?? "");
+  if (field.kind === "string[]") {
     return s
       .split(/[\n,]/)
       .map((p) => p.trim())
@@ -121,35 +122,32 @@ export function buildConfigFromPayload(
     ...(base.findWork ? { findWork: { ...base.findWork } } : {}),
   };
 
-  if (!payload || typeof payload !== 'object') {
+  if (!payload || typeof payload !== "object") {
     return next;
   }
   const obj = payload as Record<string, unknown>;
 
-  if (typeof obj['enabled'] === 'boolean') {
-    next.enabled = obj['enabled'];
+  if (typeof obj.enabled === "boolean") {
+    next.enabled = obj.enabled;
   }
-  if (obj['findWork'] && typeof obj['findWork'] === 'object') {
-    next.findWork = obj['findWork'] as CapabilityConfig['findWork'];
+  if (obj.findWork && typeof obj.findWork === "object") {
+    next.findWork = obj.findWork as CapabilityConfig["findWork"];
   }
 
   // Preferred: schema-driven `fields` array.
-  if (Array.isArray(obj['fields'])) {
+  if (Array.isArray(obj.fields)) {
     const schema = cap.fieldSchema ?? [];
-    for (const submitted of obj['fields'] as Array<Record<string, unknown>>) {
-      const key = typeof submitted['key'] === 'string' ? (submitted['key'] as string) : null;
+    for (const submitted of obj.fields as Array<Record<string, unknown>>) {
+      const key = typeof submitted.key === "string" ? (submitted.key as string) : null;
       if (!key) continue;
       const def = schema.find((f) => f.key === key);
       if (!def) continue;
       const target = parseTarget(def.target);
       if (!target) continue;
-      const coerced = coerce(def, submitted['value']);
-      const bag = target.section === 'credentials' ? next.credentials : next.settings;
+      const coerced = coerce(def, submitted.value);
+      const bag = target.section === "credentials" ? next.credentials : next.settings;
       // Drop empty strings/arrays so unset fields don't pollute the blob.
-      if (
-        (typeof coerced === 'string' && coerced.length === 0) ||
-        (Array.isArray(coerced) && coerced.length === 0)
-      ) {
+      if ((typeof coerced === "string" && coerced.length === 0) || (Array.isArray(coerced) && coerced.length === 0)) {
         delete bag[target.name];
       } else {
         bag[target.name] = coerced as string;
@@ -159,11 +157,11 @@ export function buildConfigFromPayload(
   }
 
   // Legacy shape: raw `credentials` / `settings` blob — pass through.
-  if (obj['credentials'] && typeof obj['credentials'] === 'object') {
-    next.credentials = { ...(obj['credentials'] as Record<string, string>) };
+  if (obj.credentials && typeof obj.credentials === "object") {
+    next.credentials = { ...(obj.credentials as Record<string, string>) };
   }
-  if (obj['settings'] && typeof obj['settings'] === 'object') {
-    next.settings = { ...(obj['settings'] as Record<string, unknown>) };
+  if (obj.settings && typeof obj.settings === "object") {
+    next.settings = { ...(obj.settings as Record<string, unknown>) };
   }
   return next;
 }

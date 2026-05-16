@@ -5,4 +5,4 @@
  * @tino/core dynamically imports this module when PERSISTENCE_ADAPTER=dynamodb,
  * keeping the AWS SDK out of core's bundle when using SQLite.
  */
-export { createDynamoPersistence } from './dynamo/index.js';
+export { createDynamoPersistence } from "./dynamo/index.js";

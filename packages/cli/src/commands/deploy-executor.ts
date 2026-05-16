@@ -1,14 +1,15 @@
 /**
  * Shared deployment logic used by both `tino deploy` and `tino init`.
  */
-import { execaCommandSync } from 'execa';
-import { resolve } from 'node:path';
-import { readFileSync } from 'node:fs';
-import type { DeployConfig } from './init/types.js';
-import { displaySuccess, displayError, displayInfo, displayStep } from '../utils/display.js';
+
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { execaCommandSync } from "execa";
+import { displayError, displayInfo, displayStep, displaySuccess } from "../utils/display.js";
+import type { DeployConfig } from "./init/types.js";
 
 function run(cmd: string, cwd?: string): void {
-  execaCommandSync(cmd, { stdio: 'inherit', cwd });
+  execaCommandSync(cmd, { stdio: "inherit", cwd });
 }
 
 /**
@@ -18,12 +19,12 @@ function run(cmd: string, cwd?: string): void {
  */
 function detectTinoRepoRoot(infraDir: string): string | null {
   try {
-    const pkgJson = JSON.parse(readFileSync(resolve(infraDir, 'package.json'), 'utf8'));
-    const awsPath = pkgJson.dependencies?.['@tino/aws'];
-    if (awsPath?.startsWith('file:')) {
+    const pkgJson = JSON.parse(readFileSync(resolve(infraDir, "package.json"), "utf8"));
+    const awsPath = pkgJson.dependencies?.["@tino/aws"];
+    if (awsPath?.startsWith("file:")) {
       // file:../path/to/tino-assistant/packages/aws → resolve to repo root (2 levels up)
-      const awsAbsPath = resolve(infraDir, awsPath.replace('file:', ''));
-      return resolve(awsAbsPath, '..', '..');  // packages/aws → packages → tino-assistant
+      const awsAbsPath = resolve(infraDir, awsPath.replace("file:", ""));
+      return resolve(awsAbsPath, "..", ".."); // packages/aws → packages → tino-assistant
     }
     return null;
   } catch {
@@ -34,13 +35,13 @@ function detectTinoRepoRoot(infraDir: string): string | null {
 export async function executeDeploy(config: DeployConfig): Promise<void> {
   // All paths are relative to where `tino init` was run
   const cwd = process.cwd();
-  const infraDir = resolve(cwd, config.infraPath ?? 'infra-tino');
-  const stack = config.pulumiStack ?? 'dev';
+  const infraDir = resolve(cwd, config.infraPath ?? "infra-tino");
+  const stack = config.pulumiStack ?? "dev";
   const region = config.region;
 
   // Verify the infra directory exists before trying to deploy
   try {
-    const { statSync } = await import('node:fs');
+    const { statSync } = await import("node:fs");
     statSync(infraDir);
   } catch {
     displayError(`Infrastructure directory not found: ${infraDir}`);
@@ -50,13 +51,16 @@ export async function executeDeploy(config: DeployConfig): Promise<void> {
 
   try {
     // Step 1: Set Pulumi config values
-    displayStep(1, 2, 'Configuring Pulumi stack');
+    displayStep(1, 2, "Configuring Pulumi stack");
     run(`pulumi config set aws:region ${region} --stack ${stack}`, infraDir);
     if (config.googleOAuthClientId) {
       run(`pulumi config set tino:googleOAuthClientId ${config.googleOAuthClientId} --stack ${stack}`, infraDir);
     }
     if (config.googleOAuthClientSecret) {
-      run(`pulumi config set --secret tino:googleOAuthClientSecret ${config.googleOAuthClientSecret} --stack ${stack}`, infraDir);
+      run(
+        `pulumi config set --secret tino:googleOAuthClientSecret ${config.googleOAuthClientSecret} --stack ${stack}`,
+        infraDir,
+      );
     }
     if (config.allowedDomain) {
       run(`pulumi config set tino:allowedDomain ${config.allowedDomain} --stack ${stack}`, infraDir);
@@ -73,11 +77,11 @@ export async function executeDeploy(config: DeployConfig): Promise<void> {
     }
 
     // Step 2: pulumi up — creates infra, builds + pushes Docker image, deploys service
-    displayStep(2, 2, 'Deploying (pulumi up — builds image, pushes to ECR, deploys service)');
+    displayStep(2, 2, "Deploying (pulumi up — builds image, pushes to ECR, deploys service)");
     run(`pulumi up --yes --stack ${stack}`, infraDir);
 
-    displaySuccess('tino is deployed!');
-    displayInfo(`  Console URL: pulumi stack output consoleUrl --stack ${stack}`, );
+    displaySuccess("tino is deployed!");
+    displayInfo(`  Console URL: pulumi stack output consoleUrl --stack ${stack}`);
     displayInfo(`  Logs: aws logs tail /ecs/tino --follow --region ${region}`);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

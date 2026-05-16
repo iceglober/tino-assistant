@@ -1,16 +1,16 @@
-import type { Env } from '@tino/core/env';
-import type { AppLogger } from '@tino/core/slack/app';
-import type { HistoryStore } from '@tino/core/agent/history';
-import type { TaskStore } from '@tino/core/persistence/tasks';
-import type { PreferencesStore } from '@tino/core/persistence/preferences';
-import type { ConfigStore } from '@tino/core/persistence/config';
-import type { AuditLogger } from '@tino/core/audit/logger';
-import { createDynamoTable } from './client.js';
-import { createDynamoHistoryStore } from './history.js';
-import { createDynamoTaskStore } from './tasks.js';
-import { createDynamoPreferencesStore } from './preferences.js';
-import { createDynamoConfigStore } from './config.js';
-import { createDynamoAuditLogger } from '../../audit/dynamo.js';
+import type { HistoryStore } from "@tino/core/agent/history";
+import type { AuditLogger } from "@tino/core/audit/logger";
+import type { Env } from "@tino/core/env";
+import type { ConfigStore } from "@tino/core/persistence/config";
+import type { PreferencesStore } from "@tino/core/persistence/preferences";
+import type { TaskStore } from "@tino/core/persistence/tasks";
+import type { AppLogger } from "@tino/core/slack/app";
+import { createDynamoAuditLogger } from "../../audit/dynamo.js";
+import { createDynamoTable } from "./client.js";
+import { createDynamoConfigStore } from "./config.js";
+import { createDynamoHistoryStore } from "./history.js";
+import { createDynamoPreferencesStore } from "./preferences.js";
+import { createDynamoTaskStore } from "./tasks.js";
 
 export interface DynamoPersistence {
   history: HistoryStore;
@@ -30,7 +30,7 @@ export interface DynamoPersistence {
 const DEFAULT_AUDIT_RETENTION_DAYS = 90;
 
 function readAuditRetentionSeconds(): number {
-  const raw = process.env['AUDIT_RETENTION_DAYS'];
+  const raw = process.env.AUDIT_RETENTION_DAYS;
   if (!raw) return DEFAULT_AUDIT_RETENTION_DAYS * 86400;
   const days = Number(raw);
   if (!Number.isFinite(days) || days <= 0) {
@@ -42,7 +42,7 @@ function readAuditRetentionSeconds(): number {
 export async function createDynamoPersistence(env: Env, logger: AppLogger): Promise<DynamoPersistence> {
   const tableName = env.DYNAMODB_TABLE_NAME;
   if (!tableName) {
-    throw new Error('DYNAMODB_TABLE_NAME env var is required when PERSISTENCE_ADAPTER=dynamodb');
+    throw new Error("DYNAMODB_TABLE_NAME env var is required when PERSISTENCE_ADAPTER=dynamodb");
   }
 
   const endpoint = env.DYNAMODB_ENDPOINT;
@@ -51,13 +51,13 @@ export async function createDynamoPersistence(env: Env, logger: AppLogger): Prom
   const retentionSeconds = readAuditRetentionSeconds();
   logger.info(
     {
-      adapter: 'dynamodb',
+      adapter: "dynamodb",
       tableName,
-      endpoint: endpoint ?? '(aws default)',
+      endpoint: endpoint ?? "(aws default)",
       local: !!endpoint,
       auditRetentionDays: Math.round(retentionSeconds / 86400),
     },
-    'persistence initialized',
+    "persistence initialized",
   );
 
   return {

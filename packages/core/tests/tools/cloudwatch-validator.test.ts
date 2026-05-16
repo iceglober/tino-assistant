@@ -10,55 +10,43 @@
  * accept-paths use the fixture allowlist, NOT the production constant.
  */
 
-import { describe, expect, test } from 'vitest';
-import { validateLogsInsightsQuery } from '../../src/tools/cloudwatch/validator.js';
+import { describe, expect, test } from "vitest";
+import { validateLogsInsightsQuery } from "../../src/tools/cloudwatch/validator.js";
 
-const ALLOWLIST = ['/aws/lambda/foo'] as const;
-const ALLOWED_GROUP = '/aws/lambda/foo';
-const BLOCKED_GROUP = '/aws/lambda/bar';
+const ALLOWLIST = ["/aws/lambda/foo"] as const;
+const ALLOWED_GROUP = "/aws/lambda/foo";
+const BLOCKED_GROUP = "/aws/lambda/bar";
 
 // ---------------------------------------------------------------------------
 // Allowlist enforcement
 // ---------------------------------------------------------------------------
 
-describe('allowlist enforcement', () => {
-  test('1. empty allowlist rejects every query — even a valid stats query', () => {
-    const result = validateLogsInsightsQuery(
-      'fields @timestamp | stats count() by bin(1m)',
-      ALLOWED_GROUP,
-      [],
-    );
+describe("allowlist enforcement", () => {
+  test("1. empty allowlist rejects every query — even a valid stats query", () => {
+    const result = validateLogsInsightsQuery("fields @timestamp | stats count() by bin(1m)", ALLOWED_GROUP, []);
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.reason).toMatch(/allowlist is empty/i);
     }
   });
 
-  test('2. allowlisted group with valid stats query is accepted', () => {
-    const result = validateLogsInsightsQuery(
-      'fields @timestamp | stats count() by bin(1m)',
-      ALLOWED_GROUP,
-      ALLOWLIST,
-    );
+  test("2. allowlisted group with valid stats query is accepted", () => {
+    const result = validateLogsInsightsQuery("fields @timestamp | stats count() by bin(1m)", ALLOWED_GROUP, ALLOWLIST);
     expect(result.ok).toBe(true);
   });
 
-  test('3. non-allowlisted group is rejected even with a valid stats query', () => {
-    const result = validateLogsInsightsQuery(
-      'fields @timestamp | stats count() by bin(1m)',
-      BLOCKED_GROUP,
-      ALLOWLIST,
-    );
+  test("3. non-allowlisted group is rejected even with a valid stats query", () => {
+    const result = validateLogsInsightsQuery("fields @timestamp | stats count() by bin(1m)", BLOCKED_GROUP, ALLOWLIST);
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.reason).toMatch(/not in allowlist/i);
     }
   });
 
-  test('4. allowlist is case-sensitive — /AWS/Lambda/Foo is not /aws/lambda/foo', () => {
+  test("4. allowlist is case-sensitive — /AWS/Lambda/Foo is not /aws/lambda/foo", () => {
     const result = validateLogsInsightsQuery(
-      'fields @timestamp | stats count() by bin(1m)',
-      '/AWS/Lambda/Foo',
+      "fields @timestamp | stats count() by bin(1m)",
+      "/AWS/Lambda/Foo",
       ALLOWLIST,
     );
     expect(result.ok).toBe(false);
@@ -72,10 +60,10 @@ describe('allowlist enforcement', () => {
 // Forbidden-pipe rejections
 // ---------------------------------------------------------------------------
 
-describe('forbidden-pipe rejections', () => {
-  test('5. | parse before stats is rejected — parse extracts arbitrary fields from log bodies', () => {
+describe("forbidden-pipe rejections", () => {
+  test("5. | parse before stats is rejected — parse extracts arbitrary fields from log bodies", () => {
     const result = validateLogsInsightsQuery(
-      'fields @message | parse @message /(?P<level>\\w+)/ | stats count() by level',
+      "fields @message | parse @message /(?P<level>\\w+)/ | stats count() by level",
       ALLOWED_GROUP,
       ALLOWLIST,
     );
@@ -85,9 +73,9 @@ describe('forbidden-pipe rejections', () => {
     }
   });
 
-  test('6. | parse after stats is rejected — parse is forbidden everywhere in the query', () => {
+  test("6. | parse after stats is rejected — parse is forbidden everywhere in the query", () => {
     const result = validateLogsInsightsQuery(
-      'stats count() by bin(1m) | parse @message /(?P<x>\\w+)/',
+      "stats count() by bin(1m) | parse @message /(?P<x>\\w+)/",
       ALLOWED_GROUP,
       ALLOWLIST,
     );
@@ -97,9 +85,9 @@ describe('forbidden-pipe rejections', () => {
     }
   });
 
-  test('7. | display is rejected — display selects raw fields for output', () => {
+  test("7. | display is rejected — display selects raw fields for output", () => {
     const result = validateLogsInsightsQuery(
-      'fields @timestamp | display @message | stats count() by bin(1m)',
+      "fields @timestamp | display @message | stats count() by bin(1m)",
       ALLOWED_GROUP,
       ALLOWLIST,
     );
@@ -109,9 +97,9 @@ describe('forbidden-pipe rejections', () => {
     }
   });
 
-  test('8. | unmask is rejected — unmask de-masks redacted fields', () => {
+  test("8. | unmask is rejected — unmask de-masks redacted fields", () => {
     const result = validateLogsInsightsQuery(
-      'fields @timestamp | stats count() by bin(1m) | unmask sensitive_field',
+      "fields @timestamp | stats count() by bin(1m) | unmask sensitive_field",
       ALLOWED_GROUP,
       ALLOWLIST,
     );
@@ -121,9 +109,9 @@ describe('forbidden-pipe rejections', () => {
     }
   });
 
-  test('9. | head is rejected — head dumps raw rows', () => {
+  test("9. | head is rejected — head dumps raw rows", () => {
     const result = validateLogsInsightsQuery(
-      'fields @message | stats count() by bin(1m) | head 5',
+      "fields @message | stats count() by bin(1m) | head 5",
       ALLOWED_GROUP,
       ALLOWLIST,
     );
@@ -133,15 +121,11 @@ describe('forbidden-pipe rejections', () => {
     }
   });
 
-  test('10. | fields @message | head — head rule fires (both head and fields-after-stats would apply; head fires first)', () => {
+  test("10. | fields @message | head — head rule fires (both head and fields-after-stats would apply; head fires first)", () => {
     // This is the plan's explicit example: fields @message | head
     // fields has no stats → would be rejected by no-stats rule anyway,
     // but head fires in the forbidden-pipe check before we even get there.
-    const result = validateLogsInsightsQuery(
-      'fields @message | head 10',
-      ALLOWED_GROUP,
-      ALLOWLIST,
-    );
+    const result = validateLogsInsightsQuery("fields @message | head 10", ALLOWED_GROUP, ALLOWLIST);
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.reason).toMatch(/head/i);
@@ -153,10 +137,18 @@ describe('forbidden-pipe rejections', () => {
 // No-stats rejections
 // ---------------------------------------------------------------------------
 
-describe('no-stats rejections', () => {
-  test('11. fields + limit without stats is rejected — raw row dump', () => {
+describe("no-stats rejections", () => {
+  test("11. fields + limit without stats is rejected — raw row dump", () => {
+    const result = validateLogsInsightsQuery("fields @timestamp, @message | limit 100", ALLOWED_GROUP, ALLOWLIST);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toMatch(/stats/i);
+    }
+  });
+
+  test("12. fields + sort without stats is rejected — raw row dump with ordering", () => {
     const result = validateLogsInsightsQuery(
-      'fields @timestamp, @message | limit 100',
+      "fields @timestamp, @message | sort @timestamp desc",
       ALLOWED_GROUP,
       ALLOWLIST,
     );
@@ -166,20 +158,8 @@ describe('no-stats rejections', () => {
     }
   });
 
-  test('12. fields + sort without stats is rejected — raw row dump with ordering', () => {
-    const result = validateLogsInsightsQuery(
-      'fields @timestamp, @message | sort @timestamp desc',
-      ALLOWED_GROUP,
-      ALLOWLIST,
-    );
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.reason).toMatch(/stats/i);
-    }
-  });
-
-  test('13. empty query string is rejected — empty after trim', () => {
-    const result = validateLogsInsightsQuery('', ALLOWED_GROUP, ALLOWLIST);
+  test("13. empty query string is rejected — empty after trim", () => {
+    const result = validateLogsInsightsQuery("", ALLOWED_GROUP, ALLOWLIST);
     expect(result.ok).toBe(false);
     if (!result.ok) {
       // Empty string hits the "query is empty" check before the stats check
@@ -187,11 +167,11 @@ describe('no-stats rejections', () => {
     }
   });
 
-  test('14. query starting with display (no leading pipe) is rejected — no stats clause', () => {
+  test("14. query starting with display (no leading pipe) is rejected — no stats clause", () => {
     // `display @message` without a leading pipe is structurally invalid Logs Insights,
     // but the `\|\s*display` regex won't match it (no pipe). It still gets rejected
     // because there's no `| stats` clause. This documents the behavior explicitly.
-    const result = validateLogsInsightsQuery('display @message', ALLOWED_GROUP, ALLOWLIST);
+    const result = validateLogsInsightsQuery("display @message", ALLOWED_GROUP, ALLOWLIST);
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.reason).toMatch(/stats/i);
@@ -203,34 +183,26 @@ describe('no-stats rejections', () => {
 // Fields-as-projection logic
 // ---------------------------------------------------------------------------
 
-describe('fields-as-projection logic', () => {
-  test('15. fields before stats is accepted — pre-stats projection is allowed', () => {
+describe("fields-as-projection logic", () => {
+  test("15. fields before stats is accepted — pre-stats projection is allowed", () => {
     const result = validateLogsInsightsQuery(
-      'fields @timestamp, @message | stats count() by bin(1m)',
+      "fields @timestamp, @message | stats count() by bin(1m)",
       ALLOWED_GROUP,
       ALLOWLIST,
     );
     expect(result.ok).toBe(true);
   });
 
-  test('16. fields after stats is rejected — terminal field projection not permitted', () => {
-    const result = validateLogsInsightsQuery(
-      'stats count() by bin(1m) | fields @timestamp',
-      ALLOWED_GROUP,
-      ALLOWLIST,
-    );
+  test("16. fields after stats is rejected — terminal field projection not permitted", () => {
+    const result = validateLogsInsightsQuery("stats count() by bin(1m) | fields @timestamp", ALLOWED_GROUP, ALLOWLIST);
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.reason).toMatch(/fields.*after.*stats|terminal/i);
     }
   });
 
-  test('17. single-field projection before stats is accepted', () => {
-    const result = validateLogsInsightsQuery(
-      'fields @message | stats count()',
-      ALLOWED_GROUP,
-      ALLOWLIST,
-    );
+  test("17. single-field projection before stats is accepted", () => {
+    const result = validateLogsInsightsQuery("fields @message | stats count()", ALLOWED_GROUP, ALLOWLIST);
     expect(result.ok).toBe(true);
   });
 });
@@ -239,21 +211,17 @@ describe('fields-as-projection logic', () => {
 // Limit auto-injection
 // ---------------------------------------------------------------------------
 
-describe('limit auto-injection', () => {
-  test('18. valid stats query without | limit gets | limit 1000 appended', () => {
-    const result = validateLogsInsightsQuery(
-      'fields @timestamp | stats count() by bin(1m)',
-      ALLOWED_GROUP,
-      ALLOWLIST,
-    );
+describe("limit auto-injection", () => {
+  test("18. valid stats query without | limit gets | limit 1000 appended", () => {
+    const result = validateLogsInsightsQuery("fields @timestamp | stats count() by bin(1m)", ALLOWED_GROUP, ALLOWLIST);
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.rewritten).toMatch(/\|\s*limit\s+1000\s*$/i);
     }
   });
 
-  test('19. valid stats query with | limit 5 is passed through unchanged', () => {
-    const query = 'fields @timestamp | stats count() by bin(1m) | limit 5';
+  test("19. valid stats query with | limit 5 is passed through unchanged", () => {
+    const query = "fields @timestamp | stats count() by bin(1m) | limit 5";
     const result = validateLogsInsightsQuery(query, ALLOWED_GROUP, ALLOWLIST);
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -261,8 +229,8 @@ describe('limit auto-injection', () => {
     }
   });
 
-  test('20. valid stats query with | limit 9999 is passed through unchanged', () => {
-    const query = 'fields @timestamp | stats count() by bin(1m) | limit 9999';
+  test("20. valid stats query with | limit 9999 is passed through unchanged", () => {
+    const query = "fields @timestamp | stats count() by bin(1m) | limit 9999";
     const result = validateLogsInsightsQuery(query, ALLOWED_GROUP, ALLOWLIST);
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -275,28 +243,20 @@ describe('limit auto-injection', () => {
 // Whitespace / case variations
 // ---------------------------------------------------------------------------
 
-describe('whitespace and case variations', () => {
-  test('21. | STATS count() (uppercase) is accepted — validator is case-insensitive', () => {
-    const result = validateLogsInsightsQuery(
-      'fields @timestamp | STATS count() by bin(1m)',
-      ALLOWED_GROUP,
-      ALLOWLIST,
-    );
+describe("whitespace and case variations", () => {
+  test("21. | STATS count() (uppercase) is accepted — validator is case-insensitive", () => {
+    const result = validateLogsInsightsQuery("fields @timestamp | STATS count() by bin(1m)", ALLOWED_GROUP, ALLOWLIST);
     expect(result.ok).toBe(true);
   });
 
-  test('22. |stats count() (no space after pipe) is accepted', () => {
-    const result = validateLogsInsightsQuery(
-      'fields @timestamp |stats count() by bin(1m)',
-      ALLOWED_GROUP,
-      ALLOWLIST,
-    );
+  test("22. |stats count() (no space after pipe) is accepted", () => {
+    const result = validateLogsInsightsQuery("fields @timestamp |stats count() by bin(1m)", ALLOWED_GROUP, ALLOWLIST);
     expect(result.ok).toBe(true);
   });
 
-  test('23. |  Stats   count()  (extra whitespace) is accepted', () => {
+  test("23. |  Stats   count()  (extra whitespace) is accepted", () => {
     const result = validateLogsInsightsQuery(
-      'fields @timestamp |  Stats   count() by bin(1m)',
+      "fields @timestamp |  Stats   count() by bin(1m)",
       ALLOWED_GROUP,
       ALLOWLIST,
     );
@@ -308,9 +268,9 @@ describe('whitespace and case variations', () => {
 // Pathological inputs
 // ---------------------------------------------------------------------------
 
-describe('pathological inputs', () => {
-  test('24. query > 4096 characters is rejected — length limit', () => {
-    const longQuery = 'fields @timestamp | stats count() by bin(1m) ' + 'x'.repeat(4100);
+describe("pathological inputs", () => {
+  test("24. query > 4096 characters is rejected — length limit", () => {
+    const longQuery = `fields @timestamp | stats count() by bin(1m) ${"x".repeat(4100)}`;
     const result = validateLogsInsightsQuery(longQuery, ALLOWED_GROUP, ALLOWLIST);
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -318,8 +278,8 @@ describe('pathological inputs', () => {
     }
   });
 
-  test('25. query containing only whitespace is rejected — empty after trim', () => {
-    const result = validateLogsInsightsQuery('   \t\n  ', ALLOWED_GROUP, ALLOWLIST);
+  test("25. query containing only whitespace is rejected — empty after trim", () => {
+    const result = validateLogsInsightsQuery("   \t\n  ", ALLOWED_GROUP, ALLOWLIST);
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.reason).toMatch(/empty/i);
@@ -329,7 +289,7 @@ describe('pathological inputs', () => {
   test('26. "head" as part of an identifier (stats count(headers)) is NOT rejected — word boundary prevents false match', () => {
     // `\|\s*head\b` should NOT match `headers` because `headers` has a letter after `head`.
     const result = validateLogsInsightsQuery(
-      'fields @timestamp | stats count(headers) by bin(1m)',
+      "fields @timestamp | stats count(headers) by bin(1m)",
       ALLOWED_GROUP,
       ALLOWLIST,
     );
@@ -341,7 +301,7 @@ describe('pathological inputs', () => {
     // Note: this tests the identifier case, not a pipe-parse case.
     // The query has no `| parse` pipe, just the word "parsed" in a field name.
     const result = validateLogsInsightsQuery(
-      'fields @timestamp | stats sum(parsed_count) by bin(1m)',
+      "fields @timestamp | stats sum(parsed_count) by bin(1m)",
       ALLOWED_GROUP,
       ALLOWLIST,
     );
@@ -353,9 +313,9 @@ describe('pathological inputs', () => {
 // Rewritten query content
 // ---------------------------------------------------------------------------
 
-describe('rewritten query content', () => {
-  test('28. rewritten query preserves the original query text before appending limit', () => {
-    const original = 'fields @timestamp, @message | stats count() by bin(5m)';
+describe("rewritten query content", () => {
+  test("28. rewritten query preserves the original query text before appending limit", () => {
+    const original = "fields @timestamp, @message | stats count() by bin(5m)";
     const result = validateLogsInsightsQuery(original, ALLOWED_GROUP, ALLOWLIST);
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -363,9 +323,9 @@ describe('rewritten query content', () => {
     }
   });
 
-  test('29. complex multi-pipe stats query is accepted and limit is injected', () => {
+  test("29. complex multi-pipe stats query is accepted and limit is injected", () => {
     const result = validateLogsInsightsQuery(
-      'fields @timestamp, @message | filter @message like /ERROR/ | stats count() by bin(5m)',
+      "fields @timestamp, @message | filter @message like /ERROR/ | stats count() by bin(5m)",
       ALLOWED_GROUP,
       ALLOWLIST,
     );

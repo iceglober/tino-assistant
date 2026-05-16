@@ -12,10 +12,10 @@
  * "test-only override" backdoor in the production code path.
  */
 
-import { describe, expect, test, vi } from 'vitest';
-import { _executeQuery } from '../../src/tools/cloudwatch/query.js';
-import type { CloudWatchLogsClient } from '@aws-sdk/client-cloudwatch-logs';
-import type { AppLogger } from '../../src/slack/app.js';
+import type { CloudWatchLogsClient } from "@aws-sdk/client-cloudwatch-logs";
+import { describe, expect, test, vi } from "vitest";
+import type { AppLogger } from "../../src/slack/app.js";
+import { _executeQuery } from "../../src/tools/cloudwatch/query.js";
 
 // ---------------------------------------------------------------------------
 // Mock helpers
@@ -29,23 +29,23 @@ const makeLogger = (): AppLogger => ({
 });
 
 const makeClient = (sendImpl: ReturnType<typeof vi.fn>): CloudWatchLogsClient =>
-  ({ send: sendImpl } as unknown as CloudWatchLogsClient);
+  ({ send: sendImpl }) as unknown as CloudWatchLogsClient;
 
-const TEST_ALLOWLIST = ['/aws/lambda/test-fn'] as const;
-const TEST_GROUP = '/aws/lambda/test-fn';
+const TEST_ALLOWLIST = ["/aws/lambda/test-fn"] as const;
+const TEST_GROUP = "/aws/lambda/test-fn";
 
 const VALID_INPUT = {
   logGroupName: TEST_GROUP,
-  query: 'fields @timestamp | stats count() by bin(1m)',
-  startTimeIso: '2026-05-12T10:00:00Z',
-  endTimeIso: '2026-05-12T11:00:00Z',
+  query: "fields @timestamp | stats count() by bin(1m)",
+  startTimeIso: "2026-05-12T10:00:00Z",
+  endTimeIso: "2026-05-12T11:00:00Z",
 } as const;
 
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('_executeQuery', () => {
+describe("_executeQuery", () => {
   test('1. validator rejects (empty allowlist) → no AWS call, returns { error: "invalid_query" }', async () => {
     const sendFn = vi.fn();
     const client = makeClient(sendFn);
@@ -63,26 +63,26 @@ describe('_executeQuery', () => {
     );
 
     expect(sendFn).not.toHaveBeenCalled();
-    expect(result).toMatchObject({ error: 'invalid_query' });
+    expect(result).toMatchObject({ error: "invalid_query" });
     expect(logger.warn).toHaveBeenCalledOnce();
   });
 
-  test('2. happy path — StartQuery + Complete → returns rowCount, rows, rewrittenQuery', async () => {
+  test("2. happy path — StartQuery + Complete → returns rowCount, rows, rewrittenQuery", async () => {
     const sendFn = vi
       .fn()
       // First call: StartQueryCommand → returns queryId
-      .mockResolvedValueOnce({ queryId: 'test-query-id-123' })
+      .mockResolvedValueOnce({ queryId: "test-query-id-123" })
       // Second call: GetQueryResultsCommand → Complete with results
       .mockResolvedValueOnce({
-        status: 'Complete',
+        status: "Complete",
         results: [
           [
-            { field: 'count', value: '42' },
-            { field: 'bin', value: '2026-05-12T10:00:00.000Z' },
+            { field: "count", value: "42" },
+            { field: "bin", value: "2026-05-12T10:00:00.000Z" },
           ],
           [
-            { field: 'count', value: '7' },
-            { field: 'bin', value: '2026-05-12T10:01:00.000Z' },
+            { field: "count", value: "7" },
+            { field: "bin", value: "2026-05-12T10:01:00.000Z" },
           ],
         ],
       });
@@ -105,25 +105,22 @@ describe('_executeQuery', () => {
     expect(result).toMatchObject({
       rowCount: 2,
       rows: [
-        { count: '42', bin: '2026-05-12T10:00:00.000Z' },
-        { count: '7', bin: '2026-05-12T10:01:00.000Z' },
+        { count: "42", bin: "2026-05-12T10:00:00.000Z" },
+        { count: "7", bin: "2026-05-12T10:01:00.000Z" },
       ],
     });
     // Limit was auto-injected since the query had no | limit
-    if ('rewrittenQuery' in result) {
+    if ("rewrittenQuery" in result) {
       expect(result.rewrittenQuery).toMatch(/\|\s*limit\s+1000/i);
     }
     expect(logger.info).toHaveBeenCalledWith(
       expect.objectContaining({ logGroupName: TEST_GROUP, rowCount: 2 }),
-      'cloudwatch query complete',
+      "cloudwatch query complete",
     );
   });
 
   test('3. AWS reports status Failed → returns { error: "query_failed" }', async () => {
-    const sendFn = vi
-      .fn()
-      .mockResolvedValueOnce({ queryId: 'q-id' })
-      .mockResolvedValueOnce({ status: 'Failed' });
+    const sendFn = vi.fn().mockResolvedValueOnce({ queryId: "q-id" }).mockResolvedValueOnce({ status: "Failed" });
 
     const client = makeClient(sendFn);
     const logger = makeLogger();
@@ -139,12 +136,12 @@ describe('_executeQuery', () => {
       TEST_ALLOWLIST,
     );
 
-    expect(result).toMatchObject({ error: 'query_failed' });
+    expect(result).toMatchObject({ error: "query_failed" });
   });
 
   test('4. StartQuery throws AccessDeniedException → returns { error: "access_denied" }', async () => {
-    const accessDeniedErr = Object.assign(new Error('User is not authorized to perform logs:StartQuery'), {
-      name: 'AccessDeniedException',
+    const accessDeniedErr = Object.assign(new Error("User is not authorized to perform logs:StartQuery"), {
+      name: "AccessDeniedException",
       $metadata: { httpStatusCode: 403 },
     });
     const sendFn = vi.fn().mockRejectedValueOnce(accessDeniedErr);
@@ -163,8 +160,8 @@ describe('_executeQuery', () => {
       TEST_ALLOWLIST,
     );
 
-    expect(result).toMatchObject({ error: 'access_denied' });
-    if ('message' in result) {
+    expect(result).toMatchObject({ error: "access_denied" });
+    if ("message" in result) {
       expect(result.message).toMatch(/IAM denied/i);
     }
   });
@@ -172,8 +169,8 @@ describe('_executeQuery', () => {
   test('5. query never completes within poll budget → returns { error: "timeout" }', async () => {
     const sendFn = vi
       .fn()
-      .mockResolvedValueOnce({ queryId: 'q-id' }) // StartQuery
-      .mockResolvedValue({ status: 'Running' }); // GetQueryResults always Running
+      .mockResolvedValueOnce({ queryId: "q-id" }) // StartQuery
+      .mockResolvedValue({ status: "Running" }); // GetQueryResults always Running
 
     const client = makeClient(sendFn);
     const logger = makeLogger();
@@ -189,6 +186,6 @@ describe('_executeQuery', () => {
       TEST_ALLOWLIST,
     );
 
-    expect(result).toMatchObject({ error: 'timeout' });
+    expect(result).toMatchObject({ error: "timeout" });
   });
 });

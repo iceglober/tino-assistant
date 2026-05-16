@@ -1,5 +1,5 @@
-import { LinearClient } from '@linear/sdk';
-import type { Env } from '../../env.js';
+import { LinearClient } from "@linear/sdk";
+import type { Env } from "../../env.js";
 
 /**
  * Single shared LinearClient instance.
@@ -10,7 +10,7 @@ import type { Env } from '../../env.js';
  */
 export function createLinearClient(env: Env): LinearClient {
   if (!env.LINEAR_DEVELOPER_TOKEN) {
-    throw new Error('LINEAR_DEVELOPER_TOKEN is not set — Linear tools are disabled');
+    throw new Error("LINEAR_DEVELOPER_TOKEN is not set — Linear tools are disabled");
   }
   return new LinearClient({ apiKey: env.LINEAR_DEVELOPER_TOKEN });
 }

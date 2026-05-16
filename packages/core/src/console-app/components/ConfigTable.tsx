@@ -1,8 +1,8 @@
-import { useState, type JSX } from 'react';
-import { useConfig } from '../hooks/useConfig.js';
-import { useToast } from '../hooks/useToast.js';
-import { putConfig, deleteConfig } from '../lib/api.js';
-import { useSaveState, SaveButton } from './SaveButton.js';
+import { type JSX, useState } from "react";
+import { useConfig } from "../hooks/useConfig.js";
+import { useToast } from "../hooks/useToast.js";
+import { deleteConfig, putConfig } from "../lib/api.js";
+import { SaveButton, useSaveState } from "./SaveButton.js";
 
 /**
  * "all config entries" table — list, add, delete with undo.
@@ -17,30 +17,30 @@ export function ConfigTable(): JSX.Element {
   const { state, run } = useSaveState();
   const [open, setOpen] = useState(false);
   const [confirming, setConfirming] = useState<string | null>(null);
-  const [newKey, setNewKey] = useState('');
-  const [newVal, setNewVal] = useState('');
-  const [keyError, setKeyError] = useState<string>('');
+  const [newKey, setNewKey] = useState("");
+  const [newVal, setNewVal] = useState("");
+  const [keyError, setKeyError] = useState<string>("");
 
   const fmtTs = (ts: string | undefined): string => {
-    if (!ts) return '—';
+    if (!ts) return "—";
     try {
       const d = new Date(ts);
       const diff = Math.floor((Date.now() - d.getTime()) / 1000);
-      if (diff < 60) return 'just now';
+      if (diff < 60) return "just now";
       if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
       if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
       return d.toLocaleDateString();
     } catch {
-      return '—';
+      return "—";
     }
   };
 
   const maskVal = (key: string, val: string): string => {
-    const sensitive = ['token', 'secret', 'password', 'key', 'credential'];
+    const sensitive = ["token", "secret", "password", "key", "credential"];
     if (sensitive.some((s) => key.toLowerCase().includes(s))) {
-      return val ? '••••••••' : '—';
+      return val ? "••••••••" : "—";
     }
-    return val || '—';
+    return val || "—";
   };
 
   const onDelete = async (key: string): Promise<void> => {
@@ -50,7 +50,7 @@ export function ConfigTable(): JSX.Element {
     try {
       await deleteConfig(key);
       await refresh();
-      toast.show(`deleted ${key}`, 'ok', async () => {
+      toast.show(`deleted ${key}`, "ok", async () => {
         if (prevValue !== null) {
           // value comes back JSON-stringified from the store; restore raw
           let restored: unknown = prevValue;
@@ -61,34 +61,34 @@ export function ConfigTable(): JSX.Element {
           }
           await putConfig(key, restored);
           await refresh();
-          toast.show(`restored ${key}`, 'ok');
+          toast.show(`restored ${key}`, "ok");
         }
       });
     } catch (err) {
-      toast.show(`delete failed: ${(err as Error).message}`, 'err');
+      toast.show(`delete failed: ${(err as Error).message}`, "err");
     }
   };
 
   const onAdd = async (): Promise<void> => {
     if (!newKey.trim()) {
-      setKeyError('Key is required');
+      setKeyError("Key is required");
       return;
     }
-    setKeyError('');
+    setKeyError("");
     const ok = await run(async () => {
       await putConfig(newKey.trim(), newVal.trim());
     });
     if (ok) {
-      setNewKey('');
-      setNewVal('');
+      setNewKey("");
+      setNewVal("");
       await refresh();
     } else {
-      toast.show('Could not add entry', 'err');
+      toast.show("Could not add entry", "err");
     }
   };
 
   return (
-    <div className={`raw-section${open ? ' open' : ''}`}>
+    <div className={`raw-section${open ? " open" : ""}`}>
       <button
         className="raw-toggle"
         type="button"
@@ -115,11 +115,23 @@ export function ConfigTable(): JSX.Element {
               </thead>
               <tbody>
                 {loading ? (
-                  <tr><td colSpan={4} className="empty">loading…</td></tr>
+                  <tr>
+                    <td colSpan={4} className="empty">
+                      loading…
+                    </td>
+                  </tr>
                 ) : error ? (
-                  <tr><td colSpan={4} className="empty">error: {error}</td></tr>
+                  <tr>
+                    <td colSpan={4} className="empty">
+                      error: {error}
+                    </td>
+                  </tr>
                 ) : entries.length === 0 ? (
-                  <tr><td colSpan={4} className="empty">no config entries yet</td></tr>
+                  <tr>
+                    <td colSpan={4} className="empty">
+                      no config entries yet
+                    </td>
+                  </tr>
                 ) : (
                   entries.map((e) => (
                     <tr key={e.key}>
@@ -130,13 +142,18 @@ export function ConfigTable(): JSX.Element {
                         {confirming === e.key ? (
                           <div className="delete-confirm visible">
                             <span className="delete-confirm-text">delete {e.key}?</span>
-                            <button className="delete-confirm-yes" onClick={() => void onDelete(e.key)}>yes</button>
-                            <button className="delete-confirm-no" onClick={() => setConfirming(null)}>no</button>
+                            <button type="button" className="delete-confirm-yes" onClick={() => void onDelete(e.key)}>
+                              yes
+                            </button>
+                            <button type="button" className="delete-confirm-no" onClick={() => setConfirming(null)}>
+                              no
+                            </button>
                           </div>
                         ) : (
                           <button
+                            type="button"
                             className="btn btn-danger btn-setup"
-                            style={{ fontSize: '0.714rem', padding: '3px 8px', minHeight: 28 }}
+                            style={{ fontSize: "0.714rem", padding: "3px 8px", minHeight: 28 }}
                             onClick={() => setConfirming(e.key)}
                             aria-label={`Delete ${e.key}`}
                           >
@@ -153,7 +170,9 @@ export function ConfigTable(): JSX.Element {
             <div className="add-form">
               <div className="add-form-fields">
                 <div className="field-group">
-                  <label className="field-label" htmlFor="new-key">Key</label>
+                  <label className="field-label" htmlFor="new-key">
+                    Key
+                  </label>
                   <input
                     id="new-key"
                     className="field-input"
@@ -162,14 +181,16 @@ export function ConfigTable(): JSX.Element {
                     onChange={(e) => setNewKey(e.target.value)}
                     placeholder="config.key"
                     autoComplete="off"
-                    aria-invalid={keyError ? 'true' : undefined}
+                    aria-invalid={keyError ? "true" : undefined}
                   />
-                  <div className={`field-error${keyError ? ' visible' : ''}`} role="alert" aria-live="polite">
+                  <div className={`field-error${keyError ? " visible" : ""}`} role="alert" aria-live="polite">
                     {keyError}
                   </div>
                 </div>
                 <div className="field-group">
-                  <label className="field-label" htmlFor="new-val">Value</label>
+                  <label className="field-label" htmlFor="new-val">
+                    Value
+                  </label>
                   <input
                     id="new-val"
                     className="field-input"

@@ -1,7 +1,7 @@
-import { useState, type ReactNode, type JSX } from 'react';
-import { putCapability, reloadCapabilities } from '../lib/api.js';
-import { useToast } from '../hooks/useToast.js';
-import { useSaveState, SaveButton } from './SaveButton.js';
+import { type JSX, type ReactNode, useState } from "react";
+import { useToast } from "../hooks/useToast.js";
+import { putCapability, reloadCapabilities } from "../lib/api.js";
+import { SaveButton, useSaveState } from "./SaveButton.js";
 
 /**
  * Console-side mirror of the CapField type declared on each capability module
@@ -16,7 +16,7 @@ interface CapField {
   secret?: boolean;
   /** Internal; the server uses this for round-tripping. UI ignores it. */
   target?: string;
-  kind?: 'string' | 'string[]';
+  kind?: "string" | "string[]";
 }
 
 export interface CapabilityShape {
@@ -29,12 +29,12 @@ export interface CapabilityShape {
 }
 
 const CAP_META: Record<string, { icon: string; name: string; desc: string }> = {
-  github: { icon: '🐙', name: 'GitHub', desc: 'repos, issues, PRs' },
-  calendar: { icon: '📅', name: 'Calendar', desc: 'Google Calendar events' },
-  gmail: { icon: '✉️', name: 'Gmail', desc: 'read and send email' },
-  linear: { icon: '📐', name: 'Linear', desc: 'issues and projects' },
-  cloudwatch: { icon: '☁️', name: 'CloudWatch', desc: 'AWS logs and metrics' },
-  slack: { icon: '💬', name: 'Slack read', desc: 'read channel history' },
+  github: { icon: "🐙", name: "GitHub", desc: "repos, issues, PRs" },
+  calendar: { icon: "📅", name: "Calendar", desc: "Google Calendar events" },
+  gmail: { icon: "✉️", name: "Gmail", desc: "read and send email" },
+  linear: { icon: "📐", name: "Linear", desc: "issues and projects" },
+  cloudwatch: { icon: "☁️", name: "CloudWatch", desc: "AWS logs and metrics" },
+  slack: { icon: "💬", name: "Slack read", desc: "read channel history" },
 };
 
 /**
@@ -59,28 +59,30 @@ export function CapabilityCard({
   onChanged?: () => void | Promise<void>;
 }): JSX.Element {
   const meta = CAP_META[cap.id] ?? {
-    icon: '⚙️',
+    icon: "⚙️",
     name: cap.displayName ?? cap.id,
-    desc: '',
+    desc: "",
   };
   const [open, setOpen] = useState(false);
   const [enabled, setEnabled] = useState<boolean>(cap.enabled !== false);
   const initialFields: Record<string, string> = {};
-  for (const f of cap.fields ?? []) initialFields[f.key] = f.value ?? '';
+  for (const f of cap.fields ?? []) initialFields[f.key] = f.value ?? "";
   const [fieldValues, setFieldValues] = useState<Record<string, string>>(initialFields);
   const toast = useToast();
   const { state, run } = useSaveState();
 
-  const stateClass = enabled ? 'state-ok' : 'state-disabled';
+  const stateClass = enabled ? "state-ok" : "state-disabled";
 
-  const buildPayload = (overrideEnabled?: boolean): {
+  const buildPayload = (
+    overrideEnabled?: boolean,
+  ): {
     enabled: boolean;
     fields: Array<{ key: string; value: string }>;
   } => ({
     enabled: overrideEnabled ?? enabled,
     fields: (cap.fields ?? []).map((f) => ({
       key: f.key,
-      value: fieldValues[f.key] ?? f.value ?? '',
+      value: fieldValues[f.key] ?? f.value ?? "",
     })),
   });
 
@@ -93,10 +95,10 @@ export function CapabilityCard({
       // didn't swap), but don't roll back the UI state — the next reload
       // attempt will pick it up.
       const reload = await reloadCapabilities();
-      if (!reload.ok) toast.show(`Saved, but reload failed: ${reload.error ?? 'unknown'}`, 'err');
+      if (!reload.ok) toast.show(`Saved, but reload failed: ${reload.error ?? "unknown"}`, "err");
       if (onChanged) await onChanged();
     } catch (err) {
-      toast.show(`Could not update capability: ${(err as Error).message}`, 'err');
+      toast.show(`Could not update capability: ${(err as Error).message}`, "err");
       setEnabled(!next);
     }
   };
@@ -106,12 +108,12 @@ export function CapabilityCard({
       await putCapability(cap.id, buildPayload());
     });
     if (!ok) {
-      toast.show('Could not save', 'err');
+      toast.show("Could not save", "err");
       return;
     }
     // Wave 3.2 — apply the new credentials/settings without a restart.
     const reload = await reloadCapabilities();
-    if (!reload.ok) toast.show(`Saved, but reload failed: ${reload.error ?? 'unknown'}`, 'err');
+    if (!reload.ok) toast.show(`Saved, but reload failed: ${reload.error ?? "unknown"}`, "err");
     if (onChanged) await onChanged();
   };
 
@@ -121,10 +123,10 @@ export function CapabilityCard({
       <div className="field-group" style={{ marginBottom: 4 }}>
         <input
           className="field-input"
-          type={f.secret ? 'password' : 'text'}
-          value={fieldValues[f.key] ?? ''}
+          type={f.secret ? "password" : "text"}
+          value={fieldValues[f.key] ?? ""}
           onChange={(e) => setFieldValues((prev) => ({ ...prev, [f.key]: e.target.value }))}
-          placeholder={f.placeholder ?? ''}
+          placeholder={f.placeholder ?? ""}
           autoComplete="off"
           aria-label={f.label ?? f.key}
         />
@@ -134,22 +136,27 @@ export function CapabilityCard({
 
   // Status: prefer the live `connected` flag (from /api/health); fall back to enabled label.
   const statusBadge: ReactNode =
-    typeof cap.connected === 'boolean' ? (
+    typeof cap.connected === "boolean" ? (
       cap.connected ? (
-        <span className="status-connected" style={{ color: 'var(--ok)' }}>● on</span>
+        <span className="status-connected" style={{ color: "var(--ok)" }}>
+          ● on
+        </span>
       ) : enabled ? (
-        <span className="status-connected" style={{ color: 'var(--err)' }}>● needs setup</span>
+        <span className="status-connected" style={{ color: "var(--err)" }}>
+          ● needs setup
+        </span>
       ) : (
-        <span style={{ fontSize: '0.714rem', color: 'var(--text-dim)' }}>off</span>
+        <span style={{ fontSize: "0.714rem", color: "var(--text-dim)" }}>off</span>
       )
     ) : enabled ? (
       <span className="status-connected">● on</span>
     ) : (
-      <span style={{ fontSize: '0.714rem', color: 'var(--text-dim)' }}>off</span>
+      <span style={{ fontSize: "0.714rem", color: "var(--text-dim)" }}>off</span>
     );
 
   return (
-    <div className={`cap-card ${stateClass}${open ? ' open' : ''}`}>
+    <div className={`cap-card ${stateClass}${open ? " open" : ""}`}>
+      {/* biome-ignore lint/a11y/useSemanticElements: card-header is a click target with nested layout; replacing with <button> would alter styling/structure */}
       <div
         className="cap-card-header"
         role="button"
@@ -157,7 +164,7 @@ export function CapabilityCard({
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
         onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
+          if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
             setOpen((v) => !v);
           }
@@ -179,11 +186,7 @@ export function CapabilityCard({
             <div className="detail-section">
               <div className="toggle-wrap">
                 <label className="toggle" aria-label={`Enable ${meta.name}`}>
-                  <input
-                    type="checkbox"
-                    checked={enabled}
-                    onChange={(e) => void onToggle(e.target.checked)}
-                  />
+                  <input type="checkbox" checked={enabled} onChange={(e) => void onToggle(e.target.checked)} />
                   <div className="toggle-track" />
                   <div className="toggle-thumb" />
                 </label>
@@ -192,12 +195,7 @@ export function CapabilityCard({
             </div>
             {fields}
             <div className="btn-row">
-              <SaveButton
-                state={state}
-                idleLabel="save"
-                size="setup"
-                onClick={onSave}
-              />
+              <SaveButton state={state} idleLabel="save" size="setup" onClick={onSave} />
             </div>
           </div>
         </div>
