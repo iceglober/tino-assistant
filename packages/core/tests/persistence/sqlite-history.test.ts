@@ -85,7 +85,7 @@ describe("createSqliteHistoryStore", () => {
     {
       const store = createSqliteHistoryStore({ dbPath });
       await store.append("U1", msgs);
-      // store goes out of scope here — better-sqlite3 closes on GC
+      // store goes out of scope here — bun:sqlite closes on GC
     }
 
     // Second instance at same path: should read back the same messages

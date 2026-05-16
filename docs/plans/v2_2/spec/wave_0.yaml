@@ -1,0 +1,267 @@
+# spec/wave_0.yaml
+# Wave 0: bun:sqlite migration
+#
+# NOTE: Inspection shows the migration appears to be already applied in the
+# current tree (imports already use `bun:sqlite`, Dockerfile already uses
+# `oven/bun:1`, vitest.config.ts already has `pool: "forks"`, package.json no
+# longer lists better-sqlite3). The spec below still encodes the intent so the
+# executor can verify state and apply any residual edits if a fresh checkout
+# differs.
+
+items:
+  - id: "0.1"
+    intent: "Migrate 6 persistence/auth files from `better-sqlite3` to `bun:sqlite`. Replace `import Database from 'better-sqlite3'` with `import { Database } from 'bun:sqlite'`. Replace each `db.prepare<Generics>(sql)` with `db.query(sql)` (drop generics) and cast `.get()` / `.all()` results at the call site."
+    checked: true
+    files:
+      - path: packages/core/src/persistence/sqlite.ts
+        isNew: false
+        change: "Change import to `import { Database } from 'bun:sqlite'`. Replace `db.prepare<[string], { messages_json: string }>(...)` with `db.query(...)` and cast row at `.get()` call site: `stmtGet.get(userId) as { messages_json: string } | null`."
+      - path: packages/core/src/persistence/config.ts
+        isNew: false
+        change: "Same import swap. `db.prepare<[string], { value: string }>` → `db.query(sql)`; cast `.get()` and `.all()` results (`as { value: string } | null`, `as ConfigRow[]`)."
+      - path: packages/core/src/persistence/preferences.ts
+        isNew: false
+        change: "Same import swap. `db.prepare<...>` → `db.query(...)`; cast `stmtList.all(userId) as Array<{ key: string; value: string }>`."
+      - path: packages/core/src/persistence/tasks.ts
+        isNew: false
+        change: "Same import swap. The recovery `UPDATE` query at lines 76-78 already had no generics — only the `.prepare` → `.query` rename applies there. All other prepared statements use generics; convert the same way and cast row results to `TaskRow` / `TaskRow[]`."
+      - path: packages/core/src/persistence/factory.ts
+        isNew: false
+        change: "No structural change required. The dynamic `await import('./sqlite.js')` calls remain (they keep the DynamoDB SDK out of the SQLite bundle path). Plan note about removing them is OPTIONAL — prefer no-change to minimize risk."
+      - path: packages/core/src/server/middleware/auth.ts
+        isNew: false
+        change: "Replace `import Database from 'better-sqlite3'` with `import { Database } from 'bun:sqlite'`. Constructor call `new Database(opts.dbPath ?? './tino-auth.db')` is unchanged — better-auth duck-types the SQLite dialect."
+    tests:
+      - "packages/core/tests/**/*.test.ts (full suite)"
+    verify: "cd packages/core && bun run test && bun -e \"import { Database } from 'bun:sqlite'; const db = new Database(':memory:'); console.log('ok')\""
+    mirror: "packages/core/src/persistence/sqlite.ts"
+    context: |
+      // packages/core/src/persistence/sqlite.ts — canonical mirror (CURRENT, post-migration state)
+      import { Database } from "bun:sqlite";
+      import type { ModelMessage } from "ai";
+      import type { HistoryStore } from "../agent/history.js";
+      import { trim } from "../agent/history.js";
+
+      export function createSqliteHistoryStore({ dbPath, cap = 40 }: { dbPath: string; cap?: number }): HistoryStore {
+        const db = new Database(dbPath);
+        db.exec(`CREATE TABLE IF NOT EXISTS conversations ( ... )`);
+
+        const stmtGet = db.query("SELECT messages_json FROM conversations WHERE user_id = ?");
+        const stmtUpsert = db.query(`INSERT INTO conversations ... ON CONFLICT(user_id) DO UPDATE SET ...`);
+        const stmtDelete = db.query("DELETE FROM conversations WHERE user_id = ?");
+
+        return {
+          get(userId: string): Promise<ModelMessage[]> {
+            const row = stmtGet.get(userId) as { messages_json: string } | null;
+            // ...
+          },
+          // ...
+        };
+      }
+
+      // PRE-MIGRATION pattern (what to replace if any file still has it):
+      //   import Database from "better-sqlite3";
+      //   const stmtGet = db.prepare<[string], { messages_json: string }>(
+      //     "SELECT messages_json FROM conversations WHERE user_id = ?"
+      //   );
+      //   const row = stmtGet.get(userId);  // typed by generic
+      //
+      // POST-MIGRATION pattern:
+      //   import { Database } from "bun:sqlite";
+      //   const stmtGet = db.query("SELECT messages_json FROM conversations WHERE user_id = ?");
+      //   const row = stmtGet.get(userId) as { messages_json: string } | null;  // cast at call site
+    conventions: |
+      ESM workspace (`"type": "module"` in package.json), `.js` extensions on relative imports
+      (e.g. `from '../agent/history.js'`), named exports for factories
+      (`export function createXxxStore({ dbPath }: { dbPath: string }): XxxStore`),
+      interfaces co-located with the factory in the same file, async store methods return
+      `Promise<T>` even when underlying SQLite is sync (wrap with `Promise.resolve(...)`),
+      named import `{ Database }` from `bun:sqlite` (NOT default), bun:sqlite has no
+      generic type params on `.query()` — cast results at the call site.
+
+  - id: "0.2"
+    intent: "Remove `better-sqlite3` and `@types/better-sqlite3` from `packages/core/package.json`, then regenerate `bun.lock` via `bun install`."
+    checked: true
+    files:
+      - path: packages/core/package.json
+        isNew: false
+        change: "Delete the `\"better-sqlite3\": \"^12.10.0\"` line from `dependencies` and the `\"@types/better-sqlite3\": \"^7.6.13\"` line from `devDependencies`. Both blocks remain alphabetized. Workspace root and `packages/aws/package.json` are unaffected (no better-sqlite3 references there)."
+      - path: bun.lock
+        isNew: false
+        change: "Regenerated automatically by `bun install`. Do NOT hand-edit."
+    tests:
+      - "packages/core/tests/**/*.test.ts (full suite must still pass after lockfile regen)"
+    verify: "grep -r \"better-sqlite3\" packages/core/package.json && echo FAIL || echo OK; bun install && cd packages/core && bun run test"
+    mirror: "packages/core/package.json"
+    context: |
+      // packages/core/package.json — CURRENT state (already migrated; lines 61-91)
+      "dependencies": {
+        "@ai-sdk/amazon-bedrock": "^4.0.105",
+        // ...
+        "better-auth": "^1.6.11",
+        // ← `better-sqlite3` line ALREADY removed
+        "dotenv": "^17.4.2",
+        // ...
+      },
+      "devDependencies": {
+        "@types/bun": "^1.3.14",
+        // ← `@types/better-sqlite3` line ALREADY removed
+        "@types/node": "^25.7.0",
+        // ...
+        "vitest": "^4.1.6"
+      }
+
+      // If a fresh checkout still has the pre-migration entries, delete:
+      //   "better-sqlite3": "^12.10.0",         (from dependencies)
+      //   "@types/better-sqlite3": "^7.6.13",   (from devDependencies)
+    conventions: |
+      Dependencies and devDependencies are alphabetized; carets on versions (`^X.Y.Z`);
+      workspace lockfile is `bun.lock` (not `package-lock.json` or `yarn.lock`);
+      `bun install` regenerates the lockfile; do NOT hand-edit `bun.lock`.
+
+  - id: "0.3"
+    intent: "Switch the Dockerfile from `node:22-slim` to `oven/bun:1` for both build and runtime stages. Drop `RUN npm install -g bun` (no longer needed) and change the CMD to `bun run packages/core/dist/index.js`. Keep the `tsc` and `vite build` steps in the builder stage unchanged."
+    checked: true
+    files:
+      - path: Dockerfile
+        isNew: false
+        change: "Line 1: `FROM node:22-slim AS deps` → `FROM oven/bun:1 AS deps`. Remove `RUN npm install -g bun` from the `deps` stage. Line ~21: `FROM node:22-slim AS runner` → `FROM oven/bun:1 AS runner`. Remove `RUN npm install -g bun` from `runner`. Final CMD: `[\"node\", \"packages/core/dist/index.js\"]` → `[\"bun\", \"run\", \"packages/core/dist/index.js\"]`. Keep all COPY and tsc/vite build steps unchanged. Note: `oven/bun:1` is Debian-based like `node:22-slim` so no other adjustments needed."
+    tests:
+      - "docker build (CI) and `docker run --rm tino bun --version`"
+    verify: "docker build -t tino . && docker run --rm tino bun --version"
+    mirror: "Dockerfile"
+    context: |
+      # Dockerfile — CURRENT state (already migrated; full file, 40 lines)
+      FROM oven/bun:1 AS deps
+      WORKDIR /app
+      COPY package.json bun.lock* ./
+      COPY packages/core/package.json ./packages/core/
+      COPY packages/aws/package.json ./packages/aws/
+      COPY packages/cli/package.json ./packages/cli/
+      RUN bun install --frozen-lockfile
+
+      FROM deps AS builder
+      COPY packages/core/tsconfig.json packages/core/tsconfig.build.json packages/core/tsconfig.app.json packages/core/vite.config.ts ./packages/core/
+      COPY packages/core/src ./packages/core/src
+      COPY packages/aws/tsconfig.json packages/aws/tsconfig.build.json ./packages/aws/
+      COPY packages/aws/src ./packages/aws/src
+      RUN cd packages/core && \
+          ./node_modules/.bin/tsc -p tsconfig.build.json && \
+          ./node_modules/.bin/vite build && \
+          cd ../aws && ./node_modules/.bin/tsc -p tsconfig.build.json
+
+      FROM oven/bun:1 AS runner
+      WORKDIR /app
+      COPY --from=deps /app/node_modules ./node_modules
+      # ... COPY steps ...
+      ENV NODE_ENV=production
+      CMD ["bun", "run", "packages/core/dist/index.js"]
+    conventions: |
+      Multi-stage build (`deps` → `builder` → `runner`); `WORKDIR /app`; ESM workspace
+      layout copied into `/app/packages/*`; symlinks under `node_modules/@tino/*` for
+      workspace resolution; `ENV NODE_ENV=production` in the runner stage; single `CMD`
+      (not `ENTRYPOINT`); `oven/bun:1` (Debian-based, ~150MB) replaces `node:22-slim`
+      everywhere — do not mix runtimes across stages.
+
+  - id: "0.4"
+    intent: "Update `better-auth` initialization in `packages/core/src/server/middleware/auth.ts` to use `bun:sqlite`. Single-line import change: `import Database from 'better-sqlite3'` → `import { Database } from 'bun:sqlite'`. The `new Database(opts.dbPath ?? './tino-auth.db')` constructor call is unchanged — better-auth's Kysely adapter duck-types the SQLite dialect."
+    checked: true
+    files:
+      - path: packages/core/src/server/middleware/auth.ts
+        isNew: false
+        change: "Replace the `Database` import only. Constructor call at line 55 (`new Database(opts.dbPath ?? './tino-auth.db')`) is unchanged. No other changes to the `betterAuth({ ... })` config block. This edit overlaps with 0.1 and may already be done if 0.1 was applied thoroughly."
+    tests:
+      - "packages/core/tests/server/auth-secret-warning.test.ts"
+    verify: "cd packages/core && bun run test tests/server/auth-secret-warning.test.ts"
+    mirror: "packages/core/src/persistence/sqlite.ts"
+    context: |
+      // packages/core/src/server/middleware/auth.ts — CURRENT state (lines 1-5, 32-73)
+      import { Database } from "bun:sqlite";
+      import { type Auth, betterAuth } from "better-auth";
+      import { getMigrations } from "better-auth/db/migration";
+      import type { MiddlewareHandler } from "hono";
+      import type { AppLogger } from "../../slack/app.js";
+
+      export async function createAuth(opts: {
+        googleClientId: string;
+        googleClientSecret: string;
+        allowedDomain?: string;
+        baseUrl: string;
+        dbPath?: string;
+        logger?: AppLogger;
+      }): Promise<Auth> {
+        // ...
+        const auth = betterAuth({
+          baseURL: opts.baseUrl,
+          secret,
+          database: new Database(opts.dbPath ?? "./tino-auth.db"),
+          socialProviders: { google: { ... } },
+          session: { expiresIn: 60 * 60 * 24 },
+        }) as unknown as Auth;
+
+        // biome-ignore lint/suspicious/noExplicitAny: better-auth options bag is untyped
+        const { runMigrations } = await getMigrations((auth as any).options);
+        await runMigrations();
+        return auth;
+      }
+
+      // Companion test signature (auth-secret-warning.test.ts lines 1-2):
+      //   import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+      //   import { createAuth } from "../../src/server/middleware/auth.js";
+    conventions: |
+      ESM imports with `.js` extensions on relative paths; named imports preferred
+      (`import { Database }` not default); `betterAuth({ ... }) as unknown as Auth`
+      double-cast pattern (better-auth's public type is loose); async factory shape
+      `createAuth(opts): Promise<Auth>`; the `(auth as any).options` cast is intentional
+      and annotated with a `biome-ignore` comment — preserve it.
+
+  - id: "0.5"
+    intent: "Configure vitest to spawn Bun-runtime workers so `bun:sqlite` resolves inside tests. Add `pool: 'forks'` (and let the parent Bun process propagate via `bun --bun ./node_modules/vitest/dist/cli.js run` — already wired in the `test` npm script). Skip `packages/aws/vitest.config.ts` — it does not exist."
+    checked: true
+    files:
+      - path: packages/core/vitest.config.ts
+        isNew: false
+        change: "Add `pool: 'forks'` under `test`. Forks inherit the Bun runtime via `process.execPath` because the parent vitest process is launched with `bun --bun` (see the `test` script in `packages/core/package.json`). Also add `server.deps.inline: ['zod']` to force vitest to bundle zod's ESM entry — Bun's native CJS/ESM interop mishandles zod's `index.js` re-export under vitest's Module Runner."
+    tests:
+      - "packages/core/tests/**/*.test.ts (full suite, ~267 tests)"
+    verify: "cd packages/core && bun run test"
+    mirror: "packages/core/vitest.config.ts"
+    context: |
+      // packages/core/vitest.config.ts — CURRENT state (already migrated; full file, 28 lines)
+      import { defineConfig } from "vitest/config";
+
+      // Bun runtime: tests must run under Bun so `bun:sqlite` resolves. The `test`
+      // npm script invokes vitest via `bun --bun ./node_modules/vitest/dist/cli.js
+      // run`, which makes the parent process Bun; child workers (forks) inherit
+      // the Bun runtime via process.execPath.
+      //
+      // `server.deps.inline: ['zod']` forces vitest to bundle zod's ESM entry
+      // instead of relying on Bun's native CJS/ESM interop, which mishandles
+      // zod's `index.js` re-export under vitest's Module Runner.
+      export default defineConfig({
+        test: {
+          include: ["tests/**/*.{test,spec}.{ts,tsx}", "src/**/*.{test,spec}.{ts,tsx}"],
+          exclude: ["**/node_modules/**", "src/console-app/**"],
+          pool: "forks",
+          server: {
+            deps: {
+              inline: ["zod"],
+            },
+          },
+        },
+      });
+
+      // package.json `test` script (REQUIRED for the Bun-fork inheritance to work):
+      //   "test": "bun --bun ./node_modules/vitest/dist/cli.js run"
+      //
+      // NOTE: `packages/aws/vitest.config.ts` does NOT exist. The aws package has
+      // no vitest config and no tests of its own — SKIP that file. Document the
+      // absence in the executor return payload.
+    conventions: |
+      Vitest config uses `defineConfig` from `vitest/config`; ESM module syntax;
+      top-level `test:` block with `include`/`exclude` globs; tests live under
+      `packages/core/tests/**/*.test.ts` and `packages/core/src/**/*.test.ts`;
+      `pool: 'forks'` not `'threads'` (worker_threads can't inherit Bun runtime
+      cleanly); the `bun --bun` invocation in the npm `test` script is what makes
+      `bun:sqlite` resolvable in workers — do NOT change the `test` script without
+      re-verifying the test suite.

@@ -16,7 +16,7 @@ import type { AppLogger } from "../../src/slack/app.js";
  * Test target: `packages/core/src/server/middleware/auth.ts:40-49`.
  *
  * Mocks: `AppLogger` is stubbed with `vi.fn()` spies; the better-auth backing
- * database is `:memory:` (better-sqlite3 native in-memory mode) so the test
+ * database is `:memory:` (bun:sqlite native in-memory mode) so the test
  * never touches the filesystem and runs hermetically.
  */
 
