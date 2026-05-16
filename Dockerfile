@@ -1,6 +1,5 @@
-FROM node:22-slim AS deps
+FROM oven/bun:1 AS deps
 WORKDIR /app
-RUN npm install -g bun
 COPY package.json bun.lock* ./
 COPY packages/core/package.json ./packages/core/
 COPY packages/aws/package.json ./packages/aws/
@@ -18,9 +17,8 @@ RUN cd packages/core && \
     ./node_modules/.bin/vite build && \
     cd ../aws && ./node_modules/.bin/tsc -p tsconfig.build.json
 
-FROM node:22-slim AS runner
+FROM oven/bun:1 AS runner
 WORKDIR /app
-RUN npm install -g bun
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/packages/core/node_modules ./packages/core/node_modules
 COPY --from=deps /app/packages/aws/node_modules ./packages/aws/node_modules
@@ -40,4 +38,4 @@ RUN mkdir -p node_modules/@tino && \
     ln -s /app/packages/aws node_modules/@tino/aws
 
 ENV NODE_ENV=production
-CMD ["node", "packages/core/dist/index.js"]
+CMD ["bun", "run", "packages/core/dist/index.js"]

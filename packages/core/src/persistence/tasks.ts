@@ -1,12 +1,12 @@
 import crypto from 'node:crypto';
-import Database from 'better-sqlite3';
+import { Database } from 'bun:sqlite';
 
 /**
  * SQLite-backed task store for scheduled tasks.
  *
  * Schema: tasks (id, user_id, description, scheduled_at, status, result, created_at, updated_at)
  *
- * Uses better-sqlite3 (synchronous API) — matches the synchronous store pattern
+ * Uses bun:sqlite (synchronous API) — matches the synchronous store pattern
  * used by preferences.ts and sqlite.ts.
  */
 
@@ -30,7 +30,7 @@ export interface TaskStore {
   cancel(id: string): Promise<boolean>; // returns false if task not found or not pending
 }
 
-// Row shape returned by better-sqlite3 (snake_case columns)
+// Row shape returned by bun:sqlite (snake_case columns)
 interface TaskRow {
   id: string;
   user_id: string;
@@ -73,7 +73,7 @@ export function createTaskStore({ dbPath }: { dbPath: string }): TaskStore {
   // 'running' status means the scheduler picked them up but never got to
   // mark them 'completed' or 'failed' — the process died in between.
   // Reset them to 'pending' so the next scheduler tick retries them.
-  const recovered = db.prepare(
+  const recovered = db.query(
     `UPDATE tasks SET status = 'pending', updated_at = ? WHERE status = 'running'`,
   ).run(Math.floor(Date.now() / 1000));
   if (recovered.changes > 0) {
@@ -81,32 +81,32 @@ export function createTaskStore({ dbPath }: { dbPath: string }): TaskStore {
     // the returned TaskStore — the scheduler will log when it picks them up.
   }
 
-  const stmtInsert = db.prepare<[string, string, string, number, number, number]>(
+  const stmtInsert = db.query(
     `INSERT INTO tasks (id, user_id, description, scheduled_at, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?)`,
   );
 
-  const stmtGetById = db.prepare<[string], TaskRow>(
+  const stmtGetById = db.query(
     'SELECT * FROM tasks WHERE id = ?',
   );
 
-  const stmtListByUser = db.prepare<[string], TaskRow>(
+  const stmtListByUser = db.query(
     'SELECT * FROM tasks WHERE user_id = ? ORDER BY scheduled_at ASC',
   );
 
-  const stmtListByUserAndStatus = db.prepare<[string, string], TaskRow>(
+  const stmtListByUserAndStatus = db.query(
     'SELECT * FROM tasks WHERE user_id = ? AND status = ? ORDER BY scheduled_at ASC',
   );
 
-  const stmtListPending = db.prepare<[number], TaskRow>(
+  const stmtListPending = db.query(
     `SELECT * FROM tasks WHERE scheduled_at <= ? AND status = 'pending' ORDER BY scheduled_at ASC`,
   );
 
-  const stmtUpdateStatus = db.prepare<[string, string | null, number, string]>(
+  const stmtUpdateStatus = db.query(
     'UPDATE tasks SET status = ?, result = ?, updated_at = ? WHERE id = ?',
   );
 
-  const stmtCancel = db.prepare<[number, string]>(
+  const stmtCancel = db.query(
     `UPDATE tasks SET status = 'cancelled', updated_at = ? WHERE id = ? AND status = 'pending'`,
   );
 
@@ -128,19 +128,19 @@ export function createTaskStore({ dbPath }: { dbPath: string }): TaskStore {
     },
 
     getById(id: string): Promise<Task | null> {
-      const row = stmtGetById.get(id);
+      const row = stmtGetById.get(id) as TaskRow | null;
       return Promise.resolve(row ? rowToTask(row) : null);
     },
 
     listByUser(userId: string, status?: string): Promise<Task[]> {
       if (status !== undefined) {
-        return Promise.resolve(stmtListByUserAndStatus.all(userId, status).map(rowToTask));
+        return Promise.resolve((stmtListByUserAndStatus.all(userId, status) as TaskRow[]).map(rowToTask));
       }
-      return Promise.resolve(stmtListByUser.all(userId).map(rowToTask));
+      return Promise.resolve((stmtListByUser.all(userId) as TaskRow[]).map(rowToTask));
     },
 
     listPending(nowEpochSec: number): Promise<Task[]> {
-      return Promise.resolve(stmtListPending.all(nowEpochSec).map(rowToTask));
+      return Promise.resolve((stmtListPending.all(nowEpochSec) as TaskRow[]).map(rowToTask));
     },
 
     updateStatus(id: string, status: Task['status'], result?: string): Promise<void> {

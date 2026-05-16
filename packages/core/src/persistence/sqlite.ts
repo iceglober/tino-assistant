@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3';
+import { Database } from 'bun:sqlite';
 import type { ModelMessage } from 'ai';
 import type { HistoryStore } from '../agent/history.js';
 import { trim } from '../agent/history.js';
@@ -8,7 +8,7 @@ import { trim } from '../agent/history.js';
  *
  * Schema: conversations (user_id TEXT PRIMARY KEY, messages_json TEXT NOT NULL, updated_at INTEGER NOT NULL)
  *
- * Uses better-sqlite3 (synchronous API) — matches the synchronous HistoryStore interface.
+ * Uses bun:sqlite (synchronous API) — matches the synchronous HistoryStore interface.
  * No migrations: single CREATE TABLE IF NOT EXISTS at construction time.
  * No WAL mode, no extra pragmas, no in-memory cache — synchronous reads are sub-millisecond.
  */
@@ -29,11 +29,11 @@ export function createSqliteHistoryStore({
     )
   `);
 
-  const stmtGet = db.prepare<[string], { messages_json: string }>(
+  const stmtGet = db.query(
     'SELECT messages_json FROM conversations WHERE user_id = ?',
   );
 
-  const stmtUpsert = db.prepare<[string, string, number]>(
+  const stmtUpsert = db.query(
     `INSERT INTO conversations (user_id, messages_json, updated_at)
      VALUES (?, ?, ?)
      ON CONFLICT(user_id) DO UPDATE SET
@@ -41,13 +41,13 @@ export function createSqliteHistoryStore({
        updated_at    = excluded.updated_at`,
   );
 
-  const stmtDelete = db.prepare<[string]>(
+  const stmtDelete = db.query(
     'DELETE FROM conversations WHERE user_id = ?',
   );
 
   return {
     get(userId: string): Promise<ModelMessage[]> {
-      const row = stmtGet.get(userId);
+      const row = stmtGet.get(userId) as { messages_json: string } | null;
       if (!row) return Promise.resolve([]);
       return Promise.resolve(JSON.parse(row.messages_json) as ModelMessage[]);
     },

@@ -12,7 +12,7 @@
     "rootDir": "../",
     "outDir": "dist",
     "noEmit": true,
-    "types": ["node"],
+    "types": ["node", "bun"],
     "paths": {
       "@tino/core": ["../core/src/index.ts"],
       "@tino/core/env": ["../core/src/env.ts"],

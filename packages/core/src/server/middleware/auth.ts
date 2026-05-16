@@ -1,6 +1,6 @@
 import { betterAuth, type Auth } from 'better-auth';
 import { getMigrations } from 'better-auth/db/migration';
-import Database from 'better-sqlite3';
+import { Database } from 'bun:sqlite';
 import type { MiddlewareHandler } from 'hono';
 import type { AppLogger } from '../../slack/app.js';
 

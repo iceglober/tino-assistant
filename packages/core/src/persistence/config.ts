@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3';
+import { Database } from 'bun:sqlite';
 
 /**
  * System-wide runtime configuration store backed by SQLite.
@@ -42,11 +42,11 @@ export function createConfigStore({ dbPath }: { dbPath: string }): ConfigStore {
     )
   `);
 
-  const stmtGet = db.prepare<[string], { value: string }>(
+  const stmtGet = db.query(
     'SELECT value FROM config WHERE key = ?',
   );
 
-  const stmtUpsert = db.prepare<[string, string, number]>(
+  const stmtUpsert = db.query(
     `INSERT INTO config (key, value, updated_at)
      VALUES (?, ?, ?)
      ON CONFLICT(key) DO UPDATE SET
@@ -54,22 +54,22 @@ export function createConfigStore({ dbPath }: { dbPath: string }): ConfigStore {
        updated_at = excluded.updated_at`,
   );
 
-  const stmtList = db.prepare<[], ConfigRow>(
+  const stmtList = db.query(
     'SELECT key, value, updated_at FROM config ORDER BY key',
   );
 
-  const stmtDelete = db.prepare<[string]>(
+  const stmtDelete = db.query(
     'DELETE FROM config WHERE key = ?',
   );
 
   return {
     get(key: string): Promise<string | null> {
-      const row = stmtGet.get(key);
+      const row = stmtGet.get(key) as { value: string } | null;
       return Promise.resolve(row?.value ?? null);
     },
 
     getTyped<T>(key: string, fallback: T): Promise<T> {
-      const raw = stmtGet.get(key);
+      const raw = stmtGet.get(key) as { value: string } | null;
       if (!raw) return Promise.resolve(fallback);
       try {
         return Promise.resolve(JSON.parse(raw.value) as T);
@@ -84,7 +84,7 @@ export function createConfigStore({ dbPath }: { dbPath: string }): ConfigStore {
     },
 
     list(): Promise<Array<{ key: string; value: string; updatedAt: number }>> {
-      return Promise.resolve(stmtList.all().map(row => ({
+      return Promise.resolve((stmtList.all() as ConfigRow[]).map(row => ({
         key: row.key,
         value: row.value,
         updatedAt: row.updated_at,

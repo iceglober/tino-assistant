@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3';
+import { Database } from 'bun:sqlite';
 
 /**
  * Simple key-value preference store backed by SQLite.
@@ -29,11 +29,11 @@ export function createPreferencesStore({ dbPath }: { dbPath: string }): Preferen
     )
   `);
 
-  const stmtGet = db.prepare<[string, string], { value: string }>(
+  const stmtGet = db.query(
     'SELECT value FROM preferences WHERE user_id = ? AND key = ?',
   );
 
-  const stmtUpsert = db.prepare<[string, string, string, number]>(
+  const stmtUpsert = db.query(
     `INSERT INTO preferences (user_id, key, value, updated_at)
      VALUES (?, ?, ?, ?)
      ON CONFLICT(user_id, key) DO UPDATE SET
@@ -41,17 +41,17 @@ export function createPreferencesStore({ dbPath }: { dbPath: string }): Preferen
        updated_at = excluded.updated_at`,
   );
 
-  const stmtList = db.prepare<[string], { key: string; value: string }>(
+  const stmtList = db.query(
     'SELECT key, value FROM preferences WHERE user_id = ? ORDER BY key',
   );
 
-  const stmtDelete = db.prepare<[string, string]>(
+  const stmtDelete = db.query(
     'DELETE FROM preferences WHERE user_id = ? AND key = ?',
   );
 
   return {
     get(userId: string, key: string): Promise<string | null> {
-      const row = stmtGet.get(userId, key);
+      const row = stmtGet.get(userId, key) as { value: string } | null;
       return Promise.resolve(row?.value ?? null);
     },
 
@@ -61,7 +61,7 @@ export function createPreferencesStore({ dbPath }: { dbPath: string }): Preferen
     },
 
     list(userId: string): Promise<Array<{ key: string; value: string }>> {
-      return Promise.resolve(stmtList.all(userId));
+      return Promise.resolve(stmtList.all(userId) as Array<{ key: string; value: string }>);
     },
 
     delete(userId: string, key: string): Promise<void> {

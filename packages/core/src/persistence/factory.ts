@@ -29,7 +29,7 @@ export interface Persistence {
 /**
  * Factory that creates the persistence layer based on the PERSISTENCE_ADAPTER env var.
  *
- * - 'sqlite' (default): uses better-sqlite3, reads DB_PATH (default './tino.db')
+ * - 'sqlite' (default): uses bun:sqlite, reads DB_PATH (default './tino.db')
  * - 'dynamodb': uses DynamoDB Toolbox v2, reads DYNAMODB_TABLE_NAME (required)
  *
  * Dynamic imports keep the DynamoDB SDK out of the bundle when using SQLite.
