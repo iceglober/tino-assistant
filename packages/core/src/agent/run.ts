@@ -42,7 +42,7 @@ export async function runAgent(params: RunAgentParams): Promise<string> {
   const start = Date.now();
   const result = await generateText({
     model,
-    system: buildSystemPrompt(),
+    system: buildSystemPrompt({ activeCapabilities, toolNames: Object.keys(tools ?? {}) }),
     messages: await history.get(userId),
     tools: tools ?? {},
     stopWhen: stepCountIs(10),

@@ -1,3 +1,4 @@
+import { generateText } from "ai";
 import { describe, expect, it, vi } from "vitest";
 import { createHistoryStore } from "../../src/agent/history.js";
 import { runAgent } from "../../src/agent/run.js";
@@ -55,5 +56,48 @@ describe("runAgent — activeCapabilities forwarding", () => {
     });
 
     expect(resultBlocked).toMatch(/flagged by the safety filter/);
+  });
+});
+
+describe("runAgent — system prompt wiring", () => {
+  it("system prompt passed to generateText only mentions active capability tools", async () => {
+    vi.mocked(generateText).mockClear();
+    // Override the mock to return a safe response for this test
+    vi.mocked(generateText).mockResolvedValueOnce({
+      text: "i can help with github.",
+      steps: [],
+      response: { messages: [] },
+      finishReason: "stop",
+      usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+    } as never);
+
+    const history = createHistoryStore({ cap: 40 });
+
+    await runAgent({
+      model: {} as never,
+      history,
+      logger: stubLogger,
+      tools: {
+        github_search_code: {
+          description: "stub",
+          inputSchema: {} as never,
+          execute: async () => "",
+        } as never,
+      },
+      userId: "U1",
+      text: "what can you help with?",
+      activeCapabilities: ["github"],
+    });
+
+    const calls = vi.mocked(generateText).mock.calls;
+    expect(calls.length).toBeGreaterThanOrEqual(1);
+    const systemArg = calls[calls.length - 1][0].system as string;
+
+    expect(systemArg).toContain("github_search_code");
+    expect(systemArg).not.toContain("gmail_search");
+    expect(systemArg).not.toContain("linear_search_issues");
+    expect(systemArg).not.toContain("slack_search_messages");
+    expect(systemArg).not.toContain("calendar_list_events");
+    expect(systemArg).not.toContain("cloudwatch_logs_query");
   });
 });
