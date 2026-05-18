@@ -387,7 +387,7 @@ items:
       The console exposes per-user capability management — list, configure,
       OAuth flows, disconnect. Routes resolve the requesting user via the
       better-auth session and the identity resolver.
-    checked: false
+    checked: true
     files:
       - path: packages/core/src/server/routes/user-capabilities.ts
         isNew: true
