@@ -1,63 +1,37 @@
 /**
- * Wave 3 (v2.2) — § 3.2 capability module test for `slack`.
+ * Wave 1 — capability module test for `slack` (shared).
  *
  * Verifies:
- *   - `registerTools()` with a `userToken` registers all four slack_* tools.
- *   - `registerTools()` throws when `userToken` is missing.
+ *   - `registerTools()` is a no-op (no tools registered in wave 1).
+ *   - xoxp-scoped user tools have been extracted to slack-personal.ts.
  *
- * Mocks both `@slack/bolt` (so no real `WebClient` is constructed) and
- * `createUserCache` (which would otherwise call `users.list` on init).
+ * Future waves will add bot-token (xoxb-) public-channel search tools here.
  */
 
 import type { ToolSet } from "ai";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { slackCapability } from "../../src/capabilities/slack.js";
 import type { CapabilityConfig } from "../../src/capabilities/types.js";
 import { makeConfigStore, makeLogger } from "./_helpers.js";
 
-vi.mock("@slack/bolt", () => ({
-  webApi: {
-    WebClient: class FakeWebClient {},
-  },
-}));
-
-// userCache loads workspace users at startup; stub it so we don't hit
-// the (mocked) WebClient and don't introduce timing flake.
-vi.mock("../../src/slack/userCache.js", () => ({
-  createUserCache: vi.fn().mockResolvedValue({
-    nameById: new Map(),
-    refresh: vi.fn(),
-  }),
-}));
-
-const GOOD_CONFIG: CapabilityConfig = {
-  enabled: true,
-  credentials: { userToken: "xoxp-test-token" },
-  settings: {},
-};
-
-const BAD_CONFIG: CapabilityConfig = {
+const EMPTY_CONFIG: CapabilityConfig = {
   enabled: true,
   credentials: {},
   settings: {},
 };
 
 describe("slackCapability.registerTools", () => {
-  it("registers all four slack_* tools when given a userToken", async () => {
+  it("is a no-op shared capability in wave 1", async () => {
     const tools: ToolSet = {};
-    await slackCapability.registerTools(GOOD_CONFIG, makeConfigStore(), makeLogger(), tools);
+    const toolsBefore = Object.keys(tools).length;
+    await slackCapability.registerTools(EMPTY_CONFIG, makeConfigStore(), makeLogger(), tools);
+    const toolsAfter = Object.keys(tools).length;
 
-    const registered = Object.keys(tools);
-    expect(registered).toContain("slack_search_messages");
-    expect(registered).toContain("slack_read_thread");
-    expect(registered).toContain("slack_list_dms");
-    expect(registered).toContain("slack_read_dm");
-  });
-
-  it("throws when credentials.userToken is missing", async () => {
-    const tools: ToolSet = {};
-    await expect(slackCapability.registerTools(BAD_CONFIG, makeConfigStore(), makeLogger(), tools)).rejects.toThrow(
-      /userToken/,
-    );
+    // No tools should be registered
+    expect(toolsAfter).toBe(toolsBefore);
+    expect(Object.keys(tools)).not.toContain("slack_search_messages");
+    expect(Object.keys(tools)).not.toContain("slack_read_thread");
+    expect(Object.keys(tools)).not.toContain("slack_list_dms");
+    expect(Object.keys(tools)).not.toContain("slack_read_dm");
   });
 });

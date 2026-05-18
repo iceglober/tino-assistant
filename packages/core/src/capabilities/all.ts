@@ -12,13 +12,15 @@ import { githubCapability } from "./github.js";
 import { gmailCapability } from "./gmail.js";
 import { linearCapability } from "./linear.js";
 import { slackCapability } from "./slack.js";
+import { slackPersonalCapability } from "./slack-personal.js";
 import type { CapabilityModule } from "./types.js";
 
 export const ALL_CAPABILITIES: CapabilityModule[] = [
-  githubCapability,
-  linearCapability,
-  slackCapability,
-  gmailCapability,
   calendarCapability,
   cloudwatchCapability,
+  githubCapability,
+  gmailCapability,
+  linearCapability,
+  slackCapability,
+  slackPersonalCapability,
 ];

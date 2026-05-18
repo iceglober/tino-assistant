@@ -16,11 +16,12 @@ import { parseRepoSpec, type RepoSpec } from "../tools/github/allowlist.js";
 import { githubGetFileTool } from "../tools/github/getFile.js";
 import { githubSearchCodeTool } from "../tools/github/search.js";
 import { githubGetWorkflowRunLogsTool, githubListWorkflowRunsTool } from "../tools/github/workflows.js";
-import type { CapabilityConfig, CapabilityModule } from "./types.js";
+import type { CapabilityConfig, SharedCapability } from "./types.js";
 
-export const githubCapability: CapabilityModule = {
+export const githubCapability: SharedCapability = {
   id: "github",
   displayName: "GitHub",
+  scope: "shared",
 
   fieldSchema: [
     {

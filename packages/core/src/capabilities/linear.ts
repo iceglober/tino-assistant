@@ -20,11 +20,12 @@ import {
   linearSearchIssuesTool,
   linearUpdateIssueTool,
 } from "../tools/linear/issues.js";
-import type { CapabilityConfig, CapabilityModule } from "./types.js";
+import type { CapabilityConfig, SharedCapability } from "./types.js";
 
-export const linearCapability: CapabilityModule = {
+export const linearCapability: SharedCapability = {
   id: "linear",
   displayName: "Linear",
+  scope: "shared",
 
   fieldSchema: [
     {

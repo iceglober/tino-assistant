@@ -1,18 +1,17 @@
 /**
- * Wave 3 (v2.2) — § 3.2 capability module test for `calendar`.
+ * Wave 1 — capability module test for `calendar` (private).
  *
  * Verifies:
- *   - `registerTools()` with full Google OAuth credentials registers the
- *     `calendar_list_events` tool.
- *   - `registerTools()` throws a credential-named error when any of
- *     clientId / clientSecret / refreshToken is missing.
+ *   - `buildToolsForUser()` with full Google OAuth credentials returns
+ *     a toolset with calendar_list_events.
+ *   - `buildToolsForUser()` returns null when config is null (not connected).
+ *   - `buildToolsForUser()` returns null when any required credential is missing.
  *
  * Mocks `googleapis` (not `google-auth-library`; the source imports
  * `google.auth.OAuth2` from `googleapis`) at module level so no live
  * OAuth client is created.
  */
 
-import type { ToolSet } from "ai";
 import { describe, expect, it, vi } from "vitest";
 import { calendarCapability } from "../../src/capabilities/calendar.js";
 import type { CapabilityConfig } from "../../src/capabilities/types.js";
@@ -25,8 +24,8 @@ vi.mock("googleapis", () => ({
         setCredentials(_creds: unknown): void {}
       },
     },
-    // The calendar tool calls `google.calendar({version, auth})` at registration
-    // time. Stub it so the call resolves to a placeholder client object.
+    // The calendar tool calls `google.calendar({version, auth})` at build time.
+    // Stub it so the call resolves to a placeholder client object.
     calendar: () => ({}),
   },
 }));
@@ -41,35 +40,45 @@ const GOOD_CONFIG: CapabilityConfig = {
   settings: { calendarId: "primary" },
 };
 
-describe("calendarCapability.registerTools", () => {
-  it("registers calendar_list_events when given full Google OAuth credentials", async () => {
-    const tools: ToolSet = {};
-    await calendarCapability.registerTools(GOOD_CONFIG, makeConfigStore(), makeLogger(), tools);
-    expect(Object.keys(tools)).toContain("calendar_list_events");
+describe("calendarCapability.buildToolsForUser", () => {
+  it("returns tools with calendar_list_events when given full Google OAuth credentials", async () => {
+    const tools = await calendarCapability.buildToolsForUser("user123", GOOD_CONFIG, makeConfigStore(), makeLogger());
+    expect(tools).not.toBeNull();
+    expect(Object.keys(tools!)).toContain("calendar_list_events");
   });
 
-  it("throws when credentials.refreshToken is missing", async () => {
-    const tools: ToolSet = {};
+  it("returns null when config is null", async () => {
+    const tools = await calendarCapability.buildToolsForUser("user123", null, makeConfigStore(), makeLogger());
+    expect(tools).toBeNull();
+  });
+
+  it("returns null when credentials.refreshToken is missing", async () => {
     const partial: CapabilityConfig = {
       enabled: true,
       credentials: { clientId: "id", clientSecret: "secret" },
       settings: {},
     };
-    await expect(calendarCapability.registerTools(partial, makeConfigStore(), makeLogger(), tools)).rejects.toThrow(
-      /refreshToken/,
-    );
-    expect(Object.keys(tools)).toHaveLength(0);
+    const tools = await calendarCapability.buildToolsForUser("user123", partial, makeConfigStore(), makeLogger());
+    expect(tools).toBeNull();
   });
 
-  it("throws when credentials.clientId is missing", async () => {
-    const tools: ToolSet = {};
+  it("returns null when credentials.clientId is missing", async () => {
     const partial: CapabilityConfig = {
       enabled: true,
       credentials: { clientSecret: "s", refreshToken: "r" },
       settings: {},
     };
-    await expect(calendarCapability.registerTools(partial, makeConfigStore(), makeLogger(), tools)).rejects.toThrow(
-      /clientId/,
-    );
+    const tools = await calendarCapability.buildToolsForUser("user123", partial, makeConfigStore(), makeLogger());
+    expect(tools).toBeNull();
+  });
+
+  it("returns null when credentials.clientSecret is missing", async () => {
+    const partial: CapabilityConfig = {
+      enabled: true,
+      credentials: { clientId: "id", refreshToken: "r" },
+      settings: {},
+    };
+    const tools = await calendarCapability.buildToolsForUser("user123", partial, makeConfigStore(), makeLogger());
+    expect(tools).toBeNull();
   });
 });

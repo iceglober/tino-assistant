@@ -1,64 +1,32 @@
 /**
- * Slack capability module.
+ * Slack capability module — shared, centrally-configured.
  *
- * Registers slack_search_messages, slack_read_thread, slack_list_dms,
- * slack_read_dm tools. Uses the owner's user token (xoxp-) from credentials.
+ * Wave 1: shared shell with no tools. Xoxp-scoped user tools have been
+ * extracted to slack-personal.ts. Future waves will add bot-token (xoxb-)
+ * public-channel search tools here.
  *
  * findWork: stub (not yet implemented — enabled=false by default).
  */
 
-import { webApi } from "@slack/bolt";
 import type { ToolSet } from "ai";
 import type { ConfigStore } from "../persistence/config.js";
 import type { AppLogger } from "../slack/app.js";
-import { createUserCache } from "../slack/userCache.js";
-import { slackListDmsTool, slackReadDmTool } from "../tools/slack/dms.js";
-import { slackSearchMessagesTool } from "../tools/slack/search.js";
-import { slackReadThreadTool } from "../tools/slack/thread.js";
-import type { CapabilityConfig, CapabilityModule } from "./types.js";
+import type { CapabilityConfig, SharedCapability } from "./types.js";
 
-export const slackCapability: CapabilityModule = {
+export const slackCapability: SharedCapability = {
   id: "slack",
   displayName: "Slack",
+  scope: "shared",
 
-  fieldSchema: [
-    {
-      key: "userToken",
-      label: "User Token (xoxp-)",
-      target: "credentials.userToken",
-      secret: true,
-      placeholder: "xoxp-...",
-    },
-  ],
+  fieldSchema: [],
 
   async registerTools(
-    config: CapabilityConfig,
+    _config: CapabilityConfig,
     _configStore: ConfigStore,
-    logger: AppLogger,
-    tools: ToolSet,
+    _logger: AppLogger,
+    _tools: ToolSet,
   ): Promise<void> {
-    const userToken = config.credentials.userToken;
-    if (!userToken) {
-      throw new Error("Slack capability: credentials.userToken is not set");
-    }
-
-    const userClient = new webApi.WebClient(userToken);
-
-    let userCache: Awaited<ReturnType<typeof createUserCache>> | undefined;
-    try {
-      userCache = await createUserCache(userClient, logger);
-    } catch (cacheErr) {
-      logger.warn(
-        { err: (cacheErr as Error).message },
-        "slack user cache failed to load — tools will use user IDs instead of display names",
-      );
-    }
-
-    tools.slack_search_messages = slackSearchMessagesTool(userClient, userCache);
-    tools.slack_read_thread = slackReadThreadTool(userClient, userCache);
-    tools.slack_list_dms = slackListDmsTool(userClient, userCache);
-    tools.slack_read_dm = slackReadDmTool(userClient, userCache);
-
-    logger.info({ userCacheLoaded: !!userCache }, "slack reading tools enabled");
+    // No tools registered in wave 1; xoxp-tools moved to slack-personal.ts.
+    // Future: add bot-token public-channel search tools here.
   },
 };

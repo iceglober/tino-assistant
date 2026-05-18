@@ -14,11 +14,12 @@ import type { ToolSet } from "ai";
 import type { ConfigStore } from "../persistence/config.js";
 import type { AppLogger } from "../slack/app.js";
 import { cloudwatchLogsQueryTool } from "../tools/cloudwatch/query.js";
-import type { CapabilityConfig, CapabilityModule } from "./types.js";
+import type { CapabilityConfig, SharedCapability } from "./types.js";
 
-export const cloudwatchCapability: CapabilityModule = {
+export const cloudwatchCapability: SharedCapability = {
   id: "cloudwatch",
   displayName: "CloudWatch",
+  scope: "shared",
 
   fieldSchema: [
     {

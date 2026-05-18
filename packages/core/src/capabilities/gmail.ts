@@ -1,8 +1,8 @@
 /**
- * Gmail capability module.
+ * Gmail capability module — private, per-user credentials.
  *
- * Registers gmail_search, gmail_get_message tools.
- * Uses Google OAuth credentials from the capability config.
+ * Builds gmail_search, gmail_get_message tools when the user has configured
+ * Google OAuth credentials. Returns null if credentials are missing/disabled.
  *
  * findWork: stub (not yet implemented — enabled=false by default).
  */
@@ -11,11 +11,12 @@ import { google } from "googleapis";
 import type { ConfigStore } from "../persistence/config.js";
 import type { AppLogger } from "../slack/app.js";
 import { gmailGetMessageTool, gmailSearchTool } from "../tools/google/gmail.js";
-import type { CapabilityConfig, CapabilityModule } from "./types.js";
+import type { CapabilityConfig, PrivateCapability } from "./types.js";
 
-export const gmailCapability: CapabilityModule = {
+export const gmailCapability: PrivateCapability = {
   id: "gmail",
   displayName: "Gmail",
+  scope: "private",
 
   fieldSchema: [
     {
@@ -38,23 +39,30 @@ export const gmailCapability: CapabilityModule = {
     },
   ],
 
-  async registerTools(
-    config: CapabilityConfig,
+  async buildToolsForUser(
+    _tinoUserId: string,
+    config: CapabilityConfig | null,
     _configStore: ConfigStore,
     logger: AppLogger,
-    tools: ToolSet,
-  ): Promise<void> {
+  ): Promise<ToolSet | null> {
+    if (!config) {
+      return null;
+    }
+
     const { clientId, clientSecret, refreshToken } = config.credentials;
-    if (!clientId) throw new Error("Gmail capability: credentials.clientId is not set");
-    if (!clientSecret) throw new Error("Gmail capability: credentials.clientSecret is not set");
-    if (!refreshToken) throw new Error("Gmail capability: credentials.refreshToken is not set");
+    if (!clientId || !clientSecret || !refreshToken) {
+      return null;
+    }
 
     const auth = new google.auth.OAuth2(clientId, clientSecret);
     auth.setCredentials({ refresh_token: refreshToken });
 
-    tools.gmail_search = gmailSearchTool(auth);
-    tools.gmail_get_message = gmailGetMessageTool(auth);
+    const tools: ToolSet = {
+      gmail_search: gmailSearchTool(auth),
+      gmail_get_message: gmailGetMessageTool(auth),
+    };
 
-    logger.info("gmail tools enabled");
+    logger.info({ tinoUserId: _tinoUserId }, "gmail tools enabled");
+    return tools;
   },
 };

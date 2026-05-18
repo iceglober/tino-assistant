@@ -1,627 +1,190 @@
-# spec/wave_5.yaml
-# Wave 5: instruction precedence + per-instance isolation + multi-tenant foundation.
-#
-# Implements the precedence rules from docs/plans/product.md:401-424
-# (most-restrictive-wins for permissions, later-overrides-earlier for behavior).
-# Adds per-capability-instance "canShareWith" labels for isolating two
-# instances of the same capability type. Extracts the partition-key prefix
-# into a single constant so a future managed-multi-tenant offering can swap
-# "" for "TENANT#<tenantId>#" in one place.
-#
-# This wave is purely additive and can be deferred indefinitely. Waves 0-4
-# already deliver the privacy boundary; wave 5 adds the next-layer features.
-#
-# IMPORTANT — path notes (executor: read carefully — same as waves 3 & 4):
-#   - The plan-doc paths `tests/...` map to `packages/core/tests/...` in
-#     this repo (tests are co-located per package). When CREATING real
-#     files use `packages/core/tests/...`.
-#   - The plan-doc says `bun:test` and `bun run test`; THIS REPO USES
-#     VITEST. Use `import { describe, it, expect, vi } from "vitest";`.
-#     The verify command `bun run test` is fine — it wraps vitest at the
-#     workspace level.
-#   - The plan's `packages/core/src/persistence/keys.ts` is NEW. The
-#     existing persistence layer in this repo is a key-value config store
-#     (`config.set('user.<id>.status', ...)`) — NOT DynamoDB-style
-#     `USER#<id>` partition keys. The keys-module described in the plan
-#     is forward-looking groundwork for a future managed offering. In
-#     this repo, the helpers wrap the `user.<id>` / `user.<id>.capability.*`
-#     prefixes used in places like `packages/core/src/server/routes/users.ts`
-#     and replace literal string concatenation with helper calls. Do NOT
-#     introduce a synthetic `USER#` prefix that doesn't exist today —
-#     match the existing key shapes and add `tenantPrefix()` in front.
-
 items:
-  - id: a1
-    intent: |
-      The instruction resolver implements the precedence rules from
-      product.md — permissions resolve via most-restrictive-wins regardless
-      of level (any `false` flag wins over any `true`); behavioral text
-      resolves via later-overrides-earlier ordered by level
-      (base → org → cap-type → cap-instance → user). Conflicts at the
-      same level (e.g. two cap-instance instructions disagreeing on
-      permissions) are recorded in `conflicts` but do not block — the
-      most-restrictive value still wins.
-    checked: true
+  - id: "a1"
+    intent: "Pure-function instruction resolver implementing precedence: permissions via most-restrictive-wins, behavioral text via later-overrides-earlier ordered by level (base → org → cap-type → cap-instance → user). Records conflicts when two same-level instructions disagree."
+    checked: false
     files:
       - path: packages/core/src/instructions/types.ts
         isNew: true
-        change: |
-          Define `InstructionLevel`, `Instruction`, and `ResolvedInstructions`
-          per the plan's "types.ts" block. `Instruction` carries optional
-          behavioral text and optional partial permission flags (write,
-          delete, crossContextShare). `ResolvedInstructions` exposes a
-          fully-resolved permission set, an ordered behaviorChunks array
-          (each `{ source, text }`), and a `conflicts` array recording any
-          same-level disagreements detected during resolution.
+        change: "Define InstructionLevel union, Instruction interface (level, source, optional text, optional permissions {write,delete,crossContextShare}), and ResolvedInstructions interface (permissions, behaviorChunks, conflicts)."
       - path: packages/core/src/instructions/resolver.ts
         isNew: true
-        change: |
-          Pure function `resolveInstructions(instructions: Instruction[]): ResolvedInstructions`.
-          No I/O, no async. Algorithm:
-            1. permissions: start with default ALLOW for write/delete/crossContextShare;
-               iterate every instruction's `permissions` partial; for each declared
-               flag, if value is `false` OR (value is `true` AND a previous instruction
-               at the same level set it to `false`), retain `false`. Net: any single
-               `false` wins.
-            2. behavior: stable-sort instructions by level using
-               base → org → cap-type → cap-instance → user; emit each instruction's
-               `text` (if present) into `behaviorChunks` in that order, prefixed
-               with `source`. No detect-and-replace — later text simply appears
-               later in the prompt.
-            3. conflicts: when two instructions at the SAME level disagree on a
-               permission flag, append `{ a, b, field }` to `conflicts`. Do NOT
-               record a conflict for cross-level disagreement — that's expected
-               (most-restrictive-wins handles it).
-      - path: packages/core/tests/instructions/resolver.test.ts
-        isNew: true
-        change: |
-          Vitest unit tests covering: empty input → defaults; single org
-          write:false → resolved write:false; org write:false + user
-          write:true → resolved write:false (most-restrictive); behavior
-          chunks ordered base→user across all five levels; two cap-instance
-          instructions on the SAME instance type with disagreeing
-          permissions → one conflict recorded; cross-level disagreement
-          → no conflict (expected).
+        change: "Export resolveInstructions(instructions: Instruction[]): ResolvedInstructions. Default permissions ALLOW; flip to DENY on any false. Order behavior chunks by level. Record cap-instance permission disagreements as conflicts."
     tests:
-      - 'packages/core/tests/instructions/resolver.test.ts::"empty input returns default permissions"'
-      - 'packages/core/tests/instructions/resolver.test.ts::"org write:false beats user write:true (most-restrictive)"'
-      - 'packages/core/tests/instructions/resolver.test.ts::"behavior chunks are ordered base to user"'
-      - 'packages/core/tests/instructions/resolver.test.ts::"two cap-instance instructions with disagreeing permissions record a conflict"'
-    verify: bun run --filter @tino/core test tests/instructions/resolver.test.ts
-    mirror: packages/core/src/agent/output-validator.ts
+      - "packages/core/tests/instructions/resolver.test.ts"
+    verify: "bun run test tests/instructions/resolver.test.ts"
+    mirror: "packages/core/src/agent/output-validator.ts"
     context: |
-      // NEW file — this is the key shape to export. From the plan:
-      //
-      // export type InstructionLevel = 'base' | 'org' | 'cap-type' | 'cap-instance' | 'user';
-      //
-      // export interface Instruction {
-      //   level: InstructionLevel;
-      //   source: string;       // e.g. 'jira-revenuewell' for cap-instance
-      //   text?: string;        // behavioral text — appended to prompt
-      //   permissions?: Partial<{
-      //     write: boolean;
-      //     delete: boolean;
-      //     crossContextShare: boolean;
-      //   }>;
-      // }
-      //
-      // export interface ResolvedInstructions {
-      //   permissions: { write: boolean; delete: boolean; crossContextShare: boolean };
-      //   behaviorChunks: Array<{ source: string; text: string }>;
-      //   conflicts: Array<{ a: Instruction; b: Instruction; field: string }>;
-      // }
-      //
-      // export function resolveInstructions(instructions: Instruction[]): ResolvedInstructions;
-    conventions: |
-      ESM imports with `.js` extensions on relative paths (NodeNext);
-      named exports throughout the codebase, no default exports;
-      vitest test framework (`import { describe, it, expect, vi } from "vitest"`);
-      tests live under `packages/core/tests/<area>/<name>.test.ts` mirroring
-      `packages/core/src/<area>/<name>.ts`; pure functions preferred for
-      anything testable in isolation (mirrors `output-validator.ts`).
+      // packages/core/src/agent/output-validator.ts is a pure-function module with
+      // a typed input → typed output shape, returned as a tagged record. The
+      // resolver should follow the same idiom: no I/O, no side effects, just a
+      // function over inputs that returns a structured result the caller decides
+      // how to render. See validateAgentOutput(...) for the existing shape:
+      //   export function validateAgentOutput(
+      //     text: string,
+      //     opts: { userId: string; activeCapabilities: string[] },
+      //   ): { safe: true } | { safe: false; reason: string } { ... }
+    conventions: "ESM imports with .js extension on relative paths; named exports only (no default exports); types defined in a sibling types.ts and re-imported; tests in packages/core/tests/<area>/ using vitest (describe/it/expect from 'vitest'); pure modules under packages/core/src/ have no side effects at import time."
 
-  - id: a2
-    intent: |
-      The system prompt includes the resolved instructions in a structured
-      Instructions section (one paragraph per behaviorChunk, prefixed with
-      its source) and a Permissions section that summarizes the resolved
-      permission flags in plain English (e.g. "write: false; this agent
-      must not modify external systems"). Sections are omitted when empty
-      so existing tests/snapshots that pass `instructions: undefined`
-      still see the pre-wave-5 prompt shape.
-    checked: true
+  - id: "a2"
+    intent: "Extend buildSystemPrompt to accept a ResolvedInstructions arg and render two new sections: 'Instructions' listing behaviorChunks in order with their source prefix, and 'Permissions' summarizing the resolved write/delete/crossContextShare flags."
+    checked: false
     files:
       - path: packages/core/src/agent/systemPrompt.ts
         isNew: false
-        change: |
-          Extend `buildSystemPrompt(opts)` to accept an optional
-          `instructions?: ResolvedInstructions`. When provided AND
-          non-empty, append two new sections AFTER the existing
-          capability/tool sections:
-            - "Instructions:" — render each behaviorChunk on its own line
-              prefixed with `[<source>]`. Order is the order produced by
-              the resolver (base → user).
-            - "Permissions:" — render write/delete/crossContextShare as
-              one bullet each. False values get an explanatory clause
-              ("write: false; this agent must not modify external systems").
-              True values stay terse.
-          When `instructions` is undefined OR all three (permissions
-          defaults, behaviorChunks empty, conflicts empty) are vacuous,
-          emit nothing — the prompt shape is byte-identical to wave 4.
+        change: "Add optional `instructions?: ResolvedInstructions` to the opts arg of buildSystemPrompt. When present, append two sections to the prompt: an 'Instructions:' section iterating behaviorChunks ({source, text}), and a 'Permissions:' section listing each flag with an explanatory clause (e.g., 'write: false — this agent must not modify external systems')."
       - path: packages/core/tests/agent/system-prompt.test.ts
         isNew: false
-        change: |
-          Add new `describe` block: "buildSystemPrompt — instructions
-          section". Cases:
-            - prompt with `instructions: undefined` is unchanged from
-              today (regression guard for the optionality).
-            - prompt with one org-level behaviorChunk includes
-              "Instructions:" and the chunk text prefixed by `[org]`.
-            - prompt with permissions.write=false includes
-              "Permissions:" and the explanatory clause.
-            - prompt with all-default permissions and empty
-              behaviorChunks omits both sections entirely.
+        change: "Add cases asserting the Instructions and Permissions sections render when instructions are provided, and are absent (back-compat) when not."
     tests:
-      - 'packages/core/tests/agent/system-prompt.test.ts::"system prompt includes Instructions section"'
-      - 'packages/core/tests/agent/system-prompt.test.ts::"system prompt includes Permissions section"'
-    verify: bun run --filter @tino/core test tests/agent/system-prompt.test.ts
-    mirror: packages/core/src/agent/systemPrompt.ts
+      - "packages/core/tests/agent/system-prompt.test.ts"
+    verify: "bun run test tests/agent/system-prompt.test.ts"
+    mirror: "packages/core/src/agent/systemPrompt.ts"
     context: |
-      // EXISTING — packages/core/src/agent/systemPrompt.ts (lines 20-25, 102-106):
-      //
-      // export function buildSystemPrompt(opts: { activeCapabilities: string[]; toolNames: string[] }): string {
-      //   const { activeCapabilities, toolNames } = opts;
-      //   const active = new Set(activeCapabilities);
-      //   const tools = new Set(toolNames);
-      //   ...
-      //   let prompt = `You are tino, a personal assistant for one user...`;
-      //   ...
-      //   if (hasAnyCapabilityBullets) {
-      //     prompt += `\n\nYou have these tools available:\n`;
-      //     ...
-      //   }
-      //   ...
-      //   return prompt;
-      // }
-      //
-      // Wave 5 extends the signature to:
-      //   buildSystemPrompt(opts: {
-      //     activeCapabilities: string[];
-      //     toolNames: string[];
-      //     instructions?: ResolvedInstructions;   // NEW
-      //   }): string
-      //
-      // and appends Instructions/Permissions sections at the end (just
-      // before `return prompt;`).
-    conventions: |
-      System prompt is built by string concatenation (`prompt += ...`);
-      sections are gated by `if (...)` and prepended with `\n\n`; new
-      capabilities follow the existing pattern of `if (active.has(X))`
-      blocks; system-prompt tests assert with `expect(prompt).toContain`
-      and `expect(prompt).not.toContain`.
+      // packages/core/src/agent/systemPrompt.ts — current signature and assembly idiom:
+      export function buildSystemPrompt(opts: { activeCapabilities: string[]; toolNames: string[] }): string {
+        const { activeCapabilities, toolNames } = opts;
+        const active = new Set(activeCapabilities);
+        const tools = new Set(toolNames);
+        // ...
+        let prompt = `You are tino, a personal assistant ...`;
+        if (hasAnyCapabilityBullets) {
+          prompt += `\n\nYou have these tools available:\n`;
+          if (active.has("github")) { prompt += `\n- github_search_code(...) ...`; }
+          // more sections appended conditionally with `prompt += ...`
+        }
+        return prompt;
+      }
+      // Wave 5 extends opts with `instructions?: ResolvedInstructions` and appends
+      // two more `prompt += ...` sections near the end, keeping the existing
+      // assembly idiom.
+    conventions: "Sections are appended with `prompt += `\\n\\n...`` template literals; conditional gates use Set membership; the function returns a fresh string each call (date/time is interpolated live); tests assert with toContain / not.toContain on substrings rather than full-string matches."
 
-  - id: a3
-    intent: |
-      Per-instance isolation prevents data from one capability instance
-      leaking into a context that shouldn't see it. `canShareWith` on a
-      capability config is the explicit allow-list of OTHER instance ids
-      that may receive its data. When an agent run involves multiple
-      capability instances and the active context is "instance A", tool
-      results from "instance B" are filtered out unless `B.canShareWith`
-      includes `A`'s id. Capabilities without `canShareWith` declared on
-      their config are unaffected (default-allow for backwards compat).
-    checked: true
+  - id: "a3"
+    intent: "Per-instance isolation: a tool result from capability instance B is filtered (replaced with `{ filtered: true, reason: 'isolated by canShareWith' }`) when the active context is instance A and B.canShareWith does not include A. When canShareWith does include A, the result flows through unchanged. Capabilities without canShareWith are unaffected."
+    checked: false
     files:
-      - path: packages/core/src/capabilities/types.ts
-        isNew: false
-        change: |
-          Extend `CapabilityConfig` with an optional `instructions` field:
-            instructions?: {
-              text?: string;
-              permissions?: Partial<{ write: boolean; delete: boolean; crossContextShare: boolean }>;
-              canShareWith?: string[]; // capability instance ids
-            }
-          The field sits at the same level as `enabled`, `credentials`,
-          `settings`, `findWork` — i.e. it's another top-level key on the
-          stored JSON blob. No required fields; absent `instructions`
-          means "default allow + no extra prompt + no isolation."
       - path: packages/core/src/instructions/per-instance-isolation.ts
         isNew: true
-        change: |
-          Export a wrapping helper that, given a tool result and the
-          `(activeInstanceId, sourceInstanceId, sourceConfig)` triple,
-          returns either the original result OR a sentinel
-          `{ filtered: true, reason: 'isolated by canShareWith' }`.
-          Filter rule:
-            - If sourceConfig has no `instructions.canShareWith`,
-              return original (default-allow / backwards compat).
-            - If `activeInstanceId === sourceInstanceId`, return original
-              (same instance always sees its own data).
-            - If `sourceConfig.instructions.canShareWith.includes(activeInstanceId)`,
-              return original.
-            - Otherwise return the sentinel.
-          Wave 5 ships this as a wrapping layer around runAgent's tool-call
-          loop in `agent/run.ts` — applied only to capabilities that
-          declare `canShareWith` on their config.
+        change: "Export a function that wraps the tool-call loop (or a tool-result post-processor) and applies the canShareWith allow-list. Only capabilities whose config declares canShareWith are filtered; others pass through."
+      - path: packages/core/src/capabilities/types.ts
+        isNew: false
+        change: "Extend CapabilityConfig with optional `instructions?: { text?: string; permissions?: Partial<{ write: boolean; delete: boolean; crossContextShare: boolean }>; canShareWith?: string[] }`."
       - path: packages/core/src/agent/run.ts
         isNew: false
-        change: |
-          When iterating `result.response.messages` tool-result parts (the
-          existing wave-2 history-seam loop, ~lines 130-153), call into
-          `per-instance-isolation` BEFORE handing the result to either the
-          historyAppender path OR the legacy whole-batch append path.
-          The active-context instance id comes from the run's userId +
-          per-user capability config; the source instance id comes from
-          the tool's capability config (already resolvable via
-          `toolNameToCapabilityId`). Apply only when sourceConfig has
-          `instructions.canShareWith` declared — otherwise skip the wrap
-          (backwards compat).
-      - path: packages/core/tests/instructions/isolation.test.ts
-        isNew: true
-        change: |
-          Vitest unit tests for the isolation wrapper, NO live agent run
-          (mock the `(activeInstanceId, sourceInstanceId, sourceConfig)`
-          inputs directly). Cases per the plan: A→A passes; B→A blocked
-          when canShareWith=[]; B→A passes when canShareWith=[A]; absent
-          canShareWith on source → default-allow (backwards compat).
-          One additional case: conflict-warning surface (when the
-          resolver records a conflicts entry, that entry is observable
-          via the ResolvedInstructions returned by resolveInstructions).
+        change: "Wrap the runAgent tool-call loop so that, when multiple cap-instances are active, results are passed through the isolation filter before being appended to history."
     tests:
-      - 'packages/core/tests/instructions/isolation.test.ts::"tool result from instance A is visible in context A"'
-      - 'packages/core/tests/instructions/isolation.test.ts::"tool result from instance B is filtered when canShareWith excludes A"'
-      - 'packages/core/tests/instructions/isolation.test.ts::"tool result from instance B is visible when canShareWith includes A"'
-    verify: bun run --filter @tino/core test tests/instructions/isolation.test.ts
-    mirror: packages/core/src/agent/run.ts
+      - "packages/core/tests/instructions/isolation.test.ts"
+    verify: "bun run test tests/instructions/isolation.test.ts"
+    mirror: "packages/core/src/agent/output-validator.ts"
     context: |
-      // EXISTING — packages/core/src/capabilities/types.ts (lines 16-25):
-      //
-      // export interface CapabilityConfig {
-      //   enabled: boolean;
-      //   credentials: Record<string, string>;
-      //   settings: Record<string, unknown>;
-      //   findWork?: {
-      //     enabled: boolean;
-      //     intervalMinutes: number;
-      //     lastScanAt?: number;
-      //   };
-      //   // wave 5 ADDS:
-      //   instructions?: {
-      //     text?: string;
-      //     permissions?: Partial<{ write: boolean; delete: boolean; crossContextShare: boolean }>;
-      //     canShareWith?: string[];
-      //   };
-      // }
-      //
-      // EXISTING — packages/core/src/agent/run.ts (lines 130-153, the
-      // wave-2 tool-result loop where the wrap inserts):
-      //
-      //   for (const msg of result.response.messages) {
-      //     if (msg.role !== "tool") {
-      //       await history.append(userId, [msg]);
-      //       continue;
-      //     }
-      //     for (const part of msg.content) {
-      //       if (part.type !== "tool-result") continue;
-      //       const toolName = part.toolName;
-      //       const toolCallId = part.toolCallId;
-      //       const output = (part as { output?: { type: string; value: unknown } }).output;
-      //       const toolResult = output?.value ?? output ?? null;
-      //       // wave 5: wrap toolResult through per-instance-isolation here
-      //       await historyAppender.appendToolResult({ ... });
-      //     }
-      //   }
-    conventions: |
-      Capability config is stored as a JSON blob under `capability.<id>` in
-      the ConfigStore (see `packages/core/src/persistence/config.ts`); the
-      registry reads it lazily; mutations go through `configStore.set`.
-      Tool-name → capability-id mapping lives in
-      `packages/core/src/agent/run.ts::toolNameToCapabilityId` (prefix
-      match: `gmail_*` → gmail, `linear_*` → linear, etc.). Default-allow
-      is the established privacy posture (see wave-2 PrivacyFilter); never
-      default-deny on missing config.
+      // packages/core/src/capabilities/types.ts — current CapabilityConfig:
+      export interface CapabilityConfig {
+        enabled: boolean;
+        credentials: Record<string, string>; // tokens, API keys
+        settings: Record<string, unknown>;   // allowlists, defaults, tool-specific config
+        findWork?: {
+          enabled: boolean;
+          intervalMinutes: number;
+          lastScanAt?: number; // epoch ms
+        };
+      }
+      // Wave 5 adds: instructions?: { text?: string; permissions?: ...; canShareWith?: string[] }
 
-  - id: a4
-    intent: |
-      All partition-key construction is centralised in a single keys
-      module. The tenant prefix is currently empty string but is the
-      single point of change for a future managed-multi-tenant offering.
-      Every existing call site that builds a `user.<id>...` key (or any
-      future `USER#<id>...` shape) routes through one of the helpers; no
-      bare string-concatenation of partition keys remains in the
-      codebase.
-    checked: true
+      // packages/core/src/agent/run.ts — current tool result handling (history append):
+      //   await history.append(userId, result.response.messages);
+      // The isolation wrap should intercept tool-result messages before this line.
+    conventions: "Capability config is a JSON blob stored under the `capability.<id>` key in the config table; new fields must be optional to preserve back-compat; isolation must be opt-in (no canShareWith → no filtering); tests use vitest and may stub tools by constructing minimal ToolSet objects with mock execute()."
+
+  - id: "a4"
+    intent: "Centralize partition/row key construction in a single keys module so a future managed-multi-tenant offering can prepend a TENANT#<id># prefix by editing one constant. Wave 5 ships with tenantPrefix() returning empty string."
+    checked: false
     files:
       - path: packages/core/src/persistence/keys.ts
         isNew: true
-        change: |
-          New module exporting:
-            - `tenantPrefix(): string` — returns `""` today; documented as
-              the single point of edit for managed multi-tenancy. The plan's
-              comment block ("read from `org.tenantId` config at startup")
-              describes the future shape; wave 5 ships the no-arg
-              constant return.
-            - `userKey(tinoUserId: string): string` — returns
-              `${tenantPrefix()}user.${tinoUserId}` matching the existing
-              key shape used by `server/routes/users.ts` (e.g.
-              `user.<id>.status`, `user.<id>.capability.<capId>`). Do NOT
-              switch to a synthetic `USER#<id>` prefix that doesn't exist
-              today.
-            - `userStatusKey`, `userCapabilityKey`, `userHistoryKey`, and
-              one helper per partition-key shape currently constructed
-              by string concat across the codebase. Audit the codebase
-              first (grep `user.${` and `user.\${`) and add a helper for
-              each unique shape found. The plan's `userHistoryKey` is
-              forward-looking; if no `user.<id>.HISTORY` shape exists
-              today, omit it OR implement against whatever history-store
-              partition shape DOES exist.
-          All helpers are pure functions; `tenantPrefix()` is read on
-          every call (no caching) so a future config-driven version can
-          flip without process restart.
-      - path: packages/core/src/server/routes/users.ts
+        change: "Export tenantPrefix(): string returning ''. Export key-builders: userKey(tinoUserId), userHistoryKey(tinoUserId), and one helper per partition-key shape currently constructed inline in the persistence layer. Each helper composes from tenantPrefix() so the future prefix change is one-line."
+      - path: packages/core/src/persistence/sqlite.ts
         isNew: false
-        change: |
-          Replace the literal `user.${targetUserId}.status` and
-          `user.${targetUserId}.capability.` prefixes (lines 29 and 34)
-          with calls to `userStatusKey(targetUserId)` and
-          `userCapabilityKeyPrefix(targetUserId)`. Behavior unchanged.
-      - path: packages/core/src/persistence/user-capabilities.ts
+        change: "Replace inline user_id usage with calls to the new key helpers where appropriate."
+      - path: packages/core/src/persistence/config.ts
         isNew: false
-        change: |
-          Audit for any `user.${...}.capability.` literal construction;
-          replace with helpers. If the file already factors keys through
-          a local helper, prefer routing that local helper through the
-          new keys module.
+        change: "Route key construction through helpers from persistence/keys.ts so the `user.<id>...` literals become userKey(...)-derived strings."
       - path: packages/core/src/persistence/preferences.ts
         isNew: false
-        change: |
-          Same audit + replacement for preferences keys.
-      - path: packages/core/tests/persistence/keys.test.ts
-        isNew: true
-        change: |
-          Vitest unit tests:
-            - tenantPrefix() returns "" by default.
-            - userKey('abc') returns 'user.abc' (matching existing shape).
-            - changing tenantPrefix (via a temporary export-for-tests
-              hook OR by spying with vi.spyOn) flows through every
-              derived helper.
-            - round-trip: a key built by `userStatusKey(id)` parses back
-              into the same id when split (sanity check).
+        change: "Same routing — any inline key string-template becomes a call into the keys module."
+      - path: packages/core/src/persistence/tasks.ts
+        isNew: false
+        change: "Same routing."
     tests:
-      - 'packages/core/tests/persistence/keys.test.ts::"tenantPrefix returns empty string by default"'
-      - 'packages/core/tests/persistence/keys.test.ts::"userKey produces USER#<id> with no prefix"'
-      - 'packages/core/tests/persistence/keys.test.ts::"changing tenantPrefix changes all derived keys"'
-    verify: bun run --filter @tino/core test tests/persistence/keys.test.ts
-    mirror: packages/core/src/persistence/config.ts
+      - "packages/core/tests/persistence/keys.test.ts"
+    verify: "bun run test tests/persistence/keys.test.ts"
+    mirror: "packages/core/src/persistence/config.ts"
     context: |
-      // EXISTING — packages/core/src/server/routes/users.ts (lines 28-37)
-      // shows the current key-construction pattern that needs centralising:
+      // packages/core/src/persistence/sqlite.ts — current direct user_id usage:
+      //   const stmtGet = db.query("SELECT messages_json FROM conversations WHERE user_id = ?");
+      //   stmtGet.get(userId) // userId currently used as-is (no prefix)
       //
-      //   // 1. Set user status to deactivated
+      // packages/core/src/server/routes/users.ts shows the dotted-key convention
+      // currently in use across config storage:
       //   await config.set(`user.${targetUserId}.status`, "deactivated");
-      //
-      //   // 2. Delete personal capability tokens
-      //   const entries = await config.list();
       //   const personalCapKeys = entries
-      //     .filter((e) => e.key.startsWith(`user.${targetUserId}.capability.`))
-      //     .map((e) => e.key);
-      //   for (const capKey of personalCapKeys) {
-      //     await config.delete(capKey);
-      //   }
+      //     .filter((e) => e.key.startsWith(`user.${targetUserId}.capability.`));
       //
-      // After wave 5:
-      //
-      //   await config.set(userStatusKey(targetUserId), "deactivated");
-      //   const prefix = userCapabilityKeyPrefix(targetUserId);
-      //   const personalCapKeys = entries
-      //     .filter((e) => e.key.startsWith(prefix))
-      //     .map((e) => e.key);
-      //
-      // The plan's example uses `USER#<id>` (DynamoDB-style) but THIS
-      // REPO uses `user.<id>.*` (dotted key-value) — match the existing
-      // shape, just route through `tenantPrefix()`.
-    conventions: |
-      ConfigStore keys are dotted strings (`user.<id>.status`,
-      `user.<id>.capability.<capId>`, `capability.<id>`). The existing
-      pattern is template-literal concatenation at every call site —
-      wave 5 centralises this. Helpers stay pure; no caching of
-      `tenantPrefix()` so a future config-backed implementation can
-      flip without restart. `pure functions over a constant; the JIT
-      will inline them — zero runtime cost.`
+      // Wave 5 — every `user.${id}...` literal should be replaced with a call
+      // such as `userKey(id)` or `userCapabilityKey(id, capId)` from persistence/keys.ts.
+    conventions: "Helpers are pure functions over the tenantPrefix() constant — the JIT inlines them, zero runtime cost; helpers live in packages/core/src/persistence/keys.ts and are imported by every persistence module; key shapes use dotted segments (e.g. `user.<id>.status`) matching the existing config-table convention; tests round-trip helpers through the sqlite store to confirm reads/writes still resolve."
 
-  - id: a5
-    intent: |
-      Admin and user instruction APIs work end-to-end. An admin can
-      GET/PUT org-level instructions; a member can GET/PUT their own
-      user-level instructions; a member is forbidden from setting
-      org-level instructions (403). The system prompt for a member's
-      agent run includes both the org and user instructions, with
-      user-level appended last (matching the resolver's
-      base → org → cap-type → cap-instance → user ordering).
-    checked: true
+  - id: "a5"
+    intent: "End-to-end instruction APIs: admin-only GET/PUT for org instructions; per-user GET/PUT for user instructions; member runs include both org and user instruction text in the system prompt with user-level appended last."
+    checked: false
     files:
       - path: packages/core/src/server/routes/instructions.ts
         isNew: true
-        change: |
-          New Hono router. `createInstructionsRoutes({ config, logger,
-          auditLogger })`. Endpoints:
-            - GET  /api/org/instructions       — admin-only via the
-              existing requireAdmin() middleware mounted on /api/org/* in
-              server/index.ts. Returns `{ instructions: Instruction[] }`
-              read from `org.instructions` config key; defaults to `[]`.
-            - PUT  /api/org/instructions       — admin-only. Body:
-              `{ instructions: Instruction[] }`. Validates each entry has
-              `level: 'org'`. Persists to `org.instructions`. Audit-logs
-              an `org_instructions_updated` action.
-            - GET  /api/me/instructions        — auth-only (any member).
-              Returns the requesting user's instructions from
-              `user.<userId>.instructions` (use the keys helper from a4).
-            - PUT  /api/me/instructions        — auth-only. Body:
-              `{ instructions: Instruction[] }`. Validates each entry has
-              `level: 'user'`. Persists per-user. Audit-logs
-              `user_instructions_updated`.
-          The /api/org/* mount in server/index.ts already enforces
-          requireAdmin() (set up in wave 3); the /api/me/* mount is
-          auth-only. Member hitting /api/org/instructions → 403 by
-          middleware (no extra check needed in this route).
+        change: "Hono router with: GET /api/org/instructions (admin-only) returning Instruction[] (level: 'org'); PUT /api/org/instructions (admin-only) writing them; GET /api/me/instructions returning the requester's user-level instructions; PUT /api/me/instructions writing them. Persists via ConfigStore under stable keys."
       - path: packages/core/src/server/index.ts
         isNew: false
-        change: |
-          Mount the new router under both `/api/org/instructions`
-          (admin-gated by the existing requireAdmin on /api/org/*) and
-          `/api/me/instructions` (auth-only). Same shape as the wave-3
-          /api/me/capabilities mount.
-      - path: packages/core/src/instructions/resolver.ts
-        isNew: false
-        change: |
-          Add `resolveInstructionsForUser({ tinoUserId, activeCapabilities,
-          configStore, userCapStore, userStore })` — the I/O wrapper that
-          loads org instructions from `org.instructions`, user instructions
-          from `user.<id>.instructions`, capability-type instructions from
-          each active capability's `capability.<capId>.instructions`, and
-          builds the `Instruction[]` input to the pure `resolveInstructions`.
-          (a1 ships the pure resolver; a5 ships the wrapper that calls it.)
+        change: "Mount the new instructions router under /api/org/instructions and /api/me/instructions; ensure admin-only paths go through the admin middleware."
       - path: packages/core/src/agent/run.ts
         isNew: false
-        change: |
-          Before `generateText`, call `resolveInstructionsForUser` and
-          pass the returned `ResolvedInstructions` to `buildSystemPrompt`:
-            const instructions = await resolveInstructionsForUser({
-              tinoUserId: userId,
-              activeCapabilities,
-              configStore,
-              userCapStore,
-              userStore,
-            });
-            const systemPrompt = buildSystemPrompt({
-              activeCapabilities,
-              toolNames: Object.keys(tools ?? {}),
-              instructions,
-            });
-          The `resolveInstructionsForUser` deps come from new
-          `RunAgentParams` fields (configStore, userCapStore, userStore);
-          when these deps are undefined, skip resolution and call
-          `buildSystemPrompt` without `instructions` — preserves
-          backwards compat for existing `runAgent` callers/tests.
-      - path: packages/core/tests/server/instructions-routes.test.ts
-        isNew: true
-        change: |
-          Vitest tests: admin can PUT org instructions; member CANNOT
-          PUT org instructions (403); member can PUT their own
-          instructions; GET/PUT round-trip preserves data; non-org-level
-          entries in PUT /api/org/instructions are rejected (400);
-          non-user-level entries in PUT /api/me/instructions rejected
-          (400). Mirror existing route-test setup at
-          `packages/core/tests/server/user-capabilities-routes.test.ts`.
-      - path: packages/core/tests/integration/wave5-instruction-resolution.test.ts
-        isNew: true
-        change: |
-          End-to-end test: seed org-level instruction "respond only in
-          Spanish" + user-level instruction "respond in French" for
-          member X; build the system prompt for X's agent run; assert
-          both texts appear AND user is after org in the rendered
-          Instructions section. Uses the in-memory ConfigStore +
-          identity stores like other wave integration tests.
+        change: "Before buildSystemPrompt, call a resolveInstructionsForUser({tinoUserId, activeCapabilities, configStore, ...}) helper that returns ResolvedInstructions and pass it into buildSystemPrompt."
     tests:
-      - 'packages/core/tests/server/instructions-routes.test.ts::"admin can set org instructions"'
-      - 'packages/core/tests/server/instructions-routes.test.ts::"member can set their own instructions"'
-      - 'packages/core/tests/server/instructions-routes.test.ts::"member cannot set org instructions"'
-      - 'packages/core/tests/integration/wave5-instruction-resolution.test.ts::"agent run for member includes org and user instructions in order"'
-    verify: bun run --filter @tino/core test tests/server/instructions-routes.test.ts tests/integration/wave5-instruction-resolution.test.ts
-    mirror: packages/core/src/server/routes/user-capabilities.ts
+      - "packages/core/tests/server/instructions-routes.test.ts"
+      - "packages/core/tests/integration/wave5-instruction-resolution.test.ts"
+    verify: "bun run test tests/server/instructions-routes.test.ts tests/integration/wave5-instruction-resolution.test.ts"
+    mirror: "packages/core/src/server/routes/users.ts"
     context: |
-      // EXISTING — packages/core/src/server/routes/users.ts shows the
-      // Hono router pattern (lines 16-54):
-      //
-      //   export function createUsersRoutes(opts: {
-      //     config: ConfigStore;
-      //     logger: AppLogger;
-      //     auditLogger: AuditLogger | undefined;
-      //   }): Hono {
-      //     const app = new Hono();
-      //     const { config, logger, auditLogger } = opts;
-      //     app.delete("/:userId", async (c) => { ... });
-      //     return app;
-      //   }
-      //
-      // EXISTING — packages/core/src/agent/run.ts (lines 96-108) shows
-      // the system-prompt construction site:
-      //
-      //   export async function runAgent(params: RunAgentParams): Promise<string> {
-      //     const { model, history, logger, tools, userId, text, ... } = params;
-      //     await history.append(userId, [{ role: "user", content: text }]);
-      //     const result = await generateText({
-      //       model,
-      //       system: buildSystemPrompt({
-      //         activeCapabilities,
-      //         toolNames: Object.keys(tools ?? {}),
-      //         // wave 5: + instructions
-      //       }),
-      //       messages: await history.get(userId),
-      //       tools: tools ?? {},
-      //       stopWhen: stepCountIs(10),
-      //     });
-      //
-      // The wave-3 admin auth (requireAdmin on /api/org/*) and wave-3
-      // identity middleware (c.get('user')) are the foundation this
-      // wave builds on.
-    conventions: |
-      Hono routers use the factory-function pattern
-      (`createXRoutes(opts) => Hono`); routes registered with
-      `app.get/put/post/delete`; auth handled by middleware mounted at
-      the prefix in `server/index.ts`, NOT inline in each route.
-      Server tests exercise the router via `app.request()` (in-process,
-      no live HTTP). Audit logger is optional (`auditLogger | undefined`).
-      ConfigStore is the persistence boundary; never bypass.
+      // packages/core/src/server/routes/users.ts — ConfigStore-backed CRUD with audit:
+      export function createUsersRoutes(opts: {
+        config: ConfigStore;
+        logger: AppLogger;
+        auditLogger: AuditLogger | undefined;
+      }): Hono {
+        const app = new Hono();
+        const { config, logger, auditLogger } = opts;
+        app.delete("/:userId", async (c) => {
+          const targetUserId = decodeURIComponent(c.req.param("userId"));
+          // ... validate, mutate via config.set/delete, audit-log, return JSON
+        });
+        return app;
+      }
+      // Admin-gating today uses the global middleware mounted in
+      // packages/core/src/server/index.ts; new admin-only sub-routes follow the
+      // same factory shape (createXxxRoutes returning Hono) and rely on the
+      // mount point for auth.
+    conventions: "Routes are factory functions returning a Hono instance; dependencies (config, logger, auditLogger) are injected via opts; mutations are audit-logged with a stable `action` string; server/index.ts mounts each router under its /api/<area> base path; tests in packages/core/tests/server/ use the _helpers.ts harness which spins a Hono app with a stub ConfigStore."
 
-  - id: a6
-    intent: |
-      All existing tests continue to pass. Wave 5 is purely additive;
-      the only changes to existing behaviour are (a) `buildSystemPrompt`
-      gaining an optional `instructions` parameter (default omits the
-      new sections; existing callers see byte-identical output), and
-      (b) `runAgent` gaining optional store deps (default skips
-      instruction resolution). No existing call site needs to change to
-      keep its current behaviour.
-    checked: true
-    files:
-      - path: packages/core/src/agent/systemPrompt.ts
-        isNew: false
-        change: |
-          The new `instructions` parameter MUST be optional and the
-          rendered prompt with `instructions: undefined` MUST be
-          byte-identical to the wave-4 prompt. Verify by running the
-          existing system-prompt tests untouched.
-      - path: packages/core/src/agent/run.ts
-        isNew: false
-        change: |
-          New store deps (configStore, userCapStore, userStore) MUST
-          be optional on `RunAgentParams`. When any are undefined,
-          `runAgent` skips `resolveInstructionsForUser` and calls
-          `buildSystemPrompt` without `instructions`. Existing tests
-          that construct `RunAgentParams` without these deps must
-          continue to pass.
+  - id: "a6"
+    intent: "All existing tests continue to pass — wave 5 changes are purely additive at the API surface and the keys-module refactor is mechanical."
+    checked: false
+    files: []
     tests:
       - "*"
-    verify: bun run test
-    mirror: packages/core/tests/integration/wave1-no-regression.test.ts
+    verify: "bun run test"
+    mirror: "packages/core/tests"
     context: |
-      // EXISTING test lives at:
-      //   packages/core/tests/integration/wave1-no-regression.test.ts
-      //
-      // The repo's wave-by-wave pattern keeps each wave purely additive,
-      // verified by re-running the full suite. Wave 5's additions
-      // (optional buildSystemPrompt arg, optional RunAgentParams deps,
-      // new routes, new modules) must not regress any existing
-      // assertion. The 314+-test suite includes:
-      //   - tests/agent/system-prompt.test.ts (must still pass with no
-      //     `instructions` arg)
-      //   - tests/agent/run*.test.ts (must still pass with no store deps)
-      //   - tests/server/*.test.ts (must still pass; new routes are
-      //     additive)
-      //   - tests/integration/wave1..4*.test.ts (no behaviour change)
-    conventions: |
-      Wave-additive principle: every wave can be reverted independently
-      without breaking earlier waves; new params are optional with
-      default-skip semantics; existing tests are touched only to ADD
-      cases, never to retrofit assertions for new behaviour.
+      // Full suite runs via `bun run test` (which invokes vitest under bun).
+      // The keys-module refactor (a4) touches every persistence module — the
+      // round-trip is identical because tenantPrefix() returns "" so all derived
+      // strings match the pre-wave literals byte-for-byte. The systemPrompt
+      // change (a2) adds an optional opts field — existing call sites passing
+      // only {activeCapabilities, toolNames} continue to work unchanged.
+    conventions: "Run via `bun run test` from repo root or `packages/core`; vitest config picks up packages/*/tests/**/*.test.ts; tests must not depend on network or live secrets — use stubs from packages/core/tests/server/_helpers.ts and capabilities/_helpers.ts."

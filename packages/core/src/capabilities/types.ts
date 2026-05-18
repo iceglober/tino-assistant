@@ -54,8 +54,8 @@ export interface CapField {
   value?: string;
 }
 
-/** What a capability module must export. */
-export interface CapabilityModule {
+/** Base properties shared by all capability modules. */
+export interface BaseCapability {
   /** Stable identifier, e.g. "github", "linear". */
   id: string;
   /** Human-readable display name. */
@@ -66,6 +66,12 @@ export interface CapabilityModule {
    * a valid `CapabilityConfig` on save.
    */
   fieldSchema?: CapField[];
+}
+
+/** Shared capability — tools available to all users. Registered once at startup. */
+export interface SharedCapability extends BaseCapability {
+  /** Discriminator: scope is 'shared' for capabilities with centrally-configured credentials. */
+  scope: "shared";
   /**
    * Register tools into the toolset. Called only when the capability is enabled
    * and credentials are present. Should throw if credentials are missing/invalid.
@@ -82,21 +88,54 @@ export interface CapabilityModule {
   ): () => void;
 }
 
+/** Private capability — tools that require per-user credentials. Built on-demand per agent run. */
+export interface PrivateCapability extends BaseCapability {
+  /** Discriminator: scope is 'private' for capabilities that require per-user configuration. */
+  scope: "private";
+  /**
+   * Build tools for a specific user. Called per runAgent invocation.
+   * Returns null if credentials are missing or disabled — not an error.
+   * Private capabilities cannot declare startFindWork.
+   */
+  buildToolsForUser(
+    tinoUserId: string,
+    config: CapabilityConfig | null,
+    configStore: ConfigStore,
+    logger: AppLogger,
+  ): Promise<ToolSet | null>;
+}
+
+/** Discriminated union: either shared (one-per-deployment) or private (per-user). */
+export type CapabilityModule = SharedCapability | PrivateCapability;
+
 /** The live registry returned by initCapabilityRegistry. */
 export interface CapabilityRegistry {
-  /** All registered tools, ready for runAgent. */
-  tools: ToolSet;
+  /** Shared tools (built once at init), ready for runAgent. */
+  sharedTools: ToolSet;
+  /**
+   * Build tools for a specific user by calling buildToolsForUser on private
+   * capabilities. Returns {} for SYSTEM_USER_ID; otherwise walks all private
+   * capabilities and merges non-null results.
+   */
+  buildPrivateTools(tinoUserId: string): Promise<ToolSet>;
+  /**
+   * Get the list of active capability IDs for the given user.
+   * For SYSTEM_USER_ID, returns only shared ids. Otherwise returns
+   * shared ids + private ids whose buildToolsForUser returned non-null.
+   */
+  getActiveCapabilities(tinoUserId: string): Promise<string[]>;
   /** Stop all findWork pollers. */
   stopAll(): void;
   /** Per-capability runtime state for the health endpoint. */
   getState(): Record<string, CapabilityRuntimeState>;
-  /** Ordered list of capability IDs that were loaded. */
+  /** Ordered list of shared capability IDs that were loaded. */
   capabilityIds: string[];
   /**
    * Wave 3.2 — re-read every `capability.<id>` entry from the config store
-   * and atomically swap the toolset. Mutates the existing `tools` reference
-   * in place (deletes all keys, then re-populates) so external holders of
-   * the same `tools` object see the new toolset without a re-import.
+   * and atomically swap the shared toolset. Mutates the existing `sharedTools`
+   * reference in place (deletes all keys, then re-populates) so external
+   * holders of the same `sharedTools` object see the new toolset without a
+   * re-import.
    *
    * Per-capability errors are caught and logged; the reload as a whole
    * still resolves `{ ok: true }` unless the loop itself throws (e.g. the

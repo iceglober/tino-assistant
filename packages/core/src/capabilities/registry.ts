@@ -20,7 +20,8 @@ import type { AppLogger } from "../slack/app.js";
 import { getPreferencesTool, setPreferenceTool } from "../tools/preferences.js";
 import { cancelTaskTool, listTasksTool, scheduleTaskTool } from "../tools/tasks.js";
 import { ALL_CAPABILITIES } from "./all.js";
-import type { CapabilityConfig, CapabilityRegistry, CapabilityRuntimeState } from "./types.js";
+import type { CapabilityConfig, CapabilityRegistry, CapabilityRuntimeState, SharedCapability, PrivateCapability } from "./types.js";
+import { SYSTEM_USER_ID } from "../identity/types.js";
 
 export interface RegistryOptions {
   configStore: ConfigStore;
@@ -52,11 +53,12 @@ export interface RegistryOptions {
 }
 
 /**
- * Walk every capability module, read its config from `configStore`, and
- * register tools / start findWork pollers. Mutates `tools`, `state`, and
- * `stopFns` in place.
+ * Walk shared capability modules only, read their config from `configStore`,
+ * and register tools / start findWork pollers. Mutates `tools`, `state`,
+ * and `stopFns` in place.
  *
  * Reused by `initCapabilityRegistry` (initial load) and `reload()` (wave 3.2).
+ * Private capabilities are materialized on-demand via `buildPrivateTools`.
  */
 async function loadCapabilityTools(opts: {
   configStore: ConfigStore;
@@ -70,6 +72,11 @@ async function loadCapabilityTools(opts: {
   const { configStore, logger, onNewWork, tools, state, stopFns, loadedCapabilityIds } = opts;
 
   for (const cap of ALL_CAPABILITIES) {
+    // Skip private capabilities; they're materialized per-user via buildPrivateTools
+    if (cap.scope === "private") {
+      continue;
+    }
+
     const raw = await configStore.get(`capability.${cap.id}`);
     if (raw === null) {
       // No config entry — capability is unconfigured, skip silently
@@ -102,7 +109,7 @@ async function loadCapabilityTools(opts: {
       state[cap.id] = { toolCount: 0, lastError: (err as Error).message };
     }
 
-    // Start findWork poller if configured
+    // Start findWork poller if configured (shared capabilities only)
     if (config.findWork?.enabled && cap.startFindWork && onNewWork) {
       try {
         const stop = cap.startFindWork(config, logger, onNewWork);
@@ -121,24 +128,25 @@ async function loadCapabilityTools(opts: {
  * Initialize the capability registry.
  *
  * Reads each `capability.<id>` key from the config store. For enabled
- * capabilities with credentials, calls registerTools. For capabilities with
- * findWork.enabled=true, starts the poller.
+ * shared capabilities with credentials, calls registerTools. For capabilities
+ * with findWork.enabled=true, starts the poller. Private capabilities are
+ * materialized on-demand via `buildPrivateTools()` per agent run.
  */
 export async function initCapabilityRegistry(opts: RegistryOptions): Promise<CapabilityRegistry> {
   const { configStore, logger, allowedUserId, dbPath, preferencesStore, taskStore, onNewWork } = opts;
-  // Mutable buckets — the registry exposes `tools` directly so callers can
+  // Mutable buckets — the registry exposes `sharedTools` directly so callers can
   // share a stable reference across reloads (`reload()` mutates this in place).
-  const tools: ToolSet = {};
+  const sharedTools: ToolSet = {};
   let stopFns: Array<() => void> = [];
   let state: Record<string, CapabilityRuntimeState> = {};
   let loadedCapabilityIds: string[] = [];
 
-  // ── Capability tools ──────────────────────────────────────────────────────
+  // ── Shared capability tools ───────────────────────────────────────────────
   await loadCapabilityTools({
     configStore,
     logger,
     onNewWork,
-    tools,
+    tools: sharedTools,
     state,
     stopFns,
     loadedCapabilityIds,
@@ -150,8 +158,8 @@ export async function initCapabilityRegistry(opts: RegistryOptions): Promise<Cap
   // i.e. local-dev callers that haven't been threaded through `createPersistence`.
   try {
     const prefStore = preferencesStore ?? createPreferencesStore({ dbPath: dbPath ?? "./tino.db" });
-    tools.set_preference = setPreferenceTool(prefStore, allowedUserId);
-    tools.get_preferences = getPreferencesTool(prefStore, allowedUserId);
+    sharedTools.set_preference = setPreferenceTool(prefStore, allowedUserId);
+    sharedTools.get_preferences = getPreferencesTool(prefStore, allowedUserId);
     logger.info("preferences tools enabled");
   } catch (err) {
     logger.warn({ err: (err as Error).message }, "preferences tools disabled");
@@ -160,17 +168,111 @@ export async function initCapabilityRegistry(opts: RegistryOptions): Promise<Cap
   // ── Task tools (available when taskStore is provided) ────────────────────
   if (taskStore) {
     try {
-      tools.schedule_task = scheduleTaskTool(taskStore, allowedUserId);
-      tools.list_tasks = listTasksTool(taskStore, allowedUserId);
-      tools.cancel_task = cancelTaskTool(taskStore);
+      sharedTools.schedule_task = scheduleTaskTool(taskStore, allowedUserId);
+      sharedTools.list_tasks = listTasksTool(taskStore, allowedUserId);
+      sharedTools.cancel_task = cancelTaskTool(taskStore);
       logger.info("task tools enabled");
     } catch (err) {
       logger.warn({ err: (err as Error).message }, "task tools disabled");
     }
   }
 
+  /**
+   * Build tools for a specific user from private capabilities.
+   * Returns empty toolset for SYSTEM_USER_ID; otherwise walks private
+   * capabilities, reads their config from the global `capability.<id>` blob
+   * (wave 1 transitional), and calls buildToolsForUser. Non-null results
+   * are merged. Per-capability errors are logged and skipped.
+   */
+  async function buildPrivateTools(tinoUserId: string): Promise<ToolSet> {
+    if (tinoUserId === SYSTEM_USER_ID) {
+      return {};
+    }
+
+    const privateTools: ToolSet = {};
+    for (const cap of ALL_CAPABILITIES) {
+      if (cap.scope !== "private") {
+        continue;
+      }
+
+      const raw = await configStore.get(`capability.${cap.id}`);
+      let config: CapabilityConfig | null = null;
+      if (raw !== null) {
+        try {
+          config = JSON.parse(raw) as CapabilityConfig;
+        } catch {
+          logger.warn({ capabilityId: cap.id, tinoUserId }, "capability config is not valid JSON, skipping");
+          continue;
+        }
+        if (!config.enabled) {
+          config = null;
+        }
+      }
+
+      try {
+        const tools = await cap.buildToolsForUser(tinoUserId, config, configStore, logger);
+        if (tools !== null) {
+          Object.assign(privateTools, tools);
+        }
+      } catch (err) {
+        logger.warn(
+          { capabilityId: cap.id, tinoUserId, err: (err as Error).message },
+          `${cap.displayName} tools failed to build`,
+        );
+      }
+    }
+
+    return privateTools;
+  }
+
+  /**
+   * Get the list of active capability IDs for the given user.
+   * For SYSTEM_USER_ID, returns shared ids only. Otherwise returns
+   * shared ids + private ids whose buildToolsForUser returned non-null.
+   */
+  async function getActiveCapabilities(tinoUserId: string): Promise<string[]> {
+    const active = [...loadedCapabilityIds];
+
+    if (tinoUserId === SYSTEM_USER_ID) {
+      return active;
+    }
+
+    // Walk private capabilities and add those that are connected
+    for (const cap of ALL_CAPABILITIES) {
+      if (cap.scope !== "private") {
+        continue;
+      }
+
+      const raw = await configStore.get(`capability.${cap.id}`);
+      let config: CapabilityConfig | null = null;
+      if (raw !== null) {
+        try {
+          config = JSON.parse(raw) as CapabilityConfig;
+        } catch {
+          continue;
+        }
+        if (!config.enabled) {
+          config = null;
+        }
+      }
+
+      try {
+        const tools = await cap.buildToolsForUser(tinoUserId, config, configStore, logger);
+        if (tools !== null) {
+          active.push(cap.id);
+        }
+      } catch {
+        // Silently skip on error
+      }
+    }
+
+    return active.sort();
+  }
+
   return {
-    tools,
+    sharedTools,
+    buildPrivateTools,
+    getActiveCapabilities,
     get capabilityIds() {
       return loadedCapabilityIds;
     },
@@ -188,16 +290,16 @@ export async function initCapabilityRegistry(opts: RegistryOptions): Promise<Cap
     },
 
     /**
-     * Wave 3.2 — re-read every `capability.<id>` from the config store and
-     * atomically swap the capability portion of the toolset.
+     * Wave 3.2 — re-read every shared `capability.<id>` from the config store
+     * and atomically swap the capability portion of the toolset.
      *
      * Mechanism:
      *   1. Stop existing findWork pollers from the previous load (so we don't
      *      end up with two pollers per capability).
-     *   2. Compute the set of capability tool keys currently in `tools` (the
+     *   2. Compute the set of capability tool keys currently in `sharedTools` (the
      *      preferences/tasks tools are NOT capability tools — they stay).
-     *   3. Delete those keys IN PLACE on the same `tools` reference.
-     *   4. Re-run the capability loop, populating `tools` again.
+     *   3. Delete those keys IN PLACE on the same `sharedTools` reference.
+     *   4. Re-run the capability loop, populating `sharedTools` again.
      *   5. Replace `state`, `stopFns`, `loadedCapabilityIds` with fresh values.
      *
      * Errors from a single capability don't roll back the whole reload —
@@ -217,7 +319,7 @@ export async function initCapabilityRegistry(opts: RegistryOptions): Promise<Cap
           "list_tasks",
           "cancel_task",
         ]);
-        const before = Object.keys(tools).filter((k) => !NON_CAPABILITY_TOOLS.has(k));
+        const before = Object.keys(sharedTools).filter((k) => !NON_CAPABILITY_TOOLS.has(k));
 
         // Stop existing pollers BEFORE clearing — otherwise stale callbacks
         // could fire during the swap window.
@@ -230,9 +332,9 @@ export async function initCapabilityRegistry(opts: RegistryOptions): Promise<Cap
         }
 
         // Atomic-from-the-caller's-perspective swap: delete then repopulate.
-        // The `tools` reference itself never changes; consumers holding it
+        // The `sharedTools` reference itself never changes; consumers holding it
         // see the new contents.
-        for (const k of before) delete tools[k];
+        for (const k of before) delete sharedTools[k];
 
         // Reset the bookkeeping containers to fresh ones; the registry's
         // `stopAll` / `getState` / `capabilityIds` getters bind to the new
@@ -245,13 +347,13 @@ export async function initCapabilityRegistry(opts: RegistryOptions): Promise<Cap
           configStore,
           logger,
           onNewWork,
-          tools,
+          tools: sharedTools,
           state,
           stopFns,
           loadedCapabilityIds,
         });
 
-        const after = Object.keys(tools).filter((k) => !NON_CAPABILITY_TOOLS.has(k));
+        const after = Object.keys(sharedTools).filter((k) => !NON_CAPABILITY_TOOLS.has(k));
         // Operators grep for this exact log line to diff what changed.
         logger.info({ before, after }, "capabilities reloaded");
 

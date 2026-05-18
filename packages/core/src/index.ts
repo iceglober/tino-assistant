@@ -101,22 +101,26 @@ const registry = await initCapabilityRegistry({
       summary,
     ].join("\n");
 
+    const privateTools = await registry.buildPrivateTools(allowedUserId);
+    const tools = { ...registry.sharedTools, ...privateTools };
+    const activeCapabilities = await registry.getActiveCapabilities(allowedUserId);
+
     const result = await runAgent({
       model,
       history: taskHistory,
       logger,
-      tools: registry.tools,
+      tools,
       userId: allowedUserId,
       text: prompt,
       auditLogger,
-      activeCapabilities: registry.capabilityIds,
+      activeCapabilities,
     });
 
     await postDm(result);
   },
 });
 
-const tools = registry.tools;
+const tools = registry.sharedTools;
 
 // 9g: Log tool-definition token count estimate at startup.
 const toolTokenEstimate = Math.ceil(
@@ -192,17 +196,22 @@ async function reconnectSlack(): Promise<{ ok: boolean; error?: string }> {
     ALLOWED_SLACK_USER_ID: adminId,
   };
 
-  const handler: DmHandler = async (userId, text) =>
-    runAgent({
+  const handler: DmHandler = async (userId, text) => {
+    const privateTools = await registry.buildPrivateTools(userId);
+    const tools = { ...registry.sharedTools, ...privateTools };
+    const activeCapabilities = await registry.getActiveCapabilities(userId);
+
+    return runAgent({
       model,
       history,
       logger,
-      tools: registry.tools,
+      tools,
       userId,
       text,
       auditLogger,
-      activeCapabilities: registry.capabilityIds,
+      activeCapabilities,
     });
+  };
 
   let nextApp: SlackBoltApp;
   try {
@@ -230,15 +239,19 @@ async function reconnectSlack(): Promise<{ ok: boolean; error?: string }> {
         "",
         `Task: ${task.description}`,
       ].join("\n");
+      const privateTools = await registry.buildPrivateTools(task.userId);
+      const tools = { ...registry.sharedTools, ...privateTools };
+      const activeCapabilities = await registry.getActiveCapabilities(task.userId);
+
       return runAgent({
         model,
         history: taskHistory,
         logger,
-        tools: registry.tools,
+        tools,
         userId: task.userId,
         text: taskPrompt,
         auditLogger,
-        activeCapabilities: registry.capabilityIds,
+        activeCapabilities,
       });
     },
     postResult: (text: string) => postDm(text),

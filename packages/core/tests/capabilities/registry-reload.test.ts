@@ -70,7 +70,7 @@ describe("CapabilityRegistry.reload (wave 3.2)", () => {
     });
 
     // Initially: no github tools.
-    expect(registry.tools.github_search_code).toBeUndefined();
+    expect(registry.sharedTools.github_search_code).toBeUndefined();
 
     // Console saves a GitHub PAT (simulated).
     await configStore.set("capability.github", GITHUB_CONFIG);
@@ -80,8 +80,8 @@ describe("CapabilityRegistry.reload (wave 3.2)", () => {
     expect(result.ok).toBe(true);
 
     // GitHub tools are now in the toolset.
-    expect(registry.tools.github_search_code).toBeDefined();
-    expect(registry.tools.github_get_file).toBeDefined();
+    expect(registry.sharedTools.github_search_code).toBeDefined();
+    expect(registry.sharedTools.github_get_file).toBeDefined();
     expect(registry.capabilityIds).toContain("github");
 
     // Operators grep `info` log lines for the post-reload diff.
@@ -106,14 +106,14 @@ describe("CapabilityRegistry.reload (wave 3.2)", () => {
       dbPath: ":memory:",
     });
 
-    const toolsRef = registry.tools;
+    const toolsRef = registry.sharedTools;
     expect(toolsRef.github_search_code).toBeUndefined();
 
     await configStore.set("capability.github", GITHUB_CONFIG);
     await registry.reload();
 
     // Same object identity, new contents — holders of `toolsRef` see github tools.
-    expect(toolsRef).toBe(registry.tools);
+    expect(toolsRef).toBe(registry.sharedTools);
     expect(toolsRef.github_search_code).toBeDefined();
   });
 
@@ -127,7 +127,7 @@ describe("CapabilityRegistry.reload (wave 3.2)", () => {
       allowedUserId: "U001",
       dbPath: ":memory:",
     });
-    expect(registry.tools.github_search_code).toBeDefined();
+    expect(registry.sharedTools.github_search_code).toBeDefined();
 
     // Console clears the token (simulate empty-token save).
     await configStore.set("capability.github", {
@@ -139,9 +139,9 @@ describe("CapabilityRegistry.reload (wave 3.2)", () => {
     expect(result.ok).toBe(true);
 
     // No github_* tools.
-    expect(registry.tools.github_search_code).toBeUndefined();
-    expect(registry.tools.github_get_file).toBeUndefined();
-    const githubKeys = Object.keys(registry.tools).filter((k) => k.startsWith("github_"));
+    expect(registry.sharedTools.github_search_code).toBeUndefined();
+    expect(registry.sharedTools.github_get_file).toBeUndefined();
+    const githubKeys = Object.keys(registry.sharedTools).filter((k) => k.startsWith("github_"));
     expect(githubKeys).toEqual([]);
 
     // Capability list no longer includes github.
@@ -168,16 +168,16 @@ describe("CapabilityRegistry.reload (wave 3.2)", () => {
       taskStore,
     });
 
-    expect(registry.tools.set_preference).toBeDefined();
-    expect(registry.tools.schedule_task).toBeDefined();
+    expect(registry.sharedTools.set_preference).toBeDefined();
+    expect(registry.sharedTools.schedule_task).toBeDefined();
 
     await registry.reload();
 
-    expect(registry.tools.set_preference).toBeDefined();
-    expect(registry.tools.get_preferences).toBeDefined();
-    expect(registry.tools.schedule_task).toBeDefined();
-    expect(registry.tools.list_tasks).toBeDefined();
-    expect(registry.tools.cancel_task).toBeDefined();
+    expect(registry.sharedTools.set_preference).toBeDefined();
+    expect(registry.sharedTools.get_preferences).toBeDefined();
+    expect(registry.sharedTools.schedule_task).toBeDefined();
+    expect(registry.sharedTools.list_tasks).toBeDefined();
+    expect(registry.sharedTools.cancel_task).toBeDefined();
   });
 
   it("5. disabling a capability → tools are removed on reload", async () => {
@@ -189,12 +189,12 @@ describe("CapabilityRegistry.reload (wave 3.2)", () => {
       allowedUserId: "U001",
       dbPath: ":memory:",
     });
-    expect(registry.tools.github_search_code).toBeDefined();
+    expect(registry.sharedTools.github_search_code).toBeDefined();
 
     await configStore.set("capability.github", { ...GITHUB_CONFIG, enabled: false });
     await registry.reload();
 
-    expect(registry.tools.github_search_code).toBeUndefined();
+    expect(registry.sharedTools.github_search_code).toBeUndefined();
   });
 
   it("6. reload returns { ok: true } even when a single capability fails to register", async () => {
@@ -220,8 +220,8 @@ describe("CapabilityRegistry.reload (wave 3.2)", () => {
     const result = await registry.reload();
     expect(result.ok).toBe(true);
     // github tools still not registered.
-    expect(registry.tools.github_search_code).toBeUndefined();
+    expect(registry.sharedTools.github_search_code).toBeUndefined();
     // But preferences are intact — partial failure didn't blow up the rest.
-    expect(registry.tools.set_preference).toBeDefined();
+    expect(registry.sharedTools.set_preference).toBeDefined();
   });
 });

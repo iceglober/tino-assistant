@@ -1,11 +1,13 @@
 /**
  * Tests for the capability registry.
  *
- * Tests capability loading, tool registration, and findWork scheduling.
+ * Tests shared capability loading, private capability materialization,
+ * tool registration, and findWork scheduling.
  * Uses in-memory config store mocks — no SQLite.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { initCapabilityRegistry } from "../../src/capabilities/registry.js";
+import { SYSTEM_USER_ID } from "../../src/identity/types.js";
 import type { CapabilityConfig } from "../../src/capabilities/types.js";
 import type { ConfigStore } from "../../src/persistence/config.js";
 import type { AppLogger } from "../../src/slack/app.js";
@@ -78,7 +80,7 @@ describe("initCapabilityRegistry", () => {
     vi.clearAllMocks();
   });
 
-  it("1. empty config store → no capability tools registered, preferences/tasks still available", async () => {
+  it("1. empty config store → no shared capability tools registered, preferences/tasks still available", async () => {
     const configStore = makeConfigStore({});
     const logger = makeLogger();
 
@@ -89,17 +91,17 @@ describe("initCapabilityRegistry", () => {
       dbPath: ":memory:",
     });
 
-    // No capability tools
-    expect(registry.tools.github_search_code).toBeUndefined();
-    expect(registry.tools.linear_search_issues).toBeUndefined();
-    expect(registry.tools.cloudwatch_logs_query).toBeUndefined();
+    // No shared capability tools
+    expect(registry.sharedTools.github_search_code).toBeUndefined();
+    expect(registry.sharedTools.linear_search_issues).toBeUndefined();
+    expect(registry.sharedTools.cloudwatch_logs_query).toBeUndefined();
 
-    // Preferences tools always registered
-    expect(registry.tools.set_preference).toBeDefined();
-    expect(registry.tools.get_preferences).toBeDefined();
+    // Preferences tools always registered in sharedTools
+    expect(registry.sharedTools.set_preference).toBeDefined();
+    expect(registry.sharedTools.get_preferences).toBeDefined();
 
     // No task tools (no taskStore provided)
-    expect(registry.tools.schedule_task).toBeUndefined();
+    expect(registry.sharedTools.schedule_task).toBeUndefined();
 
     expect(registry.capabilityIds).toEqual([]);
   });
@@ -117,7 +119,7 @@ describe("initCapabilityRegistry", () => {
       dbPath: ":memory:",
     });
 
-    expect(registry.tools.github_search_code).toBeUndefined();
+    expect(registry.sharedTools.github_search_code).toBeUndefined();
     expect(registry.capabilityIds).not.toContain("github");
   });
 
@@ -134,10 +136,10 @@ describe("initCapabilityRegistry", () => {
       dbPath: ":memory:",
     });
 
-    expect(registry.tools.github_search_code).toBeDefined();
-    expect(registry.tools.github_get_file).toBeDefined();
-    expect(registry.tools.github_list_workflow_runs).toBeDefined();
-    expect(registry.tools.github_get_workflow_run_logs).toBeDefined();
+    expect(registry.sharedTools.github_search_code).toBeDefined();
+    expect(registry.sharedTools.github_get_file).toBeDefined();
+    expect(registry.sharedTools.github_list_workflow_runs).toBeDefined();
+    expect(registry.sharedTools.github_get_workflow_run_logs).toBeDefined();
     expect(registry.capabilityIds).toContain("github");
   });
 
@@ -154,12 +156,12 @@ describe("initCapabilityRegistry", () => {
       dbPath: ":memory:",
     });
 
-    expect(registry.tools.linear_search_issues).toBeDefined();
-    expect(registry.tools.linear_get_issue).toBeDefined();
-    expect(registry.tools.linear_create_issue).toBeDefined();
-    expect(registry.tools.linear_update_issue).toBeDefined();
-    expect(registry.tools.linear_add_comment).toBeDefined();
-    expect(registry.tools.linear_list_my_issues).toBeDefined();
+    expect(registry.sharedTools.linear_search_issues).toBeDefined();
+    expect(registry.sharedTools.linear_get_issue).toBeDefined();
+    expect(registry.sharedTools.linear_create_issue).toBeDefined();
+    expect(registry.sharedTools.linear_update_issue).toBeDefined();
+    expect(registry.sharedTools.linear_add_comment).toBeDefined();
+    expect(registry.sharedTools.linear_list_my_issues).toBeDefined();
     expect(registry.capabilityIds).toContain("linear");
   });
 
@@ -180,7 +182,7 @@ describe("initCapabilityRegistry", () => {
       dbPath: ":memory:",
     });
 
-    expect(registry.tools.github_search_code).toBeUndefined();
+    expect(registry.sharedTools.github_search_code).toBeUndefined();
     expect(logger.warn).toHaveBeenCalledWith(
       expect.objectContaining({ capabilityId: "github" }),
       expect.stringContaining("disabled"),
@@ -212,7 +214,7 @@ describe("initCapabilityRegistry", () => {
       dbPath: ":memory:",
     });
 
-    expect(registry.tools.github_search_code).toBeUndefined();
+    expect(registry.sharedTools.github_search_code).toBeUndefined();
     expect(logger.warn).toHaveBeenCalledWith(
       expect.objectContaining({ capabilityId: "github" }),
       expect.stringContaining("not valid JSON"),
@@ -233,8 +235,8 @@ describe("initCapabilityRegistry", () => {
       dbPath: ":memory:",
     });
 
-    expect(registry.tools.github_search_code).toBeDefined();
-    expect(registry.tools.linear_search_issues).toBeDefined();
+    expect(registry.sharedTools.github_search_code).toBeDefined();
+    expect(registry.sharedTools.linear_search_issues).toBeDefined();
     expect(registry.capabilityIds).toContain("github");
     expect(registry.capabilityIds).toContain("linear");
   });
@@ -259,9 +261,9 @@ describe("initCapabilityRegistry", () => {
       taskStore,
     });
 
-    expect(registry.tools.schedule_task).toBeDefined();
-    expect(registry.tools.list_tasks).toBeDefined();
-    expect(registry.tools.cancel_task).toBeDefined();
+    expect(registry.sharedTools.schedule_task).toBeDefined();
+    expect(registry.sharedTools.list_tasks).toBeDefined();
+    expect(registry.sharedTools.cancel_task).toBeDefined();
   });
 
   it("9. getState() returns per-capability state", async () => {
@@ -333,11 +335,11 @@ describe("initCapabilityRegistry", () => {
       preferencesStore,
     });
 
-    expect(registry.tools.set_preference).toBeDefined();
-    expect(registry.tools.get_preferences).toBeDefined();
+    expect(registry.sharedTools.set_preference).toBeDefined();
+    expect(registry.sharedTools.get_preferences).toBeDefined();
 
     // Exercise the tool — it should hit the injected store, not SQLite.
-    const setTool = registry.tools.set_preference as {
+    const setTool = registry.sharedTools.set_preference as {
       execute: (input: { key: string; value: string }) => Promise<unknown>;
     };
     await setTool.execute({ key: "tz", value: "UTC" });
@@ -366,5 +368,110 @@ describe("initCapabilityRegistry", () => {
     // operators grep logs for `enabled`/`disabled` — preserve exact phrasing
     expect(logger.info).toHaveBeenCalledWith("preferences tools enabled");
     expect(logger.warn).not.toHaveBeenCalledWith(expect.anything(), "preferences tools disabled");
+  });
+
+  it("13. buildPrivateTools(SYSTEM_USER_ID) returns empty object", async () => {
+    const configStore = makeConfigStore({
+      "capability.gmail": {
+        enabled: true,
+        credentials: { clientId: "id", clientSecret: "secret", refreshToken: "r" },
+        settings: {},
+      },
+    });
+    const logger = makeLogger();
+
+    const registry = await initCapabilityRegistry({
+      configStore,
+      logger,
+      allowedUserId: "U001",
+      dbPath: ":memory:",
+    });
+
+    const privateTools = await registry.buildPrivateTools(SYSTEM_USER_ID);
+    expect(privateTools).toEqual({});
+  });
+
+  it("14. buildPrivateTools returns tools when private capability is configured", async () => {
+    // Mock googleapis to avoid live auth creation
+    vi.mock("googleapis", () => ({
+      google: {
+        auth: { OAuth2: class FakeOAuth2 { setCredentials() {} } },
+        gmail: () => ({}),
+      },
+    }));
+
+    const configStore = makeConfigStore({
+      "capability.gmail": {
+        enabled: true,
+        credentials: { clientId: "id", clientSecret: "secret", refreshToken: "r" },
+        settings: {},
+      },
+    });
+    const logger = makeLogger();
+
+    const registry = await initCapabilityRegistry({
+      configStore,
+      logger,
+      allowedUserId: "U001",
+      dbPath: ":memory:",
+    });
+
+    const privateTools = await registry.buildPrivateTools("user123");
+    expect(privateTools).not.toEqual({});
+    // Note: actual tool objects depend on mock implementation
+  });
+
+  it("15. buildPrivateTools skips when private capability is not configured", async () => {
+    const configStore = makeConfigStore({}); // No gmail config
+    const logger = makeLogger();
+
+    const registry = await initCapabilityRegistry({
+      configStore,
+      logger,
+      allowedUserId: "U001",
+      dbPath: ":memory:",
+    });
+
+    const privateTools = await registry.buildPrivateTools("user123");
+    expect(privateTools).toEqual({});
+  });
+
+  it("16. getActiveCapabilities returns only shared ids for SYSTEM_USER_ID", async () => {
+    const configStore = makeConfigStore({
+      "capability.github": GITHUB_CONFIG,
+    });
+    const logger = makeLogger();
+
+    const registry = await initCapabilityRegistry({
+      configStore,
+      logger,
+      allowedUserId: "U001",
+      dbPath: ":memory:",
+    });
+
+    const active = await registry.getActiveCapabilities(SYSTEM_USER_ID);
+    expect(active).toContain("github");
+    expect(active).not.toContain("gmail");
+    expect(active).not.toContain("slack-personal");
+  });
+
+  it("17. getActiveCapabilities returns shared plus connected private", async () => {
+    // This test is simplified since full private capability testing happens
+    // in gmail.test.ts and calendar.test.ts. Just verify the shape works.
+    const configStore = makeConfigStore({
+      "capability.github": GITHUB_CONFIG,
+    });
+    const logger = makeLogger();
+
+    const registry = await initCapabilityRegistry({
+      configStore,
+      logger,
+      allowedUserId: "U001",
+      dbPath: ":memory:",
+    });
+
+    const active = await registry.getActiveCapabilities("user123");
+    expect(Array.isArray(active)).toBe(true);
+    expect(active).toContain("github"); // shared
   });
 });
