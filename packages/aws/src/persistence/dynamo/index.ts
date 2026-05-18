@@ -1,6 +1,7 @@
 import type { HistoryStore } from "@tino/core/agent/history";
 import type { AuditLogger } from "@tino/core/audit/logger";
 import type { Env } from "@tino/core/env";
+import type { IdentityStore, UserStore } from "@tino/core/identity/store";
 import type { ConfigStore } from "@tino/core/persistence/config";
 import type { PreferencesStore } from "@tino/core/persistence/preferences";
 import type { TaskStore } from "@tino/core/persistence/tasks";
@@ -9,14 +10,18 @@ import { createDynamoAuditLogger } from "../../audit/dynamo.js";
 import { createDynamoTable } from "./client.js";
 import { createDynamoConfigStore } from "./config.js";
 import { createDynamoHistoryStore } from "./history.js";
+import { createDynamoIdentityStore } from "./identities.js";
 import { createDynamoPreferencesStore } from "./preferences.js";
 import { createDynamoTaskStore } from "./tasks.js";
+import { createDynamoUserStore } from "./users.js";
 
 export interface DynamoPersistence {
   history: HistoryStore;
   tasks: TaskStore;
   preferences: PreferencesStore;
   config: ConfigStore;
+  users: UserStore;
+  identities: IdentityStore;
   auditLogger: AuditLogger;
 }
 
@@ -65,6 +70,8 @@ export async function createDynamoPersistence(env: Env, logger: AppLogger): Prom
     tasks: createDynamoTaskStore(table),
     preferences: createDynamoPreferencesStore(table),
     config: createDynamoConfigStore(table),
+    users: createDynamoUserStore(table),
+    identities: createDynamoIdentityStore(table),
     auditLogger: createDynamoAuditLogger(table, retentionSeconds),
   };
 }

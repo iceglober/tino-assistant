@@ -34,6 +34,14 @@
       "types": "./dist/persistence/factory.d.ts",
       "default": "./dist/persistence/factory.js"
     },
+    "./identity/store": {
+      "types": "./dist/identity/store.d.ts",
+      "default": "./dist/identity/store.js"
+    },
+    "./identity/types": {
+      "types": "./dist/identity/types.d.ts",
+      "default": "./dist/identity/types.js"
+    },
     "./slack/app": {
       "types": "./dist/slack/app.d.ts",
       "default": "./dist/slack/app.js"

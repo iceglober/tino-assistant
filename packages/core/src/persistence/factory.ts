@@ -1,6 +1,7 @@
 import type { HistoryStore } from "../agent/history.js";
 import type { AuditLogger } from "../audit/logger.js";
 import type { Env } from "../env.js";
+import type { IdentityStore, UserStore } from "../identity/store.js";
 import type { AppLogger } from "../slack/app.js";
 import type { ConfigStore } from "./config.js";
 import type { PreferencesStore } from "./preferences.js";
@@ -11,6 +12,16 @@ export interface Persistence {
   tasks: TaskStore;
   preferences: PreferencesStore;
   config: ConfigStore;
+  /**
+   * Per-user record store (wave 0). Backed by sqlite or dynamodb depending on
+   * the adapter. Always present; the migration uses it on every startup.
+   */
+  users: UserStore;
+  /**
+   * External-identity link store (wave 0). Maps `(provider, externalId)`
+   * pairs to tino-UUIDs. Always present.
+   */
+  identities: IdentityStore;
   /**
    * Audit logger backing the HIPAA audit trail.
    *
@@ -52,13 +63,16 @@ export async function createPersistence(env: Env, logger: AppLogger): Promise<Pe
   const { createPreferencesStore } = await import("./preferences.js");
   const { createConfigStore } = await import("./config.js");
   const { createMemoryAuditLogger } = await import("../audit/memory.js");
+  const { createSqliteUserStore, createSqliteIdentityStore } = await import("../identity/store.js");
 
   const history = createSqliteHistoryStore({ dbPath, cap: 40 });
   const tasks = createTaskStore({ dbPath });
   const preferences = createPreferencesStore({ dbPath });
   const config = createConfigStore({ dbPath });
+  const users = createSqliteUserStore({ dbPath });
+  const identities = createSqliteIdentityStore({ dbPath });
   const auditLogger = createMemoryAuditLogger();
 
   logger.info({ adapter: "sqlite", dbPath }, "persistence initialized");
-  return { history, tasks, preferences, config, auditLogger };
+  return { history, tasks, preferences, config, users, identities, auditLogger };
 }
