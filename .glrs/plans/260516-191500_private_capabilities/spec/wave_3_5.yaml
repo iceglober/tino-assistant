@@ -1,0 +1,653 @@
+# spec/wave_3_5.yaml
+# Generated from wave_3_5.md — source-respecting privacy
+items:
+  - id: a1
+    intent: |
+      The Calendar privacy filter gates events whose source-side visibility is
+      private or confidential, and gates default-visibility events when the
+      calendar's default itself is private. Public events and explicit
+      default-with-non-private-default pass through. The user-level
+      gateAllByDefault opt-in gates everything when on.
+    checked: true
+    files:
+      - path: packages/core/src/privacy/calendar.ts
+        isNew: true
+        change: |
+          Pure function calendarPrivacyFilter(toolArgs, toolResult, gmailConfig?).
+          Implements the table from "Per-capability behavior → Calendar":
+            - visibility=private|confidential → persist:false (reason: 'private_event')
+            - visibility=default + calendarDefaultVisibility=private → persist:false
+            - visibility=default + calendarDefaultVisibility!=private → persist:true
+            - visibility=public → persist:true
+            - gateAllByDefault:true → persist:false unconditionally
+          ~70 LOC. Branch coverage: each table row is one branch + one test.
+      - path: packages/core/src/privacy/types.ts
+        isNew: true
+        change: |
+          Defines PrivacyConfig, Decision, ToolResultPlaceholder, PrivacyFilter,
+          CapabilityFilter. ToolResultPlaceholder has 'reason' enum including
+          'private_event'. Calendar filter consumes config.calendar shape.
+    tests:
+      - packages/core/tests/privacy/calendar-filter.test.ts
+    verify: cd packages/core && bun --bun ./node_modules/vitest/dist/cli.js run tests/privacy/calendar-filter.test.ts
+    mirror: packages/core/src/agent/history-appender.ts
+    context: |
+      // Existing wave-2 ToolResultPlaceholder + Decision shape lives in
+      // packages/core/src/agent/history-appender.ts (lines 28-39):
+      export type ToolResultPlaceholder = {
+        type: "redacted";
+        reason: string;                 // wave 3.5 narrows to a union
+        metadata: Record<string, unknown>;
+      };
+      export type Decision =
+        | { persist: true }
+        | { persist: false; placeholder: ToolResultPlaceholder };
+      export interface PrivacyFilter {
+        evaluate(args: {
+          capabilityId: string;
+          toolName: string;
+          toolArgs: unknown;
+          toolResult: unknown;
+        }): Decision;
+      }
+      // Wave 3.5 moves these (re-exporting for back-compat) into
+      // packages/core/src/privacy/types.ts and tightens the `reason` union to
+      // 'private_event' | 'private_label' | 'deny_listed_thread'
+      // | 'deny_listed_dm' | 'address_deny_listed'.
+    conventions: |
+      ESM imports with .js extensions on relative paths; named exports only;
+      pure functions for filters (no I/O, no side effects); test framework is
+      vitest (not bun:test) — `import { describe, it, expect, vi } from "vitest"`;
+      capability ids are kebab-case strings ('calendar', 'gmail', 'slack-personal');
+      filter input shape: (toolArgs, toolResult, capabilityConfigSlice).
+
+  - id: a2
+    intent: |
+      The Gmail privacy filter gates threads where any message has a label in
+      privateLabels, or where any participant address is in
+      denyListedAddresses. Conservative threading: one matching message gates
+      the whole thread.
+    checked: true
+    files:
+      - path: packages/core/src/privacy/gmail.ts
+        isNew: true
+        change: |
+          Pure function gmailPrivacyFilter(toolArgs, toolResult, gmailConfig?).
+          Helpers:
+            - labelMatches(messageLabels, privateLabels): case-insensitive
+              set membership.
+            - addressMatches(addr, denyList): normalize plus-addressing
+              (foo+tag@x → foo@x) and dots-in-localpart (Gmail rule);
+              case-insensitive.
+          Threading: scan all messages; first hit returns persist:false with
+          reason 'private_label' or 'address_deny_listed'. ~100 LOC.
+      - path: packages/core/src/privacy/types.ts
+        isNew: true
+        change: |
+          GmailPrivacyConfig: { privateLabels: string[],
+          denyListedAddresses: string[], threadingMode: 'conservative' }.
+          Placeholder reason union includes 'private_label' and
+          'address_deny_listed'. Placeholder metadata for Gmail:
+          { threadId?, receivedAt?, labelHash? } (label name HASHED, not stored).
+    tests:
+      - packages/core/tests/privacy/gmail-filter.test.ts
+    verify: cd packages/core && bun --bun ./node_modules/vitest/dist/cli.js run tests/privacy/gmail-filter.test.ts
+    mirror: packages/core/src/privacy/calendar.ts
+    context: |
+      // Pattern from existing capability module
+      // (packages/core/src/capabilities/gmail.ts) for shape of the
+      // toolResult that the filter receives — Gmail tools today wrap
+      // googleapis output:
+      //   thread = { id: string, messages: GmailMessage[] }
+      //   GmailMessage = { id, labelIds, payload: { headers: [{name,value}] } }
+      // Wave 2's defaultPrivacyFilter (the seam this replaces):
+      export const defaultPrivacyFilter: PrivacyFilter = {
+        evaluate: () => ({ persist: true }),
+      };
+    conventions: |
+      ESM with .js on relative imports; vitest; pure-function filters;
+      conservative threading by default; case-insensitive comparisons for
+      labels and addresses; normalize Gmail-specific address quirks
+      (plus-addressing, dots) before compare; hash label names in
+      placeholder metadata (don't leak names like 'HR—termination').
+
+  - id: a3
+    intent: |
+      The Slack privacy filter gates conversations whose id is deny-listed and
+      conversations where any participant is deny-listed. Conservative
+      multi-party: one deny-listed participant gates the whole MPIM.
+    checked: true
+    files:
+      - path: packages/core/src/privacy/slack.ts
+        isNew: true
+        change: |
+          Pure function slackPrivacyFilter(toolArgs, toolResult, slackConfig?).
+          Handles 1:1 DMs (channel id starts with 'D'), MPIMs ('G'), and
+          channels ('C'). Logic:
+            - channelId in denyListedConversationIds → persist:false
+              (reason 'deny_listed_dm')
+            - any participant in denyListedUserIds → persist:false
+              (reason 'deny_listed_dm')
+            - else → persist:true
+          Conservative multi-party rule for MPIMs. ~70 LOC.
+      - path: packages/core/src/privacy/types.ts
+        isNew: true
+        change: |
+          SlackPrivacyConfig: { denyListedConversationIds: string[],
+          denyListedUserIds: string[], multiPartyMode: 'conservative' }.
+          Placeholder metadata for Slack: { channelId?, ts? }.
+    tests:
+      - packages/core/tests/privacy/slack-filter.test.ts
+    verify: cd packages/core && bun --bun ./node_modules/vitest/dist/cli.js run tests/privacy/slack-filter.test.ts
+    mirror: packages/core/src/privacy/calendar.ts
+    context: |
+      // Slack-personal capability id (already used in capabilities registry):
+      //   'slack-personal' — see packages/core/src/capabilities/all.ts
+      // Tool result shape uses Slack Web API conversation/message types:
+      //   { channelId: string, messages: Array<{ user: string, ts: string, ... }> }
+      //   For MPIMs the participant list typically comes via
+      //   conversations.members or is inferred from message.user values.
+    conventions: |
+      ESM .js imports; vitest; pure functions; channel-id prefix discrimination
+      (D/G/C) for DM vs MPIM vs channel; conservative-by-default multi-party
+      semantics; asymmetric posture (alice's deny-list applies only to alice's
+      history).
+
+  - id: a4
+    intent: |
+      The history writer's seam is wired to the real privacy filter. Tool
+      results that the filter gates are persisted as the metadata-only
+      placeholder; non-gated results persist as bodies. The seam is the single
+      path through which tool results enter HISTORY.
+    checked: false
+    files:
+      - path: packages/core/src/agent/history-appender.ts
+        isNew: false
+        change: |
+          Replace the wave-2 default filter wiring at call sites with
+          createPrivacyFilter({ capabilities: { gmail, slack, calendar } })
+          from privacy/filter.ts. The appender itself stays unchanged
+          internally — only the *injected* filter changes. Add per-runAgent-call
+          PrivacyConfigStore.get caching so one run produces multiple tool
+          results without redundant config fetches. Add `privacy.filterEnabled`
+          feature flag that falls back to defaultPrivacyFilter when off.
+      - path: packages/core/src/privacy/filter.ts
+        isNew: true
+        change: |
+          Orchestrator. createPrivacyFilter({capabilities}) returns a
+          PrivacyFilter that dispatches by capabilityId:
+            - 'gmail'          → gmailFilter
+            - 'slack-personal' → slackFilter
+            - 'calendar'       → calendarFilter
+            - else (shared / SYSTEM) → { persist: true }
+          ~60 LOC.
+      - path: packages/core/src/agent/run.ts
+        isNew: false
+        change: |
+          Thread the per-user PrivacyConfig fetch through the runAgent call so
+          appendToolResult sees the right config slice for each tool result.
+          Cache the config for the duration of the run.
+    tests:
+      - packages/core/tests/agent/history-appender.test.ts
+    verify: cd packages/core && bun --bun ./node_modules/vitest/dist/cli.js run tests/agent/history-appender.test.ts
+    mirror: packages/core/src/agent/history-appender.ts
+    context: |
+      // Current wave-2 seam in packages/core/src/agent/history-appender.ts
+      // (lines 75-124) — the function whose injected filter changes:
+      export function createHistoryAppender(deps: {
+        history: HistoryStore;
+        privacyFilter: PrivacyFilter;
+        logger: AppLogger;
+      }): ToolResultAppender {
+        const { history, privacyFilter, logger } = deps;
+        return {
+          async appendToolResult(input) {
+            const decision = privacyFilter.evaluate({
+              capabilityId: input.capabilityId,
+              toolName:     input.toolName,
+              toolArgs:     input.toolArgs,
+              toolResult:   input.toolResult,
+            });
+            let output: ToolResultPart["output"];
+            if (decision.persist) {
+              output = { type: "json", value: input.toolResult as JSONValue };
+            } else {
+              logger.debug({ ... }, "redacted by privacy filter");
+              output = { type: "json", value: decision.placeholder as JSONValue };
+            }
+            // ...build ModelMessage and history.append(...)
+          },
+        };
+      }
+    conventions: |
+      DO NOT add new write paths — appendToolResult must remain the single
+      seam (wave-2 invariant); inject filters via dependency injection,
+      never import them directly inside the appender; per-run config cache;
+      feature flag with safe wave-2 fallback behavior.
+
+  - id: a5
+    intent: |
+      PrivacyConfigStore stores per-user privacy config encrypted with userId
+      encryption context. Get returns plaintext config. Different users'
+      configs are isolated. Decryption with mismatched userId fails.
+    checked: false
+    files:
+      - path: packages/core/src/privacy/config-store.ts
+        isNew: true
+        change: |
+          PrivacyConfigStore interface (get/set/computeDelta/isAdditive).
+          SQLite + Dynamo adapters mirror UserCapabilityStore. Encrypt full
+          PrivacyConfig JSON as one envelope per write with
+          EncryptionContext={ userId, capabilityId: 'privacy_config',
+          fieldName: 'config' }. ~120 LOC.
+      - path: packages/core/package.json
+        isNew: false
+        change: |
+          Add new export entries:
+            "./privacy/types"
+            "./privacy/config-store"
+            "./privacy/filter"
+            "./privacy/scrub"
+          mirroring the wave-2 user-capabilities entry layout.
+    tests:
+      - packages/core/tests/privacy/config-store.test.ts
+    verify: cd packages/core && bun --bun ./node_modules/vitest/dist/cli.js run tests/privacy/config-store.test.ts
+    mirror: packages/core/src/persistence/user-capabilities.ts
+    context: |
+      // From packages/core/src/persistence/user-capabilities.ts (wave-2
+      // pattern this mirrors) — encryption-context wiring:
+      async set(tinoUserId: string, capabilityId: string, config: UserCapabilityConfig) {
+        const encryptedMap: Record<string, EnvelopeCiphertext> = {};
+        for (const [fieldName, plaintext] of Object.entries(config.credentials)) {
+          const ctx: EncryptionContext = { userId: tinoUserId, capabilityId, fieldName };
+          encryptedMap[fieldName] = await cryptoAdapter.encrypt(plaintext, ctx);
+        }
+        stmtUpsert.run(tinoUserId, capabilityId, ...);
+      }
+      // Wave 3.5: capabilityId is the constant 'privacy_config' (the row is
+      // a single JSON envelope, not a per-field map):
+      //   ctx = { userId, capabilityId: 'privacy_config', fieldName: 'config' }
+      //   encryptedConfig = cryptoAdapter.encrypt(JSON.stringify(config), ctx)
+    conventions: |
+      Mirror UserCapabilityStore layout (sqlite + dynamo adapters);
+      EncryptionContext is FIXED schema { userId, capabilityId, fieldName } —
+      see packages/core/src/crypto/types.ts; one envelope per write
+      (not per-field as user-capabilities does, because privacy config is a
+      single coherent blob); decrypt MUST fail on wrong userId context (KMS
+      AAD enforcement) — assert this in tests.
+
+  - id: a6
+    intent: |
+      The retroactive scrub re-evaluates persisted history rows under a new
+      (additive) privacy config and overwrites bodies with placeholders.
+      Idempotent. Emits an audit entry on completion.
+    checked: false
+    files:
+      - path: packages/core/src/privacy/scrub.ts
+        isNew: true
+        change: |
+          runScrub(deps) function. Paginates HISTORY#<userId>, decrypts each
+          tool-result row, re-evaluates the new filter against
+          (capability, args, result), re-encrypts placeholder if filter now
+          gates, writes back via conditional update. Emits 'privacy_scrub'
+          audit entry. Idempotent (rows already scrubbed re-evaluate to
+          'still gated'). Per-user lock with 5-minute lease to avoid
+          concurrent scrubs on the same partition. ~150 LOC.
+      - path: packages/core/src/audit/logger.ts
+        isNew: false
+        change: |
+          Extend AuditEntry.action union with 'privacy_scrub',
+          'privacy_config_change', 'privacy_setup_completed'.
+    tests:
+      - packages/core/tests/privacy/scrub.test.ts
+    verify: cd packages/core && bun --bun ./node_modules/vitest/dist/cli.js run tests/privacy/scrub.test.ts
+    mirror: packages/core/src/agent/history-appender.ts
+    context: |
+      // Current AuditEntry.action union in packages/core/src/audit/logger.ts:
+      action:
+        | "tool_call"
+        | "config_change"
+        | "login"
+        | "capability_toggle"
+        | "task_scheduled"
+        | "task_executed"
+        | "injection_suspected"
+        | "user_deprovisioned"
+        | "admin_restart";
+      // Wave 3.5 adds three actions:
+      //   | "privacy_config_change"
+      //   | "privacy_scrub"
+      //   | "privacy_setup_completed"
+    conventions: |
+      Vitest tests; idempotency-by-construction (re-running yields the same
+      placeholder because metadata derives from args/result, not from the
+      now-replaced body); per-user job lock; conditional-update writes
+      (don't blindly overwrite); audit entry on completion only (one per
+      page when paginating large histories).
+
+  - id: a7
+    intent: |
+      The onboarding gate redirects new users to /onboarding until
+      privacy_setup_completed_at is set. API routes return 403 with
+      onboarding_required. The /api/auth/* and /onboarding/* paths bypass
+      the gate.
+    checked: false
+    files:
+      - path: packages/core/src/server/middleware/onboarding-gate.ts
+        isNew: true
+        change: |
+          Hono middleware. Bypass paths: /onboarding, /api/onboarding,
+          /api/auth. Otherwise: if user.privacy_setup_completed_at is null,
+          API routes (/api/*) return 403 { error: 'onboarding_required' };
+          non-API routes c.redirect('/onboarding'). Reads user from
+          c.get('user') populated by the wave-3 auth middleware. ~30 LOC.
+      - path: packages/core/src/server/index.ts
+        isNew: false
+        change: |
+          Mount onboardingGate() AFTER buildAuthMiddleware() so it sees the
+          authenticated user on context. Gate every protected console route.
+    tests:
+      - packages/core/tests/server/onboarding-gate.test.ts
+    verify: cd packages/core && bun --bun ./node_modules/vitest/dist/cli.js run tests/server/onboarding-gate.test.ts
+    mirror: packages/core/src/server/middleware/auth.ts
+    context: |
+      // From packages/core/src/server/middleware/auth.ts (the bypass-list
+      // pattern to mirror, lines 107-148):
+      return async (c, next) => {
+        const url = c.req.path;
+        // Public paths bypass auth
+        if (url.startsWith("/api/auth/") || url === "/api/health" || url.startsWith("/assets/")) {
+          await next();
+          return;
+        }
+        // ... session check ...
+        c.set("user", { id: session.user.id, email: session.user.email, name: session.user.name });
+        await next();
+      };
+      // Wave 3.5 onboarding-gate is the next middleware in the chain;
+      // it reads c.get('user') after auth has set it.
+    conventions: |
+      Hono MiddlewareHandler<{ Variables: AuthVariables }>; path-prefix
+      bypass list; differentiate /api/* (JSON 403) vs browser routes
+      (302 redirect); read user from c.get('user') (set by auth middleware);
+      privacy_setup_completed_at lives on the better-auth user table
+      extension, accessed via the same session lookup.
+
+  - id: a8
+    intent: |
+      Onboarding pre-population queries return reasonable results against
+      fixture Gmail / Slack / Calendar data, with sensible defaults for the
+      privacy regex pre-checks.
+    checked: false
+    files:
+      - path: packages/core/src/server/routes/onboarding.ts
+        isNew: true
+        change: |
+          Hono routes:
+            GET  /api/onboarding/gmail/labels       → top-15 labels + flags
+            GET  /api/onboarding/gmail/contacts     → top-15 contacts + flags
+            GET  /api/onboarding/slack/dms          → top-15 DMs + flags
+            GET  /api/onboarding/calendar/visibility → defaults + per-cal
+            POST /api/onboarding/complete/:capId    → submit per-cap config
+            POST /api/onboarding/finalize           → set privacy_setup_completed_at
+          All GET routes are read-only Source API calls. Default privacy
+          regex: /private|personal|hr|legal|medical|doctor|therapy|family|finance|tax/i.
+          finalize requires every connected capability submitted. ~200 LOC.
+      - path: packages/core/src/server/index.ts
+        isNew: false
+        change: |
+          Mount the onboarding router at /api/onboarding (BEFORE the
+          onboarding-gate middleware so users hitting /api/onboarding
+          aren't blocked by the gate while completing it).
+    tests:
+      - packages/core/tests/server/onboarding-routes.test.ts
+    verify: cd packages/core && bun --bun ./node_modules/vitest/dist/cli.js run tests/server/onboarding-routes.test.ts
+    mirror: packages/core/src/server/routes/user-capabilities.ts
+    context: |
+      // From packages/core/src/server/routes/user-capabilities.ts —
+      // pattern to mirror for resolving the requesting user and shape of
+      // route handlers (lines 30-69):
+      async function resolveUser(c, identityResolver): Promise<string | null> {
+        const user = c.get("user");
+        if (!user?.email) return null;
+        return identityResolver.resolveGoogle(user.email);
+      }
+      app.get("/", async (c) => {
+        const tinoUserId = await resolveUser(c, identityResolver);
+        if (!tinoUserId) return c.json({ error: "unauthorized" }, 401);
+        // ... fetch + enrich + respond
+        return c.json(views);
+      });
+    conventions: |
+      Hono router factory functions exported as createOnboardingRoutes(opts);
+      every route resolves tino-UUID via IdentityResolver.resolveGoogle;
+      401 unauthorized when user can't be resolved; read-only by default
+      (GET routes never mutate Source state); fixture data lives in
+      tests/server/_helpers.ts pattern.
+
+  - id: a9
+    intent: |
+      Tino-assisted setup tools are registered when the user has the
+      corresponding capability connected and has completed onboarding.
+      Mutation tool requires approval (wave 5) or explicit confirm.
+    checked: false
+    files:
+      - path: packages/core/src/tools/privacy_setup/gmail_create_privacy_filter.ts
+        isNew: true
+        change: |
+          ToolDefinition. Input: { from?, query?, addLabel, confirm? }.
+          MUTATES Gmail (creates server-side filter rule). Requires wave-5
+          approval OR explicit confirm:true. Surfaces "tino wants to create
+          the following filter — type CONFIRM to proceed" message when
+          confirm not present. ~80 LOC.
+      - path: packages/core/src/tools/privacy_setup/gmail_audit_filters.ts
+        isNew: true
+        change: |
+          Read-only ToolDefinition. Input: {}. Output: { filters,
+          suggestions }. Lists Gmail filters, surfaces privacy-related
+          ones via regex match on label name, flags missing auto-apply
+          filters. ~80 LOC.
+      - path: packages/core/src/tools/privacy_setup/calendar_check_defaults.ts
+        isNew: true
+        change: |
+          Read-only. Input: {}. Output: { defaultVisibility, calendars,
+          warnings }. Returns calendar default visibility and per-calendar
+          settings. ~80 LOC.
+      - path: packages/core/src/tools/privacy_setup/calendar_suggest_private.ts
+        isNew: true
+        change: |
+          Read-only. Input: { daysBack? }. Output: { suggestions:
+          { eventId, title, reason }[] }. Scans last 30 days, regex-matches
+          title/attendees, returns suggestions. Does NOT auto-mutate. ~80 LOC.
+      - path: packages/core/src/tools/privacy_setup/slack_audit_dms.ts
+        isNew: true
+        change: |
+          Read-only. Input: { daysBack? }. Output: { suggestions }. Lists
+          recent DMs, regex-flags participants, surfaces deny-list candidates.
+          ~80 LOC.
+      - path: packages/core/src/capabilities/gmail.ts
+        isNew: false
+        change: |
+          Register gmail_create_privacy_filter + gmail_audit_filters in
+          buildToolsForUser ONLY when the user has completed onboarding
+          (privacy_setup_completed_at is set). Pass through privacyConfig
+          so the tool can reference existing config.
+      - path: packages/core/src/capabilities/calendar.ts
+        isNew: false
+        change: |
+          Register calendar_check_defaults + calendar_suggest_private in
+          buildToolsForUser when onboarding is complete.
+      - path: packages/core/src/capabilities/slack-personal.ts
+        isNew: false
+        change: |
+          Register slack_audit_dms in buildToolsForUser when onboarding is
+          complete.
+    tests:
+      - packages/core/tests/tools/privacy-setup.test.ts
+    verify: cd packages/core && bun --bun ./node_modules/vitest/dist/cli.js run tests/tools/privacy-setup.test.ts
+    mirror: packages/core/src/capabilities/calendar.ts
+    context: |
+      // Existing buildToolsForUser pattern in
+      // packages/core/src/capabilities/calendar.ts (lines 55-73):
+      async buildToolsForUser(_tinoUserId, config, _configStore, logger) {
+        if (!config?.enabled) return null;
+        const { clientId, clientSecret, refreshToken } = config.credentials;
+        if (!clientId || !clientSecret || !refreshToken) return null;
+        const auth = new google.auth.OAuth2(clientId, clientSecret);
+        auth.setCredentials({ refresh_token: refreshToken });
+        logger.info("calendar tools enabled");
+        return {
+          calendar_list_events: calendarListEventsTool(auth),
+        };
+      }
+      // Wave 3.5 adds privacy-setup tools to this returned tool map,
+      // gated on onboarding-completion check.
+    conventions: |
+      ToolDefinition shape consumed by the agent's tool registry; one tool
+      per file under tools/privacy_setup/; buildToolsForUser returns null
+      when prerequisites aren't met; mutation tools fall back to confirm:true
+      when wave-5 approval not yet shipped; agent system-prompt fragments
+      emphasize "helping the user configure" not "auditing the user."
+
+  - id: a10
+    intent: |
+      CloudWatch / pino log output never contains the body of a
+      private-capability tool result. Verified by running each private tool
+      against fixtures, capturing log output, and asserting no body content
+      appears.
+    checked: false
+    files:
+      - path: packages/core/src/logging/redaction.ts
+        isNew: true
+        change: |
+          Export logToolResult(logger, ctx, result). For PRIVATE_CAPABILITY_IDS
+          (gmail, slack-personal, calendar), log only
+          { tool, capability, body: '<redacted: private capability>' } —
+          never the result. For shared capabilities, log the result.
+          Plus an eslint custom rule (~30 LOC) blocking raw logger.info calls
+          containing variables named `result` or `toolResult`. ~50 added LOC.
+      - path: packages/core/src/agent/run.ts
+        isNew: false
+        change: |
+          Replace every `logger.info(...toolResult)` call with
+          `logToolResult(logger, ctx, result)`. Audit the file for any
+          remaining direct logging of tool results.
+      - path: packages/core/src/logging/logger.ts
+        isNew: false
+        change: |
+          Existing pino redaction config already redacts 'output', 'body',
+          'content', 'snippet', 'messages'. Document that the new
+          logToolResult is the ONLY sanctioned path for tool-result logging
+          and existing redaction is defense-in-depth.
+    tests:
+      - packages/core/tests/integration/cloudwatch-lockdown.test.ts
+    verify: cd packages/core && bun --bun ./node_modules/vitest/dist/cli.js run tests/integration/cloudwatch-lockdown.test.ts
+    mirror: packages/core/src/logging/logger.ts
+    context: |
+      // Existing pino redaction in packages/core/src/logging/logger.ts
+      // (lines 16-32):
+      return pino({
+        level: env.LOG_LEVEL ?? "info",
+        redact: {
+          paths: [
+            "output",
+            "body",
+            "content",
+            "snippet",
+            "messages",
+            "messages[*].content",
+            "authorization",
+            "cookie",
+            "refresh_token",
+            "access_token",
+          ],
+          censor: "[Redacted]",
+        },
+        // ...
+      });
+      // Wave 3.5 layers a positive whitelist on top: even if a future
+      // refactor logs under a non-redacted key, logToolResult's
+      // capability-id check fails closed.
+    conventions: |
+      pino redaction is defense-in-depth, not the primary control;
+      primary control is logToolResult() — the only sanctioned write path
+      for tool-result log lines; PRIVATE_CAPABILITY_IDS Set check fails
+      closed; eslint custom rule blocks drift; CloudWatch lockdown test is
+      MANDATORY CI on any PR touching tool execution / history writer /
+      privacy filter / logging code.
+
+  - id: a11
+    intent: |
+      Periodic re-prompts surface in the console as dismissable cards when
+      tino notices new contacts/conversations/labels matching the privacy
+      regex.
+    checked: false
+    files:
+      - path: packages/core/src/scheduler/privacy-reprompt.ts
+        isNew: true
+        change: |
+          Scheduled task. For each user with cadence !== 'off':
+            - gmail: labels applied N+ times in last week not in
+              privateLabels and matching regex; contacts emailed N+
+              times not in denyListedAddresses and matching regex.
+            - slack: same for DMs and DM participants.
+            - calendar: did defaultVisibility change?
+          Emit "privacy noticed" records to USER#<userId>#PRIVACY_REPROMPT
+          partition. Cadence per user: weekly (default) | biweekly |
+          monthly | off. ~150 LOC.
+      - path: packages/core/src/scheduler/index.ts
+        isNew: false
+        change: |
+          Wire startPrivacyRepromptScheduler alongside the existing task
+          scheduler. Both use the same SchedulerDeps shape (taskStore,
+          logger, intervalMs).
+      - path: packages/core/src/console-app/components/PrivacyRepromptCard.tsx
+        isNew: true
+        change: |
+          Dismissable card surfaced on console main page when open re-prompts
+          exist. Click → Settings → Privacy with suggestions pre-selected.
+    tests:
+      - packages/core/tests/scheduler/privacy-reprompt.test.ts
+    verify: cd packages/core && bun --bun ./node_modules/vitest/dist/cli.js run tests/scheduler/privacy-reprompt.test.ts
+    mirror: packages/core/src/scheduler/index.ts
+    context: |
+      // Existing scheduler shape in packages/core/src/scheduler/index.ts:
+      export interface SchedulerDeps {
+        taskStore: TaskStore;
+        logger: AppLogger;
+        runTask: (task: Task) => Promise<string>;
+        postResult: (text: string) => Promise<void>;
+        intervalMs?: number;             // default 15_000
+      }
+      export function startScheduler(deps: SchedulerDeps): () => void {
+        // ...returns cleanup fn that stops the interval
+      }
+      // Wave 3.5 PrivacyRepromptDeps mirrors this shape but the per-tick
+      // body iterates users, not tasks; cadence is per-user, not per-tick.
+    conventions: |
+      setInterval-based loop returning a cleanup function (matches existing
+      startScheduler); per-user cadence stored in the user's privacy config
+      row (lastRepromptAt + cadence setting); slack-side surfacing of
+      re-prompts is OUT OF SCOPE for wave 3.5 (console only); React
+      component uses .js extensions on relative imports.
+
+  - id: a12
+    intent: All existing tests continue to pass.
+    checked: false
+    files: []
+    tests:
+      - "*"
+    verify: cd packages/core && bun --bun ./node_modules/vitest/dist/cli.js run
+    mirror: packages/core
+    context: |
+      // The full test tree under packages/core/tests/ — wave 3.5 must not
+      // regress agent/, capabilities/, crypto/, identity/, persistence/,
+      // scheduler/, server/, slack/, or tools/ suites. Wave-2 invariants
+      // critical to preserve: appendToolResult is the single seam,
+      // EncryptionContext schema is FIXED, raw history-store mutators
+      // remain non-importable from outside packages.
+    conventions: |
+      Run from the package root: `cd packages/core && bun run test` or
+      use the verify command. Typecheck before test:
+      `bun run typecheck` (runs `tsc --noEmit && tsc --noEmit -p
+      tsconfig.app.json`).

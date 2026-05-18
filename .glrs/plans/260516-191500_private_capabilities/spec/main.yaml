@@ -1,0 +1,67 @@
+title: tino — private capabilities (single-tenant, multi-user)
+goal: Convert tino from a single-user deployment (where every capability runs
+  under the bot owner's credentials) into a privacy-respecting single-tenant
+  deployment supporting a team of N humans, with per-user envelope-encrypted
+  credentials, capability scope split (shared vs private), source-respecting
+  privacy at the history-writer seam, and admin/member role separation. The
+  architecture is designed so a future managed-multi-tenant offering becomes an
+  additive change (tenant-id partition prefix), not a rewrite.
+constraints: >
+  - Security-first, default-deny: every credential read path specified
+  end-to-end (reader, IAM action, KMS encryption context, audit entry, failure
+  mode). Missing per-user credential means the tool is absent from the toolset,
+  not a stack trace.
+
+  - runAgent userId is the requesting user's tino-UUID (resolved from external
+  identity via the identity table), not a slack id. Every call site changes.
+
+  - Capabilities split cleanly into shared (one centrally-configured credential,
+  any authorized user calls them) and private (per-user credentials, only the
+  owning user can invoke). The CapabilityModule interface gains a scope
+  discriminator.
+
+  - Personal tokens are envelope-encrypted with KMS and user-id
+  EncryptionContext (`{ userId, capabilityId, fieldName }`). Cross-user
+  decryption requires both an application bug AND a KMS-policy bypass.
+
+  - OSS-friendly + future-multi-tenant-ready: every choice supports (a) the bot
+  owner's deployment, (b) an OSS adopter with ~20 teammates, (c) a future hosted
+  multi-tenant offering via a `TENANT#<tenantId>#` partition prefix.
+
+  - Backwards compatible at every wave boundary: the bot owner's deployment must
+  keep working through every wave. Migrations are copy-then-leave for one
+  release; each wave has an explicit rollback story.
+
+  - Source-respecting privacy: use each capability's own sensitivity semantics
+  where they exist (calendar `visibility`, gmail labels), fall back to
+  user-managed deny-lists where they don't (slack), and treat tino as an active
+  participant in helping the user configure both. The history-writer is the
+  single privacy seam.
+
+  - Frozen decisions D1–D7 (runAgent identity, toolset materialization,
+  ALLOWED_SLACK_USER_ID bootstrap, sessions in dynamodb, findWork stays
+  shared-only, copy-then-leave migration, history-writer as privacy seam) are
+  foundational and not re-litigated per wave.
+
+  - Wave ordering 0 → 1 → 2 → 3 → 3.5 → 4 → 5 is mandatory; adjacent waves
+  cannot be merged or split safely.
+
+  - Out of scope: managed multi-tenant, the PROBLEM.md cold-path vault (demoted
+  to opt-in future), per-field isolation within a tool result, per-user findWork
+  pollers, MCP lifecycle tiers, custom roles beyond admin/member, slack-side
+  periodic re-prompts, cross-user permission flows, deploy logistics.
+phases:
+  - file: wave_0.yaml
+    completed: false
+  - file: wave_1.yaml
+    completed: false
+  - file: wave_2.yaml
+    completed: false
+  - file: wave_3.yaml
+    completed: false
+  - file: wave_3_5.yaml
+    completed: false
+  - file: wave_4.yaml
+    completed: false
+  - file: wave_5.yaml
+    completed: false

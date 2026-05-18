@@ -1,0 +1,596 @@
+# spec/wave_3.yaml
+# Wave 3: multi-user slack DM + per-user agent dispatch.
+#
+# Drops the `ALLOWED_SLACK_USER_ID` hard gate in the slack DM handler in favour
+# of an identity-table lookup (waves 0 + 2). Routes each DM through a new
+# `resolveDmSender` gate that handles allowlist vs org-domain modes, suspended
+# vs invited vs active status, and per-user runAgent dispatch. Adds admin-only
+# org-config + user-management routes and a `requireAdmin` middleware. Migrates
+# better-auth sessions from `/tmp/tino-auth.db` to a DynamoDB-backed
+# `secondaryStorage` adapter so multi-user deployments survive ECS restarts.
+# Ships minimal Users + AccessControl pages so the bot owner can manually
+# invite a teammate before wave 4 lands the polished UI.
+#
+# IMPORTANT — depends on waves 0, 1, 2:
+#   - identityResolver.resolveSlack(slackId) -> tinoUserId | null      (wave 0)
+#   - identityResolver.resolveGoogle(email)  -> tinoUserId | null      (wave 0)
+#   - identityResolver.provisionFromSlack(...) -> { id, ... }          (wave 0)
+#   - users store with { status, role, slackUserId } fields            (wave 0)
+#   - registry.sharedTools / buildPrivateTools(userId)                 (wave 1)
+#   - getActiveCapabilities(userId)                                    (wave 1)
+#   - per-user encrypted credential partitions                         (wave 2)
+#
+# IMPORTANT — path notes (executor: read carefully):
+#   - The plan-doc paths `tests/...` map to `packages/core/tests/...` in this
+#     repo (tests are co-located per package; no repo-root `tests/` dir
+#     exists). Files below use the plan-doc paths verbatim; if creating real
+#     files, use `packages/core/tests/...`.
+#   - The plan-doc paths `packages/core/console-app/src/pages/...` map to
+#     `packages/core/src/console-app/pages/...` (console-app is nested
+#     under src/, not a sibling). Same handling: paths below match the plan;
+#     real files belong under `packages/core/src/console-app/pages/`.
+#   - The plan-doc says `bun run test` and `bun:test`; THIS REPO USES VITEST
+#     (`vitest` is in package.json, all existing tests `import from "vitest"`).
+#     Use `vitest` / `bun run test` (bun script wraps vitest) and
+#     `import { describe, it, expect, vi } from "vitest"`.
+
+items:
+  - id: a1
+    intent: |
+      The slack DM handler no longer rejects based on ALLOWED_SLACK_USER_ID.
+      Instead it resolves the sender's slack id via the identity table,
+      falling back to allowlist or org-domain auto-provisioning depending on
+      the configured mode. The gate logic lives in a new `resolveDmSender`
+      function that is unit-testable in isolation; `app.ts` becomes a thin
+      caller.
+    checked: true
+    files:
+      - path: packages/core/src/slack/resolve-dm-sender.ts
+        isNew: true
+        change: |
+          Export `resolveDmSender(slackUserId, opts) -> Promise<string | null>`.
+          opts: { identityResolver, users, configStore, say, auditLogger, logger }.
+          Returns the sender's tino-UUID on success, or null on rejection
+          (caller stops processing). On rejection, this function is responsible
+          for sending the rejection DM via `opts.say` and writing the audit
+          entry — the caller does not duplicate that work.
+
+          Six paths:
+            1. identity hit + status=='active'           -> return tinoUserId
+            2. identity hit + status=='invited'          -> flip to 'active' (ConditionExpression on status='invited' for idempotency), return tinoUserId
+            3. identity hit + status=='suspended'        -> say "your access has been revoked.", audit denied, return null
+            4. miss + accessControl.mode=='allowlist'    -> say "i don't recognize you. ask your admin to add you to tino.", audit denied (userId='UNKNOWN_SLACK_USER'), return null
+            5. miss + accessControl.mode=='org-domain' + email matches -> provisionFromSlack, audit success, return new tinoUserId
+            6. miss + accessControl.mode=='org-domain' + email mismatch / unknown_user -> say domain-mismatch rejection, audit denied with err.code, return null
+
+          Read access-control config via `configStore.getTyped('org.accessControl', { mode: 'allowlist', orgDomain: undefined })`.
+      - path: packages/core/src/slack/app.ts
+        isNew: false
+        change: |
+          Replace lines 47-50 (the `if (m.user !== env.ALLOWED_SLACK_USER_ID)` gate)
+          with `const tinoUserId = await resolveDmSender(m.user, opts); if (!tinoUserId) return;`.
+          Update `handleDmMessage` params to take the deps `resolveDmSender`
+          needs (identityResolver, users, configStore) and pass them through.
+          Rename `onDmFromOwner` -> `onDmFromUser` and update the `DmHandler`
+          type comment to clarify userId is now a tino-UUID, not a slack id.
+          The login-audit block at lines 60-68 moves into `resolveDmSender`
+          (already audits success/denied there); remove the duplicate here.
+      - path: packages/core/src/index.ts
+        isNew: false
+        change: |
+          Update the `handler: DmHandler` closure (line 175-185) so userId
+          flowing into runAgent is the tino-UUID resolveDmSender returned.
+          Build per-user toolset before runAgent: `const privateTools = await
+          registry.buildPrivateTools(userId); const tools = { ...registry.sharedTools, ...privateTools };
+          const activeCapabilities = await registry.getActiveCapabilities(userId);`
+          Pass the new tools+activeCapabilities to runAgent (replaces
+          `registry.tools` / `registry.capabilityIds`). Pass the resolveDmSender
+          deps (identityResolver, users, configStore) into createSlackApp so it
+          can wire them into handleDmMessage.
+    tests:
+      - packages/core/tests/slack/resolve-dm-sender.test.ts::"known slack user returns tinoUserId"
+      - packages/core/tests/slack/resolve-dm-sender.test.ts::"unknown user in allowlist mode is rejected"
+      - packages/core/tests/slack/resolve-dm-sender.test.ts::"unknown user in org-domain mode with matching email auto-provisions"
+      - packages/core/tests/slack/resolve-dm-sender.test.ts::"unknown user in org-domain mode with non-matching email is rejected"
+    verify: bun run test packages/core/tests/slack/resolve-dm-sender.test.ts
+    mirror: packages/core/src/slack/reset.ts
+    context: |
+      // packages/core/src/slack/app.ts:42-50 — current gate to replace
+      if (!m.user) {
+        logger.debug("ignored DM with no user");
+        return;
+      }
+
+      if (m.user !== env.ALLOWED_SLACK_USER_ID) {
+        logger.warn({ user: m.user, channel: m.channel }, "rejected DM from non-allowlisted user");
+        return;
+      }
+
+      // packages/core/src/slack/app.ts:60-68 — current login-audit (move into resolveDmSender)
+      if (auditLogger && seenUsers && !seenUsers.has(m.user)) {
+        seenUsers.add(m.user);
+        await auditLogger.log({
+          userId: m.user,
+          action: "login",
+          status: "success",
+        });
+      }
+
+      // packages/core/src/index.ts:175-185 — current DmHandler (userId is slack id today)
+      const handler: DmHandler = async (userId, text) =>
+        runAgent({
+          model,
+          history,
+          logger,
+          tools: registry.tools,
+          userId,
+          text,
+          auditLogger,
+          activeCapabilities: registry.capabilityIds,
+        });
+    conventions: |
+      - ESM imports with `.js` extension on relative imports (NodeNext resolution).
+      - Named exports only; no default exports.
+      - Test framework is VITEST, not bun:test (despite the plan-doc wording).
+        Import: `import { describe, it, expect, vi } from "vitest";`.
+      - Audit logger shape: `auditLogger.log({ userId, action: 'login', status: 'denied'|'success', errorMessage? })`.
+      - Logger is the `AppLogger` interface from `slack/app.ts` (debug/info/warn/error).
+      - ConfigStore reads via `configStore.getTyped<T>(key, fallback)`.
+
+  - id: a2
+    intent: |
+      A suspended user's DM is rejected with a clear message and an audit
+      entry. An invited user's first DM activates them (status flips
+      'invited' -> 'active' atomically via DynamoDB ConditionExpression) and
+      is processed normally.
+    checked: true
+    files:
+      - path: packages/core/src/slack/resolve-dm-sender.ts
+        isNew: true
+        change: |
+          Path 2 (invited): use the user-store update with a DynamoDB
+          ConditionExpression `status = :invited` so two rapid DMs from the
+          same invited user can't double-activate (idempotent flip). After
+          the flip succeeds OR the ConditionExpression fails because
+          another concurrent flip already activated, return the tinoUserId
+          either way. Path 3 (suspended): `opts.say({ text: 'your access to
+          tino has been revoked. ask your admin if this is a mistake.' });
+          await opts.auditLogger.log({ userId, action: 'login', status:
+          'denied', errorMessage: 'suspended' }); return null;`.
+    tests:
+      - packages/core/tests/slack/resolve-dm-sender.test.ts::"suspended user is rejected with revocation message"
+      - packages/core/tests/slack/resolve-dm-sender.test.ts::"invited user is activated on first DM"
+    verify: bun run test packages/core/tests/slack/resolve-dm-sender.test.ts
+    mirror: packages/core/src/server/routes/users.ts
+    context: |
+      // packages/core/src/server/routes/users.ts:24-52 — pattern for user-status mutation
+      app.delete("/:userId", async (c) => {
+        const targetUserId = decodeURIComponent(c.req.param("userId"));
+        if (!targetUserId) return c.json({ error: "Missing userId" }, 400);
+
+        // 1. Set user status to deactivated
+        await config.set(`user.${targetUserId}.status`, "deactivated");
+        // ... audit log on action ...
+      });
+
+      // packages/core/src/audit/logger.ts:14-34 — AuditEntry shape
+      export interface AuditEntry {
+        timestamp: number;
+        userId: string;
+        action: "tool_call" | "config_change" | "login" | "capability_toggle"
+              | "task_scheduled" | "task_executed" | "injection_suspected"
+              | "user_deprovisioned" | "admin_restart";
+        status: "success" | "error" | "denied";
+        errorMessage?: string;
+      }
+    conventions: |
+      - User-store updates that flip status MUST use DynamoDB
+        ConditionExpression (idempotent on concurrent writes). The wave-0
+        users store is expected to expose `users.update(id, patch, { conditionExpression })`.
+      - Reject messages are plain prose, lowercase, no exclamation marks
+        (matches the existing tone in slack/reset.ts and resolve-dm-sender's
+        sibling functions).
+
+  - id: a3
+    intent: |
+      Each user's runAgent call uses their own per-user private toolset.
+      User A's gmail tools are not in user B's toolset. Two simultaneous DMs
+      from different users dispatch to two different toolsets without
+      leaking credentials. Three runAgent call sites are updated:
+      slack-DM (now per-user), scheduler (already per-user post-wave-0),
+      and findWork (SYSTEM_USER_ID, shared-only).
+    checked: true
+    files:
+      - path: packages/core/src/index.ts
+        isNew: false
+        change: |
+          (1) Slack DM handler (~line 184): change from `userId` (slack id)
+              to `tinoUserId`. Wrap runAgent in a per-call toolset build:
+                const privateTools = await registry.buildPrivateTools(tinoUserId);
+                const tools = { ...registry.sharedTools, ...privateTools };
+                const activeCapabilities = await registry.getActiveCapabilities(tinoUserId);
+          (2) Scheduler (~line 218): keep `userId: task.userId` — already a
+              tino-UUID after wave 0's migration. Same per-user toolset
+              build pattern as above.
+          (3) findWork callback (line 84-93): replace `userId: allowedUserId`
+              with `userId: SYSTEM_USER_ID`. Toolset is sharedTools only:
+              `const privateTools = await registry.buildPrivateTools(SYSTEM_USER_ID); // returns {}`.
+              The resulting DM still goes to the deployment owner via postDm.
+          Import SYSTEM_USER_ID from the wave-0 identity module.
+    tests:
+      - packages/core/tests/integration/wave3-multi-user.test.ts::"bot owner DM uses bot owner's private tools"
+      - packages/core/tests/integration/wave3-multi-user.test.ts::"teammate DM uses teammate's private tools (empty until they configure)"
+      - packages/core/tests/integration/wave3-multi-user.test.ts::"teammate's gmail tools never appear in bot owner's runs"
+    verify: bun run test packages/core/tests/integration/wave3-multi-user.test.ts
+    mirror: packages/core/src/index.ts
+    context: |
+      // packages/core/src/index.ts:84-96 — findWork callback (current; uses owner's userId)
+      const result = await runAgent({
+        model,
+        history: taskHistory,
+        logger,
+        tools: registry.tools,
+        userId: allowedUserId,
+        text: prompt,
+        auditLogger,
+        activeCapabilities: registry.capabilityIds,
+      });
+
+      // packages/core/src/index.ts:175-185 — slack DM handler (current; userId is slack id)
+      const handler: DmHandler = async (userId, text) =>
+        runAgent({
+          model,
+          history,
+          logger,
+          tools: registry.tools,
+          userId,
+          text,
+          auditLogger,
+          activeCapabilities: registry.capabilityIds,
+        });
+
+      // packages/core/src/index.ts:213-223 — scheduler runTask (already takes task.userId)
+      return runAgent({
+        model,
+        history: taskHistory,
+        logger,
+        tools: registry.tools,
+        userId: task.userId,
+        text: taskPrompt,
+        auditLogger,
+        activeCapabilities: registry.capabilityIds,
+      });
+    conventions: |
+      - `registry.tools` / `registry.capabilityIds` are deprecated for these
+        call sites — they were a single global toolset. Use
+        `registry.sharedTools` + `await registry.buildPrivateTools(userId)` and
+        `await registry.getActiveCapabilities(userId)` (wave 1 surfaces).
+      - Build the per-user toolset INSIDE the closure on every invocation;
+        do not cache across users. (Open-question note in plan: a small
+        cache keyed by tinoUserId is acceptable in a follow-up if KMS
+        latency becomes user-visible.)
+
+  - id: a4
+    intent: |
+      A malicious or buggy code path that reads another user's encrypted
+      credentials cannot decrypt them — KMS rejects the decrypt because the
+      encryption context does not match. This proves the cryptographic
+      isolation property in the multi-user dispatch scenario (wave 2's a6
+      proved the unit case).
+    checked: true
+    files:
+      - path: packages/core/tests/integration/wave3-cross-user-isolation.test.ts
+        isNew: true
+        change: |
+          Adversarial test. Provision two users A and B (via the wave-0
+          test harness) each with their own encrypted gmail credential.
+          (1) Verify direct `dynamodb:GetItem` on `USER#<userB>#CAP#gmail`
+              succeeds at the dynamo level (we can read the bytes).
+          (2) Attempt CryptoAdapter.decrypt(ciphertextB, { userId: userA, ... })
+              and assert it throws — KMS rejects with InvalidCiphertextException
+              in production; AES-GCM auth-tag failure in local dev.
+          (3) Wrap the decrypt in the same path the tool layer uses
+              (buildPrivateTools or equivalent) and assert the rejection
+              bubbles up as a tool-loading error, not a leaked credential.
+    tests:
+      - packages/core/tests/integration/wave3-cross-user-isolation.test.ts::"decrypting user B credential under user A context fails closed"
+    verify: bun run test packages/core/tests/integration/wave3-cross-user-isolation.test.ts
+    mirror: packages/core/tests/capabilities/registry-reload.test.ts
+    context: |
+      // No existing file to modify — this is a NEW test that exercises wave 2's CryptoAdapter.
+      // Expected wave-2 surface (from spec/wave_2.yaml):
+      //   import { createCryptoAdapter } from "../../src/crypto/factory.js";
+      //   const adapter = createCryptoAdapter(env, logger);
+      //   const ct = await adapter.encrypt(plaintext, { userId, capabilityId, fieldName });
+      //   const pt = await adapter.decrypt(ct, { userId, capabilityId, fieldName });
+      //   // mismatched userId throws InvalidCiphertextException (KMS) or auth-tag fail (local)
+    conventions: |
+      - Use vitest's `expect(...).rejects.toThrow(...)` for async failure assertions.
+      - For local-dev runs (no KMS_KEY_ARN), the LocalCryptoAdapter throws
+        on AES-GCM auth-tag failure — match that error shape too.
+      - This test must NOT mock the CryptoAdapter — it tests the real
+        rejection semantics. Use the wave-2 LocalCryptoAdapter as the
+        production stand-in for CI.
+
+  - id: a5
+    intent: |
+      Better-auth sessions persist across ECS restarts via the DynamoDB
+      `secondaryStorage` adapter. A session set before a simulated restart
+      is still readable after. Local dev keeps better-auth's built-in
+      in-memory store (no adapter passed when no DynamoDB table configured).
+    checked: true
+    files:
+      - path: packages/core/src/server/middleware/dynamo-session-store.ts
+        isNew: true
+        change: |
+          Export `createDynamoSessionStore({ table, logger }) -> SecondaryStorage`.
+          Implements better-auth's `SecondaryStorage` interface:
+            get(key)            -> string | null     // null on cache miss
+            set(key, value, ttl?) -> void            // ttl in seconds
+            delete(key)         -> void
+          DynamoDB schema:
+            pk = "SESSION#"+key
+            sk = "SESSION#"+key
+            value = the raw string better-auth passed in
+            expiresAt = ttl ? Math.floor(Date.now()/1000) + ttl : undefined
+          The DynamoDB table's TTL attribute is `expiresAt` (verify via
+          pulumi; if the existing TTL field has a different name, configure
+          it in this wave). Errors from DynamoDB SDK propagate; better-auth
+          treats throws from secondaryStorage as fatal.
+      - path: packages/core/src/server/middleware/auth.ts
+        isNew: false
+        change: |
+          (1) Pass `secondaryStorage` to the `betterAuth` config: prefer
+              `opts.sessionStore` if provided (DI for tests), else
+              `createDynamoSessionStore({ table, logger })` when DynamoDB
+              is configured, else undefined (better-auth uses its built-in
+              in-memory store).
+          (2) Remove the lines 14-31 doc comment about `/tmp/tino-auth.db`
+              being acceptable. Replace with: "Sessions persist in DynamoDB
+              via secondaryStorage so multi-user deployments survive ECS
+              restarts. Local dev uses better-auth's built-in in-memory
+              store when no DynamoDB table is configured."
+          (3) Plumb a new optional `sessionStore?: SecondaryStorage` into
+              `createAuth` opts.
+    tests:
+      - packages/core/tests/server/dynamo-session-store.test.ts::"set then get round-trips a session value"
+      - packages/core/tests/server/dynamo-session-store.test.ts::"set with TTL sets the dynamo expiresAt field"
+      - packages/core/tests/server/dynamo-session-store.test.ts::"get after delete returns null"
+      - packages/core/tests/server/auth-middleware.test.ts::"session survives a process restart simulation"
+    verify: bun run test packages/core/tests/server/dynamo-session-store.test.ts packages/core/tests/server/auth-middleware.test.ts
+    mirror: packages/core/src/persistence/factory.ts
+    context: |
+      // packages/core/src/server/middleware/auth.ts:32-73 — current createAuth
+      export async function createAuth(opts: {
+        googleClientId: string;
+        googleClientSecret: string;
+        allowedDomain?: string;
+        baseUrl: string;
+        dbPath?: string;
+        logger?: AppLogger;
+      }): Promise<Auth> {
+        // ...
+        const auth = betterAuth({
+          baseURL: opts.baseUrl,
+          secret,
+          database: new Database(opts.dbPath ?? "./tino-auth.db"),
+          socialProviders: { google: { clientId: ..., clientSecret: ... } },
+          session: { expiresIn: 60 * 60 * 24 },
+        }) as unknown as Auth;
+        const { runMigrations } = await getMigrations((auth as any).options);
+        await runMigrations();
+        return auth;
+      }
+
+      // The sqlite `database` field stays — better-auth still uses it for
+      // user/account tables. Only the SESSION storage moves to DynamoDB
+      // via the new secondaryStorage option.
+    conventions: |
+      - The wave-0 / wave-2 dynamo helpers expose a `TinoTable` opaque type
+        whose put/get/delete methods are the canonical write/read API.
+        Do not reach into `@aws-sdk/client-dynamodb` directly from this
+        adapter — go through `TinoTable`.
+      - DynamoDB TTL eviction is best-effort and can lag by up to 48h. The
+        adapter's `get()` MUST also check `expiresAt` and treat any item
+        whose `expiresAt < now` as a miss (return null). This avoids
+        better-auth handing a stale session to a caller during the lag
+        window.
+
+  - id: a6
+    intent: |
+      The auth middleware stashes the requesting user's tino-UUID, role,
+      and status on the request context. Routes that use the requireAdmin
+      middleware reject member-role users with 403 and let admins through.
+      AuthVariables.user.id changes meaning: it was better-auth's user.id;
+      it is now the tino-UUID (resolved via identityResolver.resolveGoogle).
+    checked: true
+    files:
+      - path: packages/core/src/server/middleware/auth.ts
+        isNew: false
+        change: |
+          Update `AuthVariables` (line 78-84) so `user` includes role,
+          status, and slackUserId:
+            type AuthVariables = {
+              user: {
+                id: string;          // tino-UUID (NOT better-auth's user.id)
+                email: string;
+                name?: string;
+                role: 'admin' | 'member';
+                status: 'active' | 'invited' | 'suspended';
+                slackUserId?: string;
+              };
+            };
+          Update `buildAuthMiddleware` (line 100-148) to:
+            (1) After session check, call `identityResolver.resolveGoogle(session.user.email)`.
+            (2) If null AND email-domain matches `org.accessControl.orgDomain`
+                in org-domain mode, auto-provision a member-role tino user
+                via `identityResolver.provisionFromEmail(email)`.
+            (3) If null otherwise -> 403 "your account is not provisioned in
+                tino — ask your admin."
+            (4) If `user.status === 'suspended'` -> 403 "your access has
+                been revoked."
+            (5) Stash the tino user (id=tinoUserId, role, status) on context.
+          Plumb `identityResolver`, `users`, `configStore` into the
+          middleware factory opts.
+      - path: packages/core/src/server/middleware/require-admin.ts
+        isNew: true
+        change: |
+          export function requireAdmin(): MiddlewareHandler<{ Variables: AuthVariables }> {
+            return async (c, next) => {
+              const user = c.get('user');
+              if (user.role !== 'admin') {
+                return c.json({ error: 'forbidden', message: 'admin role required' }, 403);
+              }
+              await next();
+            };
+          }
+      - path: packages/core/src/server/index.ts
+        isNew: false
+        change: |
+          Attach `requireAdmin()` to `/api/org/*` and `/api/users/*` route
+          mounts (wave 4 will also attach it to `/api/audit/*`). Pass the
+          new middleware deps (identityResolver, users, configStore) into
+          buildAuthMiddleware via StartServerOptions.
+    tests:
+      - packages/core/tests/server/auth-middleware.test.ts::"middleware resolves session to tinoUserId via identity resolver"
+      - packages/core/tests/server/auth-middleware.test.ts::"requireAdmin middleware rejects member role"
+      - packages/core/tests/server/auth-middleware.test.ts::"requireAdmin middleware allows admin role"
+    verify: bun run test packages/core/tests/server/auth-middleware.test.ts
+    mirror: packages/core/src/server/middleware/auth.ts
+    context: |
+      // packages/core/src/server/middleware/auth.ts:78-84 — current AuthVariables (id is better-auth id)
+      export type AuthVariables = {
+        user: {
+          id: string;
+          email: string;
+          name?: string;
+        };
+      };
+
+      // packages/core/src/server/middleware/auth.ts:140-146 — current stash (replace)
+      c.set("user", {
+        id: session.user.id,         // <-- this becomes tinoUserId
+        email: session.user.email,
+        name: session.user.name,
+      });
+      await next();
+    conventions: |
+      - `MiddlewareHandler<{ Variables: AuthVariables }>` is the Hono type
+        for typed middleware (mirrors existing buildAuthMiddleware return).
+      - Auth-middleware tests use vitest's `vi.fn()` for resolver mocks
+        and fake-Hono-context helpers. Look at the existing
+        `auth-middleware.test.ts` (modify, do not replace).
+      - The middleware MUST fail closed: any error from
+        `identityResolver.resolveGoogle` should produce a 500 ("auth
+        backend unavailable") rather than passing through.
+
+  - id: a7
+    intent: |
+      Admin-only org-config and user-management routes work end-to-end. An
+      admin can switch access mode, set org-domain, add a user, and suspend
+      a user. Member-role users are rejected with 403.
+    checked: true
+    files:
+      - path: packages/core/src/server/routes/org-config.ts
+        isNew: true
+        change: |
+          Hono router with `requireAdmin()` mounted on every route:
+            GET    /api/org/access-control      -> { mode, orgDomain }
+            PUT    /api/org/access-control      -> body { mode, orgDomain? }, writes org.accessControl
+            POST   /api/org/users               -> body { email, slackUserId }, calls users.create({ email, slackUserId, role: 'member', status: 'invited' })
+            PATCH  /api/org/users/:id/status    -> body { status: 'active'|'suspended' }, calls users.update(id, { status })
+          Audit every mutation: action='config_change' for access-control,
+          action='user_deprovisioned' (existing enum value) for status flips,
+          and a NEW action='user_provisioned' for POST /api/org/users (extend
+          the AuditEntry.action enum in audit/logger.ts to add it).
+      - path: packages/core/src/server/index.ts
+        isNew: false
+        change: |
+          Register the new router: `app.route('/api/org', createOrgConfigRoutes({ config, users, auditLogger, logger }))`
+          AFTER the auth middleware mount and AFTER `requireAdmin()` is
+          attached to the `/api/org/*` path prefix.
+      - path: packages/core/src/audit/logger.ts
+        isNew: false
+        change: |
+          Extend the `AuditEntry.action` union (line 17-26) with one new
+          variant: `"user_provisioned"`.
+    tests:
+      - packages/core/tests/server/org-config-routes.test.ts::"GET /api/org/access-control returns the current config"
+      - packages/core/tests/server/org-config-routes.test.ts::"PUT /api/org/access-control as admin updates mode"
+      - packages/core/tests/server/org-config-routes.test.ts::"PUT /api/org/access-control as member returns 403"
+      - packages/core/tests/server/org-config-routes.test.ts::"POST /api/org/users adds a user"
+      - packages/core/tests/server/org-config-routes.test.ts::"PATCH /api/org/users/:id/status suspends a user"
+    verify: bun run test packages/core/tests/server/org-config-routes.test.ts
+    mirror: packages/core/src/server/routes/users.ts
+    context: |
+      // packages/core/src/server/routes/users.ts:16-55 — pattern to mirror
+      export function createUsersRoutes(opts: {
+        config: ConfigStore;
+        logger: AppLogger;
+        auditLogger: AuditLogger | undefined;
+      }): Hono {
+        const app = new Hono();
+        const { config, logger, auditLogger } = opts;
+
+        app.delete("/:userId", async (c) => {
+          // ... validate, mutate, audit, return JSON ...
+        });
+
+        return app;
+      }
+
+      // packages/core/src/audit/logger.ts:17-26 — current action union to extend
+      action:
+        | "tool_call"
+        | "config_change"
+        | "login"
+        | "capability_toggle"
+        | "task_scheduled"
+        | "task_executed"
+        | "injection_suspected"
+        | "user_deprovisioned"
+        | "admin_restart";
+    conventions: |
+      - Hono routers use `new Hono()` and `app.get/put/post/patch/delete`.
+      - JSON response shape: `c.json({ ok: true, ... })` on success,
+        `c.json({ error, message }, status)` on failure (matches users.ts).
+      - The org-config routes also need minimal console pages
+        (Users.tsx + AccessControl.tsx) per the plan; those live under
+        `packages/core/src/console-app/pages/` — see the path-notes header
+        comment on this file. Wave 3 ships them minimal; wave 4 polishes.
+      - Body validation: use `await c.req.json()` and zod-validate inline;
+        no shared validation lib in this codebase.
+
+  - id: a8
+    intent: All existing tests continue to pass.
+    checked: true
+    files:
+      - path: packages/core/src/env.ts
+        isNew: false
+        change: |
+          Mark `ALLOWED_SLACK_USER_ID` deprecated in the schema. Keep
+          `.optional()` (no longer required). Add a JSDoc comment above
+          the field: "@deprecated used only as bootstrap-admin marker if
+          the user table is empty. removed in v3.0." Add a one-time
+          startup deprecation log when the env var is read by the
+          migration path (wave-0 migration handles the read).
+    tests:
+      - "*"
+    verify: bun run test
+    mirror: packages/core/src/env.ts
+    context: |
+      // packages/core/src/env.ts:50-53 — current ALLOWED_SLACK_USER_ID schema
+      // ── Legacy migration vars (optional) ──────────────────────────────────────
+      // These are read during the one-time migration from env vars to the config
+      // store. After migration, they can be removed from .env.
+      // They are kept here so loadEnv() doesn't throw on first startup.
+      SLACK_BOT_TOKEN: z.string().min(1).optional(),
+      SLACK_APP_TOKEN: z.string().min(1).optional(),
+      ALLOWED_SLACK_USER_ID: z.string().min(1).optional(),
+    conventions: |
+      - The env schema uses zod (`z.string().min(1).optional()`).
+      - "* (all tests)" verify is `bun run test` at repo root, which fans
+        out to `vitest run` per package via the workspace package.json.
+      - Do NOT remove ALLOWED_SLACK_USER_ID from env.ts — only deprecate
+        it. Removal is a follow-up wave (per plan non-goals: "Do NOT
+        remove ALLOWED_SLACK_USER_ID env var from env.ts").

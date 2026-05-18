@@ -1,0 +1,804 @@
+# spec/wave_2.yaml
+# Wave 2: per-user private credentials + KMS envelope encryption.
+#
+# Introduces the `USER#<tinoUserId>#CAP#<capId>` partition; replaces the existing
+# single-user envelope helpers (`packages/aws/src/encryption/envelope.ts`,
+# `provider.ts`) with a richer CryptoAdapter abstraction whose EncryptionContext
+# is `{ userId, capabilityId, fieldName }` (vs the current `{ userId }` only).
+# Migrates the bot owner's existing global gmail / slack-personal / calendar
+# credentials into a per-user partition and clears the global blobs. Adds a
+# console "Your capabilities" page distinct from the existing org page. Adds
+# the history-writer seam (`appendToolResult` + default-allow `PrivacyFilter`)
+# that wave 3.5 hooks into.
+#
+# IMPORTANT — depends on waves 0 and 1:
+#   - identityResolver.resolveGoogle(email) -> tinoUserId  (wave 0)
+#   - SYSTEM_USER_ID, bootstrapAdminTinoUserId               (wave 0)
+#   - PrivateCapability.buildToolsForUser(...)               (wave 1)
+#   - registry.sharedTools / buildPrivateTools(userId)       (wave 1)
+#   - slackPersonalCapability module                         (wave 1)
+# These are referenced as if they exist; if executing wave_2 standalone, ensure
+# waves 0 and 1 are landed first.
+
+items:
+  - id: a1
+    intent: |
+      The CryptoAdapter encrypts and decrypts payloads, requiring an exact
+      encryption-context match `{ userId, capabilityId, fieldName }`. Mismatched
+      context fails decrypt cryptographically — at the KMS API for production
+      (KMS rejects with InvalidCiphertextException), at the AES-GCM AAD for
+      local dev (auth-tag verification fails). Both adapters produce the same
+      EnvelopeCiphertext shape and accept the same EncryptionContext schema.
+    checked: true
+    files:
+      - path: packages/aws/src/crypto/types.ts
+        isNew: true
+        change: |
+          Define EncryptionContext (userId, capabilityId, fieldName), EnvelopeCiphertext
+          (ciphertext, encryptedDataKey, iv, authTag, alg), and the CryptoAdapter
+          interface (encrypt(plaintext, ctx) / decrypt(ct, ctx)). Export from
+          @tino/aws/crypto.
+      - path: packages/aws/src/crypto/kms-adapter.ts
+        isNew: true
+        change: |
+          createKmsAdapter({ kmsKeyArn, region, logger }) — production AWS KMS
+          adapter. encrypt: GenerateDataKey (KeySpec=AES_256, EncryptionContext)
+          → AES-256-GCM with random 12-byte IV, AAD = JSON.stringify(ctxRecord),
+          16-byte auth tag → return base64-encoded envelope, alg='AES-256-GCM/v1'.
+          decrypt: Decrypt(EncryptionContext) → AES-256-GCM verify auth tag.
+          Zero out plaintext data key after use (dataKey.fill(0)).
+      - path: packages/core/src/crypto/local-adapter.ts
+        isNew: true
+        change: |
+          createLocalCryptoAdapter({ devKey?: string }) — dev-only AES-GCM-with-
+          static-key. Mirror kms-adapter shape; derive the data key with
+          crypto.scryptSync(env.LOCAL_DEV_CRYPTO_KEY ?? 'dev-key', 'salt', 32);
+          skip the GenerateDataKey/Decrypt round trips (encryptedDataKey field
+          is the same scrypt-derived bytes, base64). Still uses AAD = ctx JSON
+          so context-mismatch fails decrypt locally too.
+      - path: packages/core/src/crypto/factory.ts
+        isNew: true
+        change: |
+          createCryptoAdapter(env, logger) → KmsAdapter when KMS_KEY_ARN is
+          set, otherwise LocalCryptoAdapter. Mirror of persistence/factory.ts:
+          dynamic import of @tino/aws/crypto when KMS path selected so core
+          stays free of AWS SDK.
+      - path: packages/aws/tests/crypto/kms-adapter.test.ts
+        isNew: true
+        change: |
+          aws-sdk-client-mock based tests:
+          (1) encrypt then decrypt with same context recovers plaintext;
+          (2) decrypt with mismatched userId throws (KMS InvalidCiphertext mocked);
+          (3) decrypt with mismatched capabilityId throws;
+          (4) decrypt with mismatched fieldName throws;
+          (5) envelope contains all fields (ciphertext, encryptedDataKey, iv, authTag, alg);
+          (6) alg field is 'AES-256-GCM/v1';
+          (7) GenerateDataKeyCommand sent with EncryptionContext={userId,capabilityId,fieldName};
+          (8) DecryptCommand sent with the same EncryptionContext.
+      - path: packages/core/tests/crypto/local-adapter.test.ts
+        isNew: true
+        change: |
+          Same 8 cases as kms-adapter.test.ts but against the local AES adapter.
+          Real AES-GCM (no mocks). Mismatched-context throws via auth-tag failure.
+    tests:
+      - packages/aws/tests/crypto/kms-adapter.test.ts
+      - packages/core/tests/crypto/local-adapter.test.ts
+    verify: bun --bun ./node_modules/vitest/dist/cli.js run packages/aws/tests/crypto/ packages/core/tests/crypto/
+    mirror: packages/aws/src/encryption/envelope.ts
+    context: |
+      // packages/aws/src/encryption/envelope.ts — the EXISTING helper
+      // (wave 2 deprecates this in favor of the richer CryptoAdapter):
+      //
+      // export interface EncryptedValue {
+      //   ciphertext: string;     // base64 AES-256-GCM (16-byte auth tag appended)
+      //   dataKey: string;        // base64 KMS-encrypted data key
+      //   iv: string;             // base64 12-byte IV
+      // }
+      //
+      // export async function encryptValue(
+      //   kmsClient: KMSClient, kmsKeyId: string, userId: string, plaintext: string,
+      // ): Promise<EncryptedValue> {
+      //   const generateCmd = new GenerateDataKeyCommand({
+      //     KeyId: kmsKeyId, KeySpec: "AES_256",
+      //     EncryptionContext: { userId },          // <-- wave 2 widens to {userId,capId,field}
+      //   });
+      //   const { Plaintext, CiphertextBlob } = await kmsClient.send(generateCmd);
+      //   const iv = crypto.randomBytes(12);
+      //   const cipher = crypto.createCipheriv("aes-256-gcm", Buffer.from(Plaintext), iv);
+      //   const encrypted = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final(), cipher.getAuthTag()]);
+      //   Plaintext.fill(0);
+      //   return { ciphertext: encrypted.toString("base64"),
+      //            dataKey: Buffer.from(CiphertextBlob).toString("base64"),
+      //            iv: iv.toString("base64") };
+      // }
+      //
+      // Wave 2 changes vs this current helper:
+      //   - EncryptionContext is { userId, capabilityId, fieldName } (3 fields, all required)
+      //   - EnvelopeCiphertext separates authTag and adds `alg` version field
+      //   - AAD on the AES-GCM cipher binds the context too (defense-in-depth)
+      //   - CryptoAdapter interface so a non-AWS local adapter is a peer, not a special case
+    conventions: |
+      ESM imports with .js extensions. Named exports. Vitest as test runner
+      (packages/core/tests/persistence/config.test.ts is the shape mirror).
+      JSDoc above every exported function/type. Buffer manipulation uses
+      `Buffer.from(...)` not `new Buffer(...)`. Zero out plaintext key material
+      after use (dataKey.fill(0)). aws-sdk-client-mock for KMS tests.
+
+  - id: a2
+    intent: |
+      UserCapabilityStore stores per-user capability configs with envelope-encrypted
+      credentials. `set` encrypts every credentials.* field on write; `get` decrypts
+      every field on read. Different (userId, capabilityId) partitions are isolated
+      in storage and by encryption context. `list` returns enabled flags without
+      decrypting credentials. `delete` returns true on existing entry, false on
+      missing. Each credential field gets its own GenerateDataKey/envelope so adding
+      or removing a single field doesn't re-encrypt the others.
+    checked: true
+    files:
+      - path: packages/core/src/persistence/user-capabilities.ts
+        isNew: true
+        change: |
+          Define UserCapabilityStore interface (get, set, list, delete) +
+          createSqliteUserCapabilityStore({ dbPath, crypto }) implementation.
+          Sqlite table: user_capability(tino_user_id, capability_id, enabled,
+          credentials_json, settings_json) PRIMARY KEY(tino_user_id, capability_id).
+          credentials_json stores `Record<fieldName, EnvelopeCiphertext>` as JSON.
+          On set: walk config.credentials, encrypt each via crypto.encrypt(value,
+          { userId, capabilityId, fieldName }), JSON-stringify the map. On get:
+          parse map, decrypt each, return plaintext credentials.
+      - path: packages/aws/src/persistence/dynamo/user-capabilities.ts
+        isNew: true
+        change: |
+          createDynamoUserCapabilityStore(table, crypto) — dynamo implementation.
+          pk='USER#<tinoUserId>#CAP#<capId>', sk='USER#<tinoUserId>#CAP#<capId>'.
+          Same encrypt-on-write / decrypt-on-read flow as sqlite. Uses
+          createUserCapabilityEntity. list() runs a scan or GSI on
+          pk-begins-with(`USER#<tinoUserId>#CAP#`) — confirm the table layout
+          supports this pattern; if not, add a GSI or denormalize a list-marker.
+      - path: packages/aws/src/persistence/dynamo/entities.ts
+        isNew: false
+        change: |
+          Add createUserCapabilityEntity(table) using dynamodb-toolbox v2:
+          schema = item({ pk, sk, tinoUserId, capabilityId, enabled (boolean),
+          credentialsJson, settingsJson, updatedAt }). timestamps: false (matches
+          all other entities). Update the file's top-of-file key-pattern comment
+          to document USER#<tinoUserId>#CAP#<capId>.
+      - path: packages/core/src/persistence/factory.ts
+        isNew: false
+        change: |
+          Add `userCapabilities: UserCapabilityStore` to Persistence interface.
+          Wire through both adapters. Sqlite path: createSqliteUserCapabilityStore({
+          dbPath, crypto: localCrypto }). Dynamo path: createDynamoPersistence
+          builds the dynamoUserCapabilityStore(table, kmsCrypto). The factory
+          accepts the cryptoAdapter (created via createCryptoAdapter) as a new
+          dependency.
+      - path: packages/aws/src/persistence/dynamo/index.ts
+        isNew: false
+        change: |
+          createDynamoPersistence now accepts (or constructs) a CryptoAdapter
+          and threads it into the user-capabilities store. Add the new field
+          to DynamoPersistence interface.
+      - path: packages/core/tests/persistence/user-capabilities.test.ts
+        isNew: true
+        change: |
+          Integration tests over both sqlite (real bun:sqlite tmp file) and
+          dynamodb-local. Cases:
+          (1) set then get round-trips plaintext credentials;
+          (2) different users do not share capability state (set userA, get
+              userB returns null);
+          (3) different capabilities for same user are isolated;
+          (4) list returns enabled flags only (no credentials field decrypted);
+          (5) delete returns true on existing, false on missing;
+          (6) settings (plaintext) round-trip through set/get unchanged.
+          Use LocalKmsAdapter for both — see wave 2's open-question note about
+          dynamodb-local + KMS.
+    tests:
+      - packages/core/tests/persistence/user-capabilities.test.ts
+    verify: bun --bun ./node_modules/vitest/dist/cli.js run packages/core/tests/persistence/user-capabilities.test.ts
+    mirror: packages/aws/src/persistence/dynamo/config.ts
+    context: |
+      // packages/core/src/persistence/config.ts — sqlite ConfigStore shape
+      // (mirror this for the sqlite UserCapabilityStore):
+      //
+      //   const db = new Database(dbPath);
+      //   db.exec(`CREATE TABLE IF NOT EXISTS config (
+      //     key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL
+      //   )`);
+      //   const stmtGet = db.query("SELECT value FROM config WHERE key = ?");
+      //   const stmtUpsert = db.query(`INSERT INTO config (key, value, updated_at)
+      //     VALUES (?, ?, ?)
+      //     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`);
+      //
+      // For user_capability:
+      //   CREATE TABLE IF NOT EXISTS user_capability (
+      //     tino_user_id     TEXT NOT NULL,
+      //     capability_id    TEXT NOT NULL,
+      //     enabled          INTEGER NOT NULL,
+      //     credentials_json TEXT NOT NULL,
+      //     settings_json    TEXT NOT NULL,
+      //     updated_at       INTEGER NOT NULL,
+      //     PRIMARY KEY(tino_user_id, capability_id)
+      //   );
+      //
+      // packages/aws/src/persistence/dynamo/entities.ts existing pattern (mirror):
+      //   export function createConfigEntity(table: TinoTable) {
+      //     return new Entity({
+      //       name: "Config", table,
+      //       schema: item({ pk: string().key(), sk: string().key(),
+      //                      value: string(), updatedAt: number() }),
+      //       timestamps: false,
+      //     });
+      //   }
+    conventions: |
+      bun:sqlite synchronous API. Promise-wrapped sync calls (return
+      Promise.resolve(...)). Named exports, .js extensions. dynamodb-toolbox v2
+      Entity + GetItemCommand/PutItemCommand/QueryCommand/DeleteItemCommand
+      builders. No timestamps in entity schema (matches all peer entities).
+      Encryption helper called `crypto` (not `encryption`) to match the new
+      `@tino/aws/crypto` export path. CapabilityConfig type imported from
+      `../capabilities/types.js`.
+
+  - id: a3
+    intent: |
+      The bot owner's existing global private capability credentials are migrated
+      to a per-user partition encrypted with their tino-UUID encryption context.
+      Steps: resolve bot owner's tinoUserId, copy each PrivateCapability's global
+      `capability.<id>` blob into UserCapabilityStore (encrypts on write), then
+      clear the global blob to `{ enabled: false, credentials: {}, settings: {} }`.
+      A 30-day-TTL backup of each original blob is written before clearing.
+      Gated by a `migration.user-creds-v1.completedAt` config marker; idempotent.
+      Failure during encrypt or write: do NOT clear, do NOT mark complete — retry
+      on next startup.
+    checked: true
+    files:
+      - path: packages/core/src/crypto/migration.ts
+        isNew: true
+        change: |
+          migrateUserCapabilityCreds({ configStore, userCapStore, identityResolver,
+          allowedSlackUserId, logger }). Steps:
+          (1) check `migration.user-creds-v1.completedAt` — if set, return early;
+          (2) resolve bot owner's tinoUserId via identityResolver.resolveGoogle(...)
+              — wave 0 guarantees this succeeds for the bot owner;
+          (3) for each cap of ALL_CAPABILITIES where cap.scope === 'private':
+              read `capability.<id>` global blob; if absent or no credentials,
+              skip; else write a backup at `migration.user-creds-v1.backup.<id>`
+              (with TTL metadata for dynamo); userCapStore.set(tinoUserId, cap.id,
+              blob) — encrypts on write; configStore.set(`capability.<id>`,
+              { enabled: false, credentials: {}, settings: {} }) — clear;
+          (4) write the marker.
+          Per-capability try/catch: on encrypt/write failure, log loudly, do
+          NOT clear that global blob, do NOT write the marker. Other capabilities
+          continue.
+      - path: packages/core/src/index.ts
+        isNew: false
+        change: |
+          Call migrateUserCapabilityCreds at startup, AFTER createPersistence
+          and the existing migrateEnvToCapabilities call but BEFORE
+          initCapabilityRegistry. Pass the configStore, userCapStore,
+          identityResolver, ALLOWED_SLACK_USER_ID, and logger.
+      - path: packages/core/tests/integration/wave2-migration.test.ts
+        isNew: true
+        change: |
+          End-to-end test:
+          (1) seed `capability.gmail` with { enabled: true, credentials: {
+              clientId, clientSecret, refreshToken }, settings: {} };
+          (2) run migrateUserCapabilityCreds with a stub identity resolver;
+          (3) assert userCapStore.get(botOwnerTinoUserId, 'gmail') returns
+              the same plaintext credentials;
+          (4) assert configStore.get('capability.gmail') is the empty husk;
+          (5) assert configStore.get('migration.user-creds-v1.backup.gmail')
+              contains the original blob;
+          (6) assert buildPrivateTools(botOwnerTinoUserId) returns a non-empty
+              ToolSet (gmail tools materialized from the per-user partition);
+          (7) assert getActiveCapabilities(botOwnerTinoUserId) includes 'gmail';
+          (8) run migration a second time — assert it's a no-op (no extra
+              writes, marker still set).
+    tests:
+      - packages/core/tests/integration/wave2-migration.test.ts
+    verify: bun --bun ./node_modules/vitest/dist/cli.js run packages/core/tests/integration/wave2-migration.test.ts
+    mirror: packages/core/src/capabilities/migration.ts
+    context: |
+      // packages/core/src/capabilities/migration.ts — env-to-config migration
+      // (the closest existing peer, mirror its idempotency + log style):
+      //
+      //   export async function migrateEnvToCapabilities(
+      //     env: LegacyEnv, configStore: ConfigStore, logger: AppLogger,
+      //   ): Promise<MigrationResult> {
+      //     // Check which capabilities already have config entries
+      //     for (const id of capabilityIds) {
+      //       const existing = await configStore.get(`capability.${id}`);
+      //       if (existing !== null) result.alreadyPresent.push(id);
+      //     }
+      //     if (result.alreadyPresent.length === capabilityIds.length) {
+      //       logger.debug("capability migration: all capabilities already configured, skipping");
+      //       return result;
+      //     }
+      //     // Build configs from env vars for capabilities not yet present...
+      //     for (const { id, config } of toMigrate) {
+      //       await configStore.set(`capability.${id}`, config);
+      //       logger.info({ capabilityId: id }, "capability migration: wrote config from env vars");
+      //     }
+      //   }
+      //
+      // Wave 2 differences vs this pattern:
+      //   - Idempotency marker is a single key (`migration.user-creds-v1.completedAt`)
+      //     rather than per-capability presence checks; we explicitly need the
+      //     "completed" semantic because we ALSO clear the source on success.
+      //   - CLEARS the source after copy (env-to-config migration leaves env
+      //     vars in place; that's harmless. Leaving plaintext credentials in
+      //     the global blob after the per-user copy is NOT harmless.)
+      //   - Backups under `migration.user-creds-v1.backup.<id>` for rollback.
+    conventions: |
+      Idempotency via a config marker key; per-step logging with structured
+      fields (`{ capabilityId, ... }`); per-capability try/catch with
+      logger.warn — one capability's failure must not break the rest. Marker
+      keys use `migration.<name>.<field>` namespace. SYSTEM_USER_ID and
+      bootstrapAdminTinoUserId imported from wave 0's identity module.
+
+  - id: a4
+    intent: |
+      After migration, the bot owner's agent runs use the per-user partition
+      for private tools. Decryption succeeds end-to-end; gmail/slack-personal/
+      calendar tools are constructed via buildToolsForUser and appear in
+      activeCapabilities. The wave-1 fallback (read global blob if user
+      partition is empty for the bootstrap admin) covers the brief window
+      between deploy and migration completion.
+    checked: true
+    files:
+      - path: packages/core/src/capabilities/registry.ts
+        isNew: false
+        change: |
+          buildPrivateTools(tinoUserId) reads from userCapStore.get(tinoUserId,
+          cap.id) instead of configStore.get(`capability.<id>`). Add fallback:
+          if userConfig is null AND tinoUserId === bootstrapAdminTinoUserId,
+          fall back to configStore.get(`capability.<id>`) and JSON.parse.
+          Same change applied to getActiveCapabilities(tinoUserId).
+          Add `userCapStore: UserCapabilityStore` and
+          `bootstrapAdminTinoUserId: string` to RegistryOptions.
+      - path: packages/core/src/index.ts
+        isNew: false
+        change: |
+          Pass `userCapabilities: persistence.userCapabilities` and
+          `bootstrapAdminTinoUserId: <resolved-from-identityResolver-at-startup>`
+          into initCapabilityRegistry. Resolve the bootstrap admin once at
+          startup (after migration runs) and cache it.
+    tests:
+      - packages/core/tests/integration/wave2-migration.test.ts
+    verify: bun --bun ./node_modules/vitest/dist/cli.js run packages/core/tests/integration/wave2-migration.test.ts
+    mirror: packages/core/src/capabilities/registry.ts
+    context: |
+      // packages/core/src/capabilities/registry.ts — current init loop
+      // (each PrivateCapability's buildToolsForUser will be invoked from inside
+      // the loop after wave 1; wave 2 changes the SOURCE of `userConfig`):
+      //
+      //   for (const cap of ALL_CAPABILITIES) {
+      //     const raw = await configStore.get(`capability.${cap.id}`);     // wave 1 transitional
+      //     // ... parse, skip-if-disabled, registerTools / buildToolsForUser ...
+      //   }
+      //
+      // Wave 2 replaces `configStore.get(`capability.${cap.id}`)` with
+      // `userCapStore.get(tinoUserId, cap.id)` for cap.scope === 'private',
+      // PLUS the bootstrap-admin fallback. Shared capabilities still read from
+      // configStore (they're shared by definition; not in scope for wave 2).
+    conventions: |
+      Mutable closure-captured tools/state buckets (matches existing
+      registry.ts shape). Per-capability try/catch — one capability's failure
+      must not break the registry. SYSTEM_USER_ID short-circuit returns {}.
+      Async since userCapStore.get is async.
+
+  - id: a5
+    intent: |
+      The console exposes per-user capability management — list, configure
+      (PUT encrypts on write), disconnect (DELETE), OAuth start, OAuth
+      callback (encrypts and stores refresh token). Every route resolves
+      c.get('user').email → tinoUserId via identityResolver. Unauthenticated
+      or unresolvable users get 401. The console UI ships a "Your capabilities"
+      page distinct from the org page; the org page hides private-scoped
+      capabilities and links to the new page.
+    checked: true
+    files:
+      - path: packages/core/src/server/routes/user-capabilities.ts
+        isNew: true
+        change: |
+          createUserCapabilityRoutes({ userCapStore, identityResolver, oauthClients,
+          logger }). Routes:
+          - GET  /             → list user's connected private capabilities
+          - PUT  /:capId       → set/update config (encrypts credentials)
+          - DELETE /:capId     → disconnect
+          - GET  /:capId/oauth/start    → start OAuth (gmail, calendar)
+          - GET  /:capId/oauth/callback → finish OAuth, encrypt + store refresh_token
+          Each handler reads c.get('user'), calls identityResolver.resolveGoogle(
+          user.email). 401 if no user. 404 if resolveGoogle returns null. The PUT
+          handler validates the body shape against the capability's fieldSchema
+          before calling userCapStore.set.
+      - path: packages/core/src/server/index.ts
+        isNew: false
+        change: |
+          Mount the new router under /api/me/capabilities. Pass userCapStore +
+          identityResolver from the persistence factory through the createApp
+          options.
+      - path: packages/core/src/console-app/pages/MyCapabilities.tsx
+        isNew: true
+        change: |
+          New "Your capabilities" page. One CapabilityCard per PrivateCapability:
+          gmail (Connect Gmail OAuth button → "Connected as <email>" + Disconnect),
+          slack-personal (xoxp- token paste field with help link; on save, validate
+          server-side via auth.test), calendar (same OAuth flow as gmail). Reuse
+          the existing CapabilityCard layout from components/CapabilityCard.tsx
+          so the visual language matches.
+      - path: packages/core/src/console-app/App.tsx
+        isNew: false
+        change: |
+          Add the route `<Route path="/me/capabilities" element={<MyCapabilities />} />`
+          inside the existing <Routes> block. The current AppRouter selects
+          between Login/Setup/Console; MyCapabilities is a peer of Console but
+          gated by the same auth check.
+      - path: packages/core/src/console-app/components/Header.tsx
+        isNew: false
+        change: |
+          Add a "Your capabilities" nav link in the header (between the
+          status indicator and the user-email block). Use an <a href> or a
+          react-router <Link>, matching whatever style the existing header
+          uses. No-op when session is null.
+      - path: packages/core/src/console-app/pages/Console.tsx
+        isNew: false
+        change: |
+          The existing console becomes the org/shared capabilities page (in
+          addition to its current setup/Slack-config role). Filter out
+          private-scoped capabilities from the capabilities grid. Add a
+          banner/footnote pointing to /me/capabilities for personal
+          capabilities. Reads `cap.scope` from each capability view (the
+          GET /api/capabilities response should now include scope so the
+          client can filter).
+      - path: packages/core/src/server/routes/capabilities.ts
+        isNew: false
+        change: |
+          buildCapabilityView(...) now includes `scope: cap.scope` on the
+          response (so the console can filter). Also: filter private-scoped
+          capabilities out of the GET /api/capabilities response — they have
+          their own /api/me/capabilities endpoint now. (Confirm during build
+          whether to keep them with scope='private' for backwards-compat or
+          omit entirely.)
+      - path: packages/core/tests/server/user-capabilities-routes.test.ts
+        isNew: true
+        change: |
+          Hono-app route tests. Cases:
+          (1) GET /api/me/capabilities returns the requesting user's capabilities;
+          (2) PUT /api/me/capabilities/:capId encrypts and stores credentials
+              (assert userCapStore.set was called with plaintext, retrieving via
+              get returns the same plaintext);
+          (3) DELETE /api/me/capabilities/:capId removes the entry;
+          (4) OAuth callback stores the encrypted refresh_token (mocked OAuth
+              provider returns a fake refresh token; assert it round-trips
+              through userCapStore.set/get);
+          (5) unauthenticated → 401;
+          (6) authenticated but identityResolver returns null → 404.
+          Use an in-memory UserCapabilityStore (createSqliteUserCapabilityStore
+          with a tmp dbPath + LocalCryptoAdapter). Mocked OAuth providers.
+    tests:
+      - packages/core/tests/server/user-capabilities-routes.test.ts
+    verify: bun --bun ./node_modules/vitest/dist/cli.js run packages/core/tests/server/user-capabilities-routes.test.ts
+    mirror: packages/core/src/server/routes/capabilities.ts
+    context: |
+      // packages/core/src/server/routes/capabilities.ts — existing pattern
+      // (mirror this for /api/me/capabilities):
+      //
+      //   export function createCapabilityRoutes(opts: { config; logger }): Hono {
+      //     const app = new Hono();
+      //     app.get("/", async (c) => { ... config.list() ... });
+      //     app.put("/:id", async (c) => {
+      //       const id = decodeURIComponent(c.req.param("id"));
+      //       const parsed = await c.req.json();
+      //       const cap = findCapability(id);
+      //       const next = buildConfigFromPayload(cap, parsed, existing);
+      //       await config.set(`capability.${id}`, next);
+      //       return c.json({ ok: true, id });
+      //     });
+      //     return app;
+      //   }
+      //
+      // packages/core/src/server/middleware/auth.ts — c.get('user') shape:
+      //   c.set("user", { id: session.user.id, email: session.user.email,
+      //                   name: session.user.name });
+      //
+      // The new routes resolve user.email → tinoUserId via identityResolver
+      // (wave 0). Unauthenticated → 401 (auth middleware already enforces this
+      // for /api/* paths); resolveGoogle returns null → 404.
+    conventions: |
+      Hono router per route group; mounted from `packages/core/src/server/index.ts`.
+      JSON request bodies via `await c.req.json()`. Errors as `c.json({ error,
+      message }, status)`. AuthVariables on the Hono context (Variables: AuthVariables).
+      React 19 + react-router v6 (BrowserRouter / Routes / Route). Console pages
+      composed of CapabilityCard + RevealInput + SaveButton building blocks.
+      ToastProvider wraps the app for user feedback. Card style reuses existing
+      design tokens (var(--accent), var(--text-dim), etc.).
+
+  - id: a6
+    intent: |
+      A user's get path cannot accidentally decrypt another user's credentials.
+      Even if a coding bug pointed GetItem at the wrong (userId, capabilityId)
+      partition, the encryption context bound at encrypt-time would not match
+      the context passed at decrypt-time and KMS (or the local AES-GCM AAD
+      check) would reject the operation. This is the cryptographic floor
+      enforcing D4.
+    checked: true
+    files:
+      - path: packages/core/tests/integration/wave2-cross-user-decrypt.test.ts
+        isNew: true
+        change: |
+          (1) Seed userA's gmail credentials via userCapStore.set('userA',
+              'gmail', config);
+          (2) Reach into the underlying storage to grab the raw EnvelopeCiphertext
+              for userA's refreshToken;
+          (3) Call cryptoAdapter.decrypt(envelope, { userId: 'userB',
+              capabilityId: 'gmail', fieldName: 'refreshToken' });
+          (4) Assert it throws (KMS InvalidCiphertext for the kms adapter or
+              auth-tag verification failure for the local adapter).
+          (5) Repeat with mismatched capabilityId and mismatched fieldName.
+          Cover both adapters: parametrize the suite or run twice.
+    tests:
+      - packages/core/tests/integration/wave2-cross-user-decrypt.test.ts
+    verify: bun --bun ./node_modules/vitest/dist/cli.js run packages/core/tests/integration/wave2-cross-user-decrypt.test.ts
+    mirror: packages/core/tests/crypto/local-adapter.test.ts
+    context: |
+      // The defense-in-depth guarantee comes from TWO places:
+      //
+      //   1. KMS EncryptionContext (production): if you call DecryptCommand with
+      //      a different EncryptionContext than was passed to GenerateDataKey,
+      //      the API returns InvalidCiphertextException. Cryptographically
+      //      enforced — the data key is bound to the context at the AWS API.
+      //
+      //   2. AES-GCM AAD (both adapters): cipher.setAAD(JSON.stringify(ctx))
+      //      means the auth tag is a function of (key, IV, plaintext, ctx).
+      //      A different ctx → tag mismatch → decipher.final() throws.
+      //
+      // The test demonstrates both layers work even if the application code
+      // were buggy. Its existence is part of the security review evidence.
+    conventions: |
+      vitest. Reach into the storage adapter via either a `getRawEnvelope` test
+      helper or by reading the underlying sqlite/dynamo entry directly. Same
+      approach used in audit/dynamo tests for direct table inspection.
+
+  - id: a7
+    intent: |
+      The KMS key policy requires userId AND capabilityId in the EncryptionContext
+      for any kms:Decrypt or kms:GenerateDataKey call from the ECS task role.
+      The `Null: { ... 'false' }` condition ensures the keys must be PRESENT
+      (not just any value). Verified via Pulumi preview output. The existing
+      CloudWatch Logs statement (which uses ArnLike on aws:logs:arn) stays
+      unchanged.
+    checked: true
+    files:
+      - path: packages/aws/src/pulumi/tino-service.ts
+        isNew: false
+        change: |
+          Update the kmsKey policy at lines ~374-408 to add a third statement
+          (alongside EnableRootAccountFullAccess and AllowCloudWatchLogs):
+            Sid: 'AllowTaskRoleEncryptDecryptWithUserContext',
+            Effect: 'Allow',
+            Principal: { AWS: taskRoleArn },
+            Action: ['kms:GenerateDataKey', 'kms:Decrypt'],
+            Resource: '*',
+            Condition: {
+              StringLike: {
+                'kms:EncryptionContext:userId': '*',
+                'kms:EncryptionContext:capabilityId': '*',
+              },
+              Null: {
+                'kms:EncryptionContext:userId': 'false',
+                'kms:EncryptionContext:capabilityId': 'false',
+              },
+            }
+          The taskRoleArn must be available at the kmsKey construction site —
+          it currently isn't (taskRole is built later, around line 707). Fix:
+          either move kmsKey construction below taskRole or use a pulumi.Output
+          forward reference. Also remove the corresponding kms:* permissions
+          from the task role's inline policy (lines 783-787) since those will
+          now be granted via the key policy instead, OR keep them and rely on
+          the AND of identity+resource policy (verify with Pulumi preview).
+      - path: packages/aws/tests/pulumi/kms-policy.test.ts
+        isNew: true
+        change: |
+          Use pulumi.runtime.setMocks to render the kmsKey policy. Cases:
+          (1) policy contains a statement requiring 'kms:EncryptionContext:userId'
+              via Null: false condition;
+          (2) policy contains a statement requiring 'kms:EncryptionContext:capabilityId'
+              via Null: false condition;
+          (3) the existing AllowCloudWatchLogs statement is unchanged
+              (snapshot or specific assertion);
+          (4) the EnableRootAccountFullAccess statement is unchanged.
+    tests:
+      - packages/aws/tests/pulumi/kms-policy.test.ts
+    verify: bun --bun ./node_modules/vitest/dist/cli.js run packages/aws/tests/pulumi/kms-policy.test.ts
+    mirror: packages/aws/src/pulumi/tino-service.ts
+    context: |
+      // packages/aws/src/pulumi/tino-service.ts:374-408 — current kmsKey policy
+      // (only two statements; wave 2 adds a third for the task role):
+      //
+      //   const kmsKey = new aws.kms.Key(`${name}-kms`, {
+      //     description: `tino encryption key (${name})`,
+      //     enableKeyRotation: true,
+      //     policy: pulumi.all([accountId, currentRegion.name]).apply(([acctId, region]) =>
+      //       JSON.stringify({
+      //         Version: "2012-10-17",
+      //         Statement: [
+      //           { Sid: "EnableRootAccountFullAccess", Effect: "Allow",
+      //             Principal: { AWS: `arn:aws:iam::${acctId}:root` },
+      //             Action: "kms:*", Resource: "*" },
+      //           { Sid: "AllowCloudWatchLogs", Effect: "Allow",
+      //             Principal: { Service: `logs.${region}.amazonaws.com` },
+      //             Action: ["kms:Encrypt", "kms:Decrypt", "kms:ReEncrypt*",
+      //                      "kms:GenerateDataKey*", "kms:DescribeKey"],
+      //             Resource: "*",
+      //             Condition: { ArnLike: {
+      //               "kms:EncryptionContext:aws:logs:arn":
+      //                 `arn:aws:logs:${region}:${acctId}:log-group:*` } } },
+      //         ],
+      //       }),
+      //     ),
+      //     tags,
+      //   });
+      //
+      // Task-role inline policy at lines 783-787 currently grants
+      //   Action: ["kms:Encrypt", "kms:Decrypt", "kms:GenerateDataKey"]
+      //   Resource: [kmsArn]
+      // unconditionally. Wave 2 either constrains it with the same Null:false
+      // condition OR (preferred) moves the constraint to the key policy and
+      // leaves the identity policy permissive — IAM AND-evaluates the two.
+    conventions: |
+      Pulumi v3 + @pulumi/aws. Pulumi.all([...]).apply(...) for multi-output
+      composition. JSON.stringify the policy document. tags object passed to
+      every resource. pulumi.runtime.setMocks for unit tests of resource
+      properties.
+
+  - id: a8
+    intent: |
+      The history-writer seam exists and is the single path through which
+      tool results enter HISTORY#<userId>. The default PrivacyFilter persists
+      every tool result body unchanged (wave-2 behavior). A stubbed filter
+      returning persist:false causes the placeholder to be written in the
+      body's place. Direct writes from anywhere else are blocked at the
+      module-boundary level (raw history-store mutators are not exported,
+      enforced by an eslint/biome rule).
+    checked: true
+    files:
+      - path: packages/core/src/agent/history-appender.ts
+        isNew: true
+        change: |
+          Define ToolResultPlaceholder, Decision, PrivacyFilter, ToolResultAppender
+          types. Export defaultPrivacyFilter ({ evaluate: () => ({ persist: true }) }).
+          Export createHistoryAppender({ history, privacyFilter, logger }) that
+          returns a ToolResultAppender. appendToolResult({ userId, capabilityId,
+          toolName, toolArgs, toolResult }):
+            const decision = privacyFilter.evaluate({ capabilityId, toolName, toolArgs, toolResult });
+            const body = decision.persist ? toolResult : decision.placeholder;
+            await history.append(userId, [{ role: 'tool', content: [{ type: 'tool-result', toolName, result: body }] }]);
+          (Verify the exact ModelMessage tool-result shape vs the AI SDK's
+          types — current run.ts appends `result.response.messages` directly
+          which already has the tool-result shape; the new helper constructs
+          the same shape from the decomposed inputs.)
+      - path: packages/core/src/agent/run.ts
+        isNew: false
+        change: |
+          Replace the direct `history.append(userId, result.response.messages)`
+          on line 52 with a loop over result.steps[].toolResults that calls
+          appendToolResult for each tool-result, plus a separate path for
+          assistant messages (which still call history.append directly — the
+          seam is for TOOL RESULTS specifically). Take the historyAppender
+          via RunAgentParams (or via a constructor in the registry).
+      - path: packages/core/src/index.ts
+        isNew: false
+        change: |
+          Construct historyAppender = createHistoryAppender({ history,
+          privacyFilter: defaultPrivacyFilter, logger }) at startup, pass it
+          into runAgent.
+      - path: packages/core/src/agent/history.ts
+        isNew: false
+        change: |
+          Mark the raw `append` mutator as @internal in JSDoc. Add an
+          eslint/biome rule (in the package's lint config — confirm the
+          mechanism during build) that blocks imports of `agent/history`
+          outside of `agent/history-appender.ts` and the persistence factory.
+          Existing call sites (slack/app.ts, run.ts) migrate to use the
+          appender.
+      - path: packages/core/tests/agent/history-appender.test.ts
+        isNew: true
+        change: |
+          (1) appendToolResult with defaultPrivacyFilter writes a tool-result
+              message containing the original toolResult body to history;
+          (2) appendToolResult with a stub filter that returns
+              { persist: false, placeholder: { type: 'redacted', reason: 'test',
+              metadata: {} } } writes the PLACEHOLDER, not the body;
+          (3) lint/structural test: import of `../agent/history` from outside
+              the allowed list of files fails (or a synthetic source file
+              with such an import fails biome check).
+    tests:
+      - packages/core/tests/agent/history-appender.test.ts
+    verify: bun --bun ./node_modules/vitest/dist/cli.js run packages/core/tests/agent/history-appender.test.ts
+    mirror: packages/core/src/agent/run.ts
+    context: |
+      // packages/core/src/agent/run.ts:37-52 — current tool-result write path
+      // (this is what the seam replaces):
+      //
+      //   await history.append(userId, [{ role: "user", content: text }]);
+      //   const result = await generateText({ ... tools, ... });
+      //   await history.append(userId, result.response.messages);   // <-- seam
+      //
+      // result.response.messages contains BOTH assistant messages and
+      // tool-result messages interleaved. The wave-2 seam pulls the
+      // tool-result subset out and routes them through appendToolResult so
+      // wave 3.5's filter can see capabilityId/toolName/toolArgs/toolResult
+      // per-call. Assistant messages still go through history.append directly.
+      //
+      // packages/core/src/agent/history.ts current shape:
+      //   export interface HistoryStore {
+      //     get(userId: string): Promise<ModelMessage[]>;
+      //     append(userId: string, msgs: ModelMessage[]): Promise<void>;
+      //     reset(userId: string): Promise<void>;
+      //   }
+    conventions: |
+      Discriminated union for Decision (persist: true | persist: false). Pure
+      function for the filter (no I/O). The appender takes its dependencies
+      via factory (createHistoryAppender) — same pattern as
+      createCapabilityRoutes, createPersistence. Test the lint/boundary rule
+      either by snapshot of the lint config or via a synthetic-source
+      compile-time test.
+
+  - id: a9
+    intent: |
+      All existing tests continue to pass. The wave 2 changes introduce no
+      regressions in the existing ~314-test suite. Existing capability/registry
+      tests are updated to inject the new userCapStore + cryptoAdapter where
+      needed; existing crypto/envelope tests are deprecated alongside the
+      old envelope.ts (or the old API is re-exported as a thin wrapper over
+      the new CryptoAdapter for one transitional release).
+    checked: true
+    files:
+      - path: packages/core/tests/capabilities/registry.test.ts
+        isNew: false
+        change: |
+          Update tests to construct an in-memory UserCapabilityStore and
+          pass it via RegistryOptions. Update buildPrivateTools assertions
+          to seed creds into userCapStore (not configStore). Add
+          bootstrap-admin fallback tests:
+          (1) buildPrivateTools(BOT_OWNER) with creds in userCapStore
+              returns gmail tools;
+          (2) buildPrivateTools(BOT_OWNER) with creds ONLY in global blob
+              still returns gmail tools (fallback path);
+          (3) buildPrivateTools(NON_BOOTSTRAP_USER) with creds ONLY in
+              global blob returns no gmail tools (fallback does not fire).
+      - path: packages/aws/tests/encryption/envelope.test.ts
+        isNew: false
+        change: |
+          (If the file exists for the old EncryptedValue/encryptValue
+          helper:) either delete (replaced by kms-adapter tests) or keep
+          and update once the old envelope.ts is removed. Confirm during
+          build whether the old API has external callers; if not, delete
+          envelope.ts + provider.ts in this wave.
+    tests:
+      - "*"
+    verify: bun --bun ./node_modules/vitest/dist/cli.js run
+    mirror: packages/core/tests/capabilities/registry.test.ts
+    context: |
+      // The existing test surface includes:
+      //   packages/core/tests/persistence/{config,preferences,sqlite-history,tasks}.test.ts
+      //   packages/core/tests/server/{auth-middleware,capability-routes,reload-routes,...}.test.ts
+      //   packages/core/tests/capabilities/registry.test.ts (likely added in wave 1)
+      //   packages/core/tests/agent/...
+      //   packages/aws/tests/encryption/{envelope,provider}.test.ts (existing)
+      //
+      // Wave 2 changes that ripple into these:
+      //   - Persistence factory has a new userCapabilities field — any test
+      //     that constructs a Persistence object inline must add it.
+      //   - createDynamoPersistence accepts a CryptoAdapter — tests using it
+      //     must pass a LocalCryptoAdapter.
+      //   - registry.ts requires userCapStore + bootstrapAdminTinoUserId in
+      //     RegistryOptions.
+      //   - The /api/capabilities GET response now filters out private-scoped
+      //     capabilities — capability-routes.test.ts must adapt.
+    conventions: |
+      vitest. Test helpers under `tests/_helpers.ts` (per-package). In-memory
+      adapters constructed per-test (no shared state). beforeEach { vi.clearAllMocks() }.
+      Use createSqliteUserCapabilityStore({ dbPath: ':memory:', crypto:
+      createLocalCryptoAdapter({ devKey: 'test' }) }) for tests touching the
+      user-capability surface.

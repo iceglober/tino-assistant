@@ -1,0 +1,626 @@
+# spec/wave_4.yaml
+# Wave 4: admin/member roles + audit visibility.
+#
+# Layers role-based access control on top of wave-3's multi-user system:
+#  - polishes wave-3's minimal admin pages into a real user-management UI
+#  - exposes audit-log visibility (admins see all; members see their own)
+#  - adds a role_change audit action and a "you cannot demote yourself /
+#    the last admin" foot-gun guard on user-update
+#  - middleware reads `role` from the live user record on every request so
+#    a demoted admin loses access on the very next request (no session
+#    refresh needed)
+#
+# IMPORTANT — depends on waves 0, 1, 2, 3:
+#   - users.update(id, patch) with ConditionExpression (wave 0 / 3)
+#   - identityResolver.* helpers (wave 0)
+#   - auth middleware stashing { id, role, status } on c.get('user')   (wave 3)
+#   - requireAdmin() middleware                                         (wave 3)
+#   - AuditLogger.query(opts) interface                                 (wave 3)
+#   - DynamoSessionStore for cross-restart persistence                  (wave 3)
+#
+# IMPORTANT — path notes (executor: read carefully — same as wave 3):
+#   - The plan-doc paths `tests/...` map to `packages/core/tests/...` in
+#     this repo (tests are co-located per package). When CREATING real
+#     files use `packages/core/tests/...`.
+#   - The plan-doc paths `packages/core/console-app/src/pages/...` map to
+#     `packages/core/src/console-app/pages/...` (console-app is nested
+#     under src/, not a sibling).
+#   - The plan-doc paths `packages/core/console-app/src/Header.tsx` map to
+#     `packages/core/src/console-app/components/Header.tsx` (an EXISTING
+#     file — modify, do not create a duplicate at a new path).
+#   - The plan-doc says `bun:test`; THIS REPO USES VITEST. Use
+#     `import { describe, it, expect, vi } from "vitest";`. The verify
+#     command `bun run test` is fine — it wraps vitest at the workspace
+#     level.
+#   - There is NO `packages/core/console-app/src/router.tsx` today. Routing
+#     lives in `packages/core/src/console-app/App.tsx` (BrowserRouter +
+#     Routes). The "router.tsx" change in the plan maps to App.tsx.
+#   - There is NO existing `packages/aws/src/persistence/dynamo/audit.ts`.
+#     The dynamo audit-table writer is introduced (or extended) here. The
+#     in-memory logger at `packages/core/src/audit/memory.ts` is the
+#     reference implementation for `query(opts)` semantics.
+
+items:
+  - id: a1
+    intent: |
+      Admin-only routes are server-side enforced. A member's session cannot
+      hit /api/audit, /api/org/users, /api/org/access-control, or
+      /api/capabilities — all return 403. An admin's session can hit all of
+      them. requireAdmin() (wave 3) is the single source of truth; UI gates
+      are convenience only.
+    checked: true
+    files:
+      - path: packages/core/src/server/index.ts
+        isNew: false
+        change: |
+          Confirm requireAdmin() is mounted on every admin route prefix:
+          /api/org/*, /api/users/*, /api/audit/*, /api/capabilities (the
+          org-wide capabilities route — NOT /api/me/capabilities). Add
+          /api/audit to the existing requireAdmin() mounts that wave 3
+          set up. Do NOT mount requireAdmin() on /api/me/* (member-visible)
+          or on /api/auth/* (handled by better-auth).
+      - path: packages/core/src/server/routes/audit.ts
+        isNew: true
+        change: |
+          New Hono router. createAuditRoutes({ auditLogger, users, logger }).
+          GET / returns audit entries. Filtering rules:
+            - Read c.get('user') (set by buildAuthMiddleware in wave 3).
+            - If user.role === 'admin': honour ?userId=, ?action=, ?from=,
+              ?to=, ?limit=, ?cursor= as-is (no forced filter).
+            - If user.role === 'member': force opts.userId = user.id.
+              Other filters still apply on top.
+          Returns { entries: AuditEntry[], nextCursor?: string }. Cursor
+          is opaque (base64-encoded { ts, userId } of the last entry).
+          requireAdmin() is NOT mounted here — the route handles its own
+          role-conditional filtering so members can hit it for their own
+          entries. The /api/audit/* mount in server/index.ts is auth-only
+          (no requireAdmin), and this route enforces the per-role
+          partition internally.
+      - path: packages/core/src/server/routes/capabilities.ts
+        isNew: false
+        change: |
+          Wave 4 adds a 403 boundary for the org-capabilities route. This
+          file already exists from prior waves. Find the route handler(s)
+          that mutate org-wide state (anything that currently relies on
+          requireAdmin via the index.ts mount) — no change needed in this
+          file IF requireAdmin is mounted at the prefix level in server/
+          index.ts. If any sub-route needs member access (e.g. a read-only
+          GET), split it into /api/me/capabilities (member-allowed) and
+          /api/capabilities (admin-only). Confirm via the existing tests
+          which routes currently expect requireAdmin behaviour.
+    tests:
+      - packages/core/tests/integration/wave4-role-enforcement.test.ts::"member is rejected from admin routes"
+      - packages/core/tests/integration/wave4-role-enforcement.test.ts::"admin can access admin routes"
+    verify: bun run --filter @tino/core test tests/integration/wave4-role-enforcement.test.ts
+    mirror: packages/core/src/server/middleware/auth.ts
+    context: |
+      // packages/core/src/server/routes/admin.ts:24-52 — Hono factory pattern to mirror
+      export function createAdminRoutes(opts: {
+        logger: AppLogger;
+        auditLogger: AuditLogger | undefined;
+        shutdown: (signal: string) => Promise<void> | void;
+      }): Hono {
+        const app = new Hono();
+        const { logger, auditLogger, shutdown } = opts;
+
+        app.post("/restart", async (c) => {
+          if (auditLogger) {
+            await auditLogger.log({
+              userId: "console",
+              action: "admin_restart",
+              status: "success",
+            });
+          }
+          // ...
+        });
+        return app;
+      }
+    conventions: |
+      - Hono routes return `c.json(payload, status)`. Error shape:
+        `c.json({ error: 'forbidden', message: '...' }, 403)`.
+      - requireAdmin() lives in `packages/core/src/server/middleware/
+        require-admin.ts` (wave 3). Use it via `app.use('/api/audit/*',
+        requireAdmin())` in server/index.ts — NOT inside the router itself
+        unless you need per-route partial gating.
+      - `c.get('user')` returns the AuthVariables.user shape extended in
+        wave 3: { id, email, name?, role, status, slackUserId? }.
+      - 403 for role failures, 401 for missing session, 400 for
+        validation failures. Match the existing tone in routes/users.ts.
+
+  - id: a2
+    intent: |
+      The audit route returns all entries for admins and only the
+      requesting user's entries for members. Filters by user, action, and
+      date range work, with cursor-based pagination.
+    checked: true
+    files:
+      - path: packages/core/src/server/routes/audit.ts
+        isNew: true
+        change: |
+          GET / handler:
+            const me = c.get('user');
+            const q = c.req.query();
+            const opts: AuditQueryOptions = {
+              userId: me.role === 'admin' ? q.userId : me.id, // member is locked to self
+              action: q.action,
+              since: q.from ? Number(q.from) : undefined,
+              limit: q.limit ? Math.min(Number(q.limit), 100) : 50,
+            };
+            // 'to' is not in AuditQueryOptions yet — extend the
+            // interface (see audit/logger.ts edit below) to add an
+            // optional `until?: number`. Apply it via a post-filter
+            // in the memory implementation; in dynamo, narrow the
+            // sort-key range.
+            const entries = await auditLogger.query(opts);
+            // Build cursor: if we hit the limit, return the
+            // base64-encoded { ts: lastEntry.timestamp, userId:
+            // lastEntry.userId } of the last entry as `nextCursor`.
+            return c.json({ entries, nextCursor });
+          When ?cursor= is present, decode it and pass to the query as
+          an additional `before?: { timestamp; userId }` option. The
+          memory implementation can sort+slice; the dynamo
+          implementation translates it into ExclusiveStartKey.
+      - path: packages/core/src/audit/logger.ts
+        isNew: false
+        change: |
+          Extend AuditQueryOptions:
+            export interface AuditQueryOptions {
+              userId?: string;
+              action?: string;
+              since?: number;
+              until?: number;     // NEW — upper-bound timestamp
+              limit?: number;
+              before?: { timestamp: number; userId: string }; // NEW — pagination cursor
+            }
+          Add `'role_change'` to the AuditEntry.action union (line 17-26).
+          Wave 3 already added `user_provisioned`; do not duplicate.
+      - path: packages/core/src/audit/memory.ts
+        isNew: false
+        change: |
+          Honour the new fields:
+            if (opts.until !== undefined) result = result.filter(e => e.timestamp <= opts.until);
+            if (opts.before !== undefined) result = result.filter(e =>
+              e.timestamp < opts.before.timestamp ||
+              (e.timestamp === opts.before.timestamp && e.userId < opts.before.userId)
+            );
+          (memory.ts already sorts newest-first; the `before` predicate
+          must match that ordering.)
+      - path: packages/aws/src/persistence/dynamo/audit.ts
+        isNew: true
+        change: |
+          NEW dynamo audit logger. Mirror packages/aws/src/persistence/
+          dynamo/preferences.ts for the TinoTable factory shape. Schema:
+            pk = "AUDIT"
+            sk = `${timestamp}#${userId}`
+            gsi1pk = `AUDIT_USER#${userId}`
+            gsi1sk = `${timestamp}`
+            (audit fields: action, toolName, status, errorMessage, etc.)
+          query(opts):
+            - admin no userId  -> Query on pk='AUDIT' with sk-range,
+              honouring since/until/limit/before
+            - userId provided  -> Query on gsi1 (gsi1pk='AUDIT_USER#'+userId)
+              with same sk-range filters
+          Backfill: ACCEPTED PARTIAL — only entries written after wave 4
+          deploys carry gsi1pk/gsi1sk. Older entries are still in the
+          table; they're returned by the no-userId admin query path but
+          NOT by the gsi1 path. Document this in the file's header
+          comment so a future maintainer doesn't go hunting.
+      - path: packages/aws/src/pulumi/tino-service.ts
+        isNew: false
+        change: |
+          Add a GSI to the audit DynamoDB table:
+            globalSecondaryIndexes: [{
+              name: 'gsi1',
+              hashKey: 'gsi1pk',
+              rangeKey: 'gsi1sk',
+              projectionType: 'ALL',
+            }]
+          And add 'gsi1pk' and 'gsi1sk' to the table's `attributes` block.
+          Pulumi update is an in-place change for GSI add; safe.
+    tests:
+      - packages/core/tests/server/audit-routes.test.ts::"admin sees all entries with no filter"
+      - packages/core/tests/server/audit-routes.test.ts::"member sees only their own entries"
+      - packages/core/tests/server/audit-routes.test.ts::"filter by user returns only that user"
+      - packages/core/tests/server/audit-routes.test.ts::"filter by action returns only that action"
+      - packages/core/tests/server/audit-routes.test.ts::"pagination cursor returns next page"
+    verify: bun run --filter @tino/core test tests/server/audit-routes.test.ts
+    mirror: packages/core/src/audit/memory.ts
+    context: |
+      // packages/core/src/audit/logger.ts — current shape (extend, do not replace)
+      export interface AuditEntry {
+        timestamp: number;
+        userId: string;
+        action:
+          | "tool_call"
+          | "config_change"
+          | "login"
+          | "capability_toggle"
+          | "task_scheduled"
+          | "task_executed"
+          | "injection_suspected"
+          | "user_deprovisioned"
+          | "admin_restart";
+          // wave 3 added: "user_provisioned"
+          // wave 4 adds: "role_change"
+        toolName?: string;
+        capabilityInstanceId?: string;
+        inputKeys?: string[];
+        durationMs?: number;
+        status: "success" | "error" | "denied";
+        errorMessage?: string;
+      }
+
+      export interface AuditQueryOptions {
+        userId?: string;
+        action?: string;
+        since?: number;
+        limit?: number;
+      }
+
+      // packages/core/src/audit/memory.ts — reference query() implementation to mirror
+      async query(opts: AuditQueryOptions): Promise<AuditEntry[]> {
+        let result = entries.slice();
+        if (opts.userId !== undefined) result = result.filter(e => e.userId === opts.userId);
+        if (opts.action !== undefined) result = result.filter(e => e.action === opts.action);
+        if (opts.since !== undefined) result = result.filter(e => e.timestamp >= (opts.since as number));
+        result.sort((a, b) => b.timestamp - a.timestamp);
+        if (opts.limit !== undefined && opts.limit > 0) result = result.slice(0, opts.limit);
+        return result;
+      }
+    conventions: |
+      - Cursor encoding: base64(JSON.stringify({ ts, userId })). Decode
+        defensively — bad cursor → 400 with "invalid cursor".
+      - Query limit cap: clamp to <= 100 server-side regardless of what
+        the client requests. Default 50.
+      - Action filter on the audit route is a single string equality, not
+        a regex. The dropdown in the UI should pass the canonical action
+        name verbatim.
+      - 'role_change' AuditEntry encodes the diff in errorMessage as
+        JSON: `{ targetUserId, oldRole, newRole, actorUserId }`. This is
+        a documented misuse of errorMessage (see open-questions §3 in
+        wave_4.md) — a typed `details` field is a follow-up.
+
+  - id: a3
+    intent: |
+      Role changes are guarded against foot-guns and audited. An admin
+      cannot demote themselves; an admin cannot demote the last remaining
+      admin; every role change emits a role_change audit entry with
+      actorUserId, targetUserId, oldRole, newRole.
+    checked: true
+    files:
+      - path: packages/core/src/server/routes/users.ts
+        isNew: false
+        change: |
+          Add new handlers to the existing createUsersRoutes factory.
+          Wave 3 / 3.5 already mounted POST /api/org/users (provisioning)
+          and DELETE /api/users/:userId (deprovision). Add:
+
+            GET /            -> admin-only via requireAdmin at the mount;
+                                returns users.list(): all users with
+                                role + status. Shape:
+                                { users: [{ id, email, name?, role, status,
+                                  slackUserId?, lastActivityAt? }] }.
+                                lastActivityAt comes from
+                                auditLogger.query({ userId, limit: 1 })
+                                — fetched in parallel for each user; cap
+                                concurrency to ~10.
+
+            PATCH /:id       -> admin-only. Body: { role?, status? }.
+                                Validation:
+                                  if role && c.get('user').id === id
+                                    -> 400 "you cannot demote yourself;
+                                       ask another admin." (only when
+                                       role is changing FROM admin)
+                                  if role === 'member' AND target.role === 'admin':
+                                    const adminCount = await users.countByRole('admin');
+                                    if (adminCount <= 1) -> 400 "cannot
+                                       demote the last admin."
+                                If role changes:
+                                  await auditLogger.log({
+                                    userId: c.get('user').id,
+                                    action: 'role_change',
+                                    status: 'success',
+                                    errorMessage: JSON.stringify({
+                                      targetUserId: id, oldRole, newRole,
+                                      actorUserId: c.get('user').id,
+                                    }),
+                                  });
+                                Then users.update(id, patch).
+
+            DELETE /:id      -> admin-only. Soft-delete: set
+                                status='suspended' AND clear
+                                slackUserId. (Note: the existing
+                                DELETE handler at users.ts:24-52 already
+                                does the deactivation for the OLD
+                                user-key shape; modernise it to use
+                                users.update where wave 0/3's user
+                                store now lives. Audit action stays
+                                'user_deprovisioned'.)
+      - path: packages/core/src/persistence/users.ts
+        isNew: false
+        change: |
+          Add `countByRole(role: 'admin' | 'member'): Promise<number>` to
+          the UsersStore interface and both backends (memory + dynamo).
+          For the dynamo backend, scan with a FilterExpression on role
+          (acceptable — admin count is small and called only on
+          demote-attempt). For memory, a simple .filter().length.
+    tests:
+      - packages/core/tests/server/users-routes.test.ts::"admin cannot demote self"
+      - packages/core/tests/server/users-routes.test.ts::"cannot demote the last admin"
+      - packages/core/tests/server/users-routes.test.ts::"role change emits role_change audit entry"
+    verify: bun run --filter @tino/core test tests/server/users-routes.test.ts
+    mirror: packages/core/src/server/routes/users.ts
+    context: |
+      // packages/core/src/server/routes/users.ts — existing factory to extend
+      export function createUsersRoutes(opts: {
+        config: ConfigStore;
+        logger: AppLogger;
+        auditLogger: AuditLogger | undefined;
+      }): Hono {
+        const app = new Hono();
+        const { config, logger, auditLogger } = opts;
+
+        app.delete("/:userId", async (c) => {
+          const targetUserId = decodeURIComponent(c.req.param("userId"));
+          if (!targetUserId) return c.json({ error: "Missing userId" }, 400);
+
+          // 1. Set user status to deactivated
+          await config.set(`user.${targetUserId}.status`, "deactivated");
+          // ... (this is the wave-3 shape; refactor to users.update in wave 4)
+          if (auditLogger) {
+            await auditLogger.log({
+              userId: "console",
+              action: "user_deprovisioned",
+              toolName: targetUserId,
+              status: "success",
+            });
+          }
+          return c.json({ ok: true, userId: targetUserId, status: "deactivated" });
+        });
+        return app;
+      }
+    conventions: |
+      - The createUsersRoutes opts now includes `users: UsersStore` (wave
+        0 surface). Add `users` to the opts and thread it through.
+      - Validation errors return 400 with `{ error: 'cannot_demote_self' }`
+        / `{ error: 'cannot_demote_last_admin' }` shape so the UI can
+        toast the human-readable strings. The `message` field is the
+        prose shown to the operator.
+      - The role_change audit entry's errorMessage MUST be a parseable
+        JSON string (not a free-form sentence). Tests assert
+        `JSON.parse(entry.errorMessage)` and check the four fields.
+      - PATCH only mutates fields explicitly present in the body. Do
+        NOT default missing fields to undefined → erase. Use a partial
+        spread guarded by `Object.prototype.hasOwnProperty.call(body, k)`.
+
+  - id: a4
+    intent: |
+      A demoted user immediately loses admin access on their next
+      request, without needing to log out. The middleware reads role
+      from the live user record on every request rather than caching
+      it in the session token. Per wave_4.md open-questions §3, NO LRU
+      cache ships in this wave (acceptable trade-off for now).
+    checked: true
+    files:
+      - path: packages/core/src/server/middleware/auth.ts
+        isNew: false
+        change: |
+          Verify the wave-3 buildAuthMiddleware re-reads role on each
+          request via `await users.findById(tinoUserId)`. If it caches
+          across requests (e.g. memoised inside a closure), remove the
+          cache. The wave-3 implementation should already do this; wave
+          4 just confirms and adds a regression test.
+
+          If a memoisation was introduced in wave 3 for performance, it
+          must key off (sessionId, requestStart) at most — never longer.
+          For wave 4 the simplest correct shape is:
+
+            const session = await auth.api.getSession(...);
+            if (!session) return c.json({ error: 'unauthorized' }, 401);
+            const tinoUserId = await identityResolver.resolveGoogle(session.user.email);
+            if (!tinoUserId) return c.json({ error: 'forbidden', message: '...' }, 403);
+            const user = await users.findById(tinoUserId); // FRESH on every request
+            if (!user) return c.json({ error: 'forbidden', message: 'not provisioned' }, 403);
+            if (user.status === 'suspended') return c.json({ error: 'forbidden', message: 'access revoked' }, 403);
+            c.set('user', { id: tinoUserId, email: ..., role: user.role, status: user.status, slackUserId: user.slackUserId });
+            await next();
+    tests:
+      - packages/core/tests/integration/wave4-role-enforcement.test.ts::"demoted admin cannot hit admin routes on next request"
+    verify: bun run --filter @tino/core test tests/integration/wave4-role-enforcement.test.ts
+    mirror: packages/core/src/server/middleware/auth.ts
+    context: |
+      // wave 3 spec/wave_3.yaml a6 — middleware-update directive (already shipped)
+      // c.set("user", {
+      //   id: tinoUserId,            // resolved via identityResolver.resolveGoogle
+      //   email: session.user.email,
+      //   name: session.user.name,
+      //   role: user.role,
+      //   status: user.status,
+      //   slackUserId: user.slackUserId,
+      // });
+
+      // The integration test in this item asserts:
+      //  1. Admin session hits /api/org/users -> 200
+      //  2. Out of band: another admin demotes them via PATCH /api/org/users/:id { role: 'member' }
+      //  3. Same session hits /api/org/users -> 403
+      //  No logout, no re-login, no token refresh. Just the next request.
+    conventions: |
+      - "live user record on every request" means literally a fresh
+        users.findById call in the middleware. The dynamo round-trip
+        adds ~5-10ms per authenticated request — acceptable for wave
+        4 per the open-questions discussion.
+      - DO NOT add an LRU cache here. If the executor is tempted by
+        latency, the user-store layer can cache reads with a short TTL
+        — but that decision is explicitly out of scope for wave 4.
+
+  - id: a5
+    intent: |
+      The console renders different navigation for admins and members.
+      Admin-only pages redirect members away with a clear message.
+      The user's role is read from the better-auth /api/auth/get-session
+      response, which wave 0 extended to include the additional fields.
+    checked: true
+    files:
+      - path: packages/core/src/console-app/components/Header.tsx
+        isNew: false
+        change: |
+          Extend Header props to accept `role: 'admin' | 'member'`
+          (read from session.user.role at the call site). Render the
+          nav set conditionally:
+
+            both:
+              - "Your capabilities"  -> /me/capabilities
+              - "Your activity"      -> /me/activity
+            admin only:
+              - "Org capabilities"   -> /capabilities
+              - "Users"              -> /users
+              - "Audit"              -> /audit
+              - "Access control"     -> /access-control
+
+          Use the existing header CSS classes — do not invent new
+          tokens. Active route gets `aria-current="page"`. The role
+          prop is required (not optional with a default) so a missing
+          value at the call site is a TS error, not a silent
+          admin-rendering bug.
+      - path: packages/core/src/console-app/lib/api.ts
+        isNew: false
+        change: |
+          Extend the Session type:
+            export interface Session {
+              user: {
+                id: string;
+                email: string;
+                name?: string;
+                role: 'admin' | 'member';      // NEW
+                status: 'active' | 'invited' | 'suspended'; // NEW
+              };
+            }
+          The /api/auth/get-session endpoint already returns these
+          fields after wave 0's better-auth `additionalFields`
+          registration. Adjust the local TS type to match.
+      - path: packages/core/src/console-app/App.tsx
+        isNew: false
+        change: |
+          Add new routes inside <Routes>:
+            <Route path="/me/capabilities" element={<MyCapabilities />} />
+            <Route path="/me/activity"     element={<MyActivity />} />
+            <Route path="/users"           element={<RequireRole role="admin"><Users /></RequireRole>} />
+            <Route path="/audit"           element={<RequireRole role="admin"><Audit /></RequireRole>} />
+            <Route path="/access-control"  element={<RequireRole role="admin"><AccessControl /></RequireRole>} />
+            <Route path="/capabilities"    element={<RequireRole role="admin" redirect="/me/capabilities"><Capabilities /></RequireRole>} />
+          Implement <RequireRole> as a small component: read session,
+          if user.role !== required role, navigate to redirect (default
+          /403) with a toast "you don't have access to <page>." Server
+          enforcement is still authoritative; this is a UX nicety.
+      - path: packages/core/src/console-app/pages/MyActivity.tsx
+        isNew: true
+        change: |
+          NEW page. Member-visible "your activity" view. Fetches
+          /api/audit (server-side filtered to this user). Columns:
+          timestamp, action, tool name, status. NO error message
+          column (members shouldn't see internal error strings — those
+          are admin-only).
+      - path: packages/core/src/console-app/pages/Audit.tsx
+        isNew: true
+        change: |
+          NEW page. Admin audit-log viewer. Filterable list:
+          timestamp, user (email + slack handle), action, tool name,
+          status, error message. Filters: user dropdown (populated
+          from GET /api/org/users), action dropdown, date range.
+          Pagination via ?cursor query param. "Live tail" toggle that
+          polls /api/audit every 2 seconds and prepends new entries.
+          Use the existing console card/table CSS — match Console.tsx.
+      - path: packages/core/src/console-app/pages/Users.tsx
+        isNew: true
+        change: |
+          NEW page (wave 3 only had a minimal version; wave 4 ships
+          the polished one). Table: email, name, role, status, last
+          activity. Per-row buttons: "Promote to admin" / "Demote to
+          member", "Suspend" / "Reactivate", "Remove". "Add user"
+          form: email + slack user id + role. Confirmation modal for
+          suspend/remove showing the user's email. Toasts for "cannot
+          demote self" / "cannot demote last admin" via the existing
+          ToastProvider.
+    tests:
+      - packages/core/tests/console-app/header-role-nav.test.tsx::"member nav lacks admin links"
+      - packages/core/tests/console-app/header-role-nav.test.tsx::"admin nav includes admin links"
+    verify: bun run --filter @tino/core test tests/console-app/header-role-nav.test.tsx
+    mirror: packages/core/src/console-app/components/Header.tsx
+    context: |
+      // packages/core/src/console-app/components/Header.tsx:21-29 — current Header signature
+      export function Header({
+        status,
+        session,
+        onSignOut,
+      }: {
+        status: "ok" | "degraded" | "unreachable" | "checking";
+        session: Session | null;
+        onSignOut: () => void;
+      }): JSX.Element {
+        // ... renders logo, status, sign-out, restart ...
+      }
+
+      // packages/core/src/console-app/App.tsx:100-112 — current App routing
+      export function App(): JSX.Element {
+        return (
+          <ToastProvider>
+            <InsecureBanner />
+            <BrowserRouter>
+              <Routes>
+                <Route path="/login" element={<Login />} />
+                <Route path="*" element={<AppRouter />} />
+              </Routes>
+            </BrowserRouter>
+          </ToastProvider>
+        );
+      }
+    conventions: |
+      - React + TS. Functional components, JSX.Element return types,
+        named exports only. No default exports.
+      - State via useState/useEffect; data fetching via the custom
+        hooks in `console-app/hooks/` (mirror useAuth.ts / useConfig.ts
+        pattern). New hook for audit: `useAudit(filters)`.
+      - CSS uses the design tokens in `styles/tokens.css`. Do NOT
+        introduce raw hex values; reuse var(--accent) / var(--bg-*) /
+        var(--text-*) tokens.
+      - Toasts via `useToast()` from `hooks/useToast.tsx` (already
+        used in Console.tsx).
+      - Component tests use vitest + React Testing Library. Existing
+        examples: search packages/core/tests/console-app/ for
+        reference (any *.test.tsx file).
+      - There is NO router.tsx in this codebase — routing lives in
+        App.tsx. Do not create router.tsx; modify App.tsx.
+
+  - id: a6
+    intent: All existing tests continue to pass.
+    checked: true
+    files:
+      - path: packages/core/src/audit/logger.ts
+        isNew: false
+        change: |
+          Sanity check after a2: AuditEntry.action union now contains
+          'role_change' (added in a2). AuditQueryOptions has the new
+          optional `until` and `before` fields (added in a2). No
+          additional changes here for a6.
+      - path: packages/core/src/audit/memory.ts
+        isNew: false
+        change: |
+          Sanity check after a2: query() honours `until` and `before`
+          filters. No additional changes here for a6.
+    tests:
+      - "*"
+    verify: bun run test
+    mirror: packages/core/src/audit/memory.ts
+    context: |
+      // The full test suite is run via `bun run test` which delegates
+      // to `vitest run` per package via the workspace package.json.
+      // After waves 0-3.5, the suite is ~314+ tests. Wave 4 must keep
+      // all of them green and add the new ones (a1-a5 above).
+    conventions: |
+      - "* (all tests)" verify is `bun run test` at repo root.
+      - When a wave-3 test breaks because of a wave-4 schema change
+        (e.g. AuditEntry.action union widened), update the test
+        fixture; do NOT revert the schema change.
+      - When a wave-4 change exposes a latent bug in earlier-wave
+        code, fix the bug (root cause, not symptom). Document in the
+        commit message which earlier wave the bug came from.

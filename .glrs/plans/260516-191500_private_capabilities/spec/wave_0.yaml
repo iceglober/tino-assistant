@@ -1,0 +1,382 @@
+# spec/wave_0.yaml
+# Wave 0: user + identity foundation. Adds tino_user table, identity table,
+# resolver, and one-shot migration from single-user state. Zero behavior change.
+#
+# IMPORTANT path note (verified from codebase):
+#   - Source code lives under `packages/core/src/...` and `packages/aws/src/...`
+#   - Tests live under `packages/core/tests/...` (NOT a top-level `tests/` dir)
+#   - Test runner is **vitest** (not bun:test). Imports: `from "vitest"`.
+#   - Plan markdown writes test paths as `tests/identity/...` — interpret as
+#     `packages/core/tests/identity/...` to match the existing test layout.
+items:
+  - id: "a1"
+    intent: "A new tino user table exists (sqlite + dynamo) and stores the canonical per-user record with role, status, slackUserId, and timestamps. The store interface round-trips users by id and email."
+    checked: false
+    files:
+      - path: packages/core/src/identity/types.ts
+        isNew: true
+        change: "Export TinoUser, Identity, IdentityProvider, ResolvedUserId types and SYSTEM_USER_ID constant."
+      - path: packages/core/src/identity/store.ts
+        isNew: true
+        change: "Define UserStore + IdentityStore interfaces and the sqlite adapter factory (createSqliteUserStore, createSqliteIdentityStore). Tables: tino_user (pk id, idx email), identity (pk (provider, external_id))."
+      - path: packages/aws/src/persistence/dynamo/users.ts
+        isNew: true
+        change: "Dynamo adapter for UserStore. pk='ORG#USER#<tinoUserId>', sk same. Single-row partition."
+      - path: packages/aws/src/persistence/dynamo/identities.ts
+        isNew: true
+        change: "Dynamo adapter for IdentityStore. pk='IDENTITY#<provider>#<externalId>', sk same. Single-row partition."
+      - path: packages/aws/src/persistence/dynamo/entities.ts
+        isNew: false
+        change: "Add createUserEntity() and createIdentityEntity() factories."
+      - path: packages/core/src/persistence/factory.ts
+        isNew: false
+        change: "Add `users: UserStore` and `identities: IdentityStore` to Persistence interface; construct them in both adapter branches."
+    tests:
+      - 'packages/core/tests/identity/store.test.ts::"UserStore round-trips a created user by id"'
+      - 'packages/core/tests/identity/store.test.ts::"UserStore.getByEmail is case-insensitive"'
+      - 'packages/core/tests/identity/store.test.ts::"UserStore.update patches mutable fields"'
+    verify: "bun run --filter @tino/core test tests/identity/store.test.ts"
+    mirror: "packages/core/src/persistence/preferences.ts"
+    context: |
+      // packages/core/src/persistence/preferences.ts — sqlite-store factory pattern
+      // (mirror this shape for createSqliteUserStore/createSqliteIdentityStore)
+      export interface PreferencesStore {
+        get(userId: string, key: string): Promise<string | null>;
+        set(userId: string, key: string, value: string): Promise<void>;
+        list(userId: string): Promise<Array<{ key: string; value: string }>>;
+        delete(userId: string, key: string): Promise<void>;
+      }
+      export function createPreferencesStore({ dbPath }: { dbPath: string }): PreferencesStore {
+        const db = new Database(dbPath);
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS preferences (
+            user_id    TEXT    NOT NULL,
+            key        TEXT    NOT NULL,
+            value      TEXT    NOT NULL,
+            updated_at INTEGER NOT NULL,
+            PRIMARY KEY (user_id, key)
+          )
+        `);
+        const stmtGet = db.query("SELECT value FROM preferences WHERE user_id = ? AND key = ?");
+        // ...prepared statements + return object with async-wrapping methods
+      }
+      //
+      // packages/core/src/persistence/factory.ts — current Persistence interface
+      export interface Persistence {
+        history: HistoryStore;
+        tasks: TaskStore;
+        preferences: PreferencesStore;
+        config: ConfigStore;
+        auditLogger: AuditLogger;
+        // ADD: users: UserStore;
+        // ADD: identities: IdentityStore;
+      }
+    conventions: |
+      - ESM with .js extensions in relative imports (e.g. `from "./types.js"`).
+      - Named exports only; no default exports.
+      - Sqlite stores: bun:sqlite Database, prepared statements at construction,
+        Promise.resolve()-wrapped sync calls so the interface is async.
+      - Dynamo entities: dynamodb-toolbox v2, schema via item({...}), timestamps: false.
+      - Test framework is **vitest** (`import { describe, expect, it, vi } from "vitest"`).
+      - Test file naming: `<feature>.test.ts` under `packages/core/tests/<area>/`.
+      - Persistence factory: dynamic import of @tino/aws to keep SDK out of sqlite path.
+
+  - id: "a2"
+    intent: "A new identity table maps (provider, externalId) → tinoUserId. Linking the same external identity twice is rejected. Listing identities for a user returns all linked providers."
+    checked: false
+    files:
+      - path: packages/core/src/identity/store.ts
+        isNew: true
+        change: "IdentityStore.link must throw on duplicate (provider, externalId) — sqlite UNIQUE constraint on PRIMARY KEY (provider, external_id) provides this; surface as Error."
+      - path: packages/aws/src/persistence/dynamo/identities.ts
+        isNew: true
+        change: "link() must use ConditionExpression `attribute_not_exists(pk)` to fail on duplicate."
+    tests:
+      - 'packages/core/tests/identity/store.test.ts::"IdentityStore.resolve returns null when no link"'
+      - 'packages/core/tests/identity/store.test.ts::"IdentityStore.link rejects duplicate (provider, externalId)"'
+      - 'packages/core/tests/identity/store.test.ts::"IdentityStore.listForUser returns all linked identities"'
+    verify: "bun run --filter @tino/core test tests/identity/store.test.ts"
+    mirror: "packages/aws/src/persistence/dynamo/preferences.ts"
+    context: |
+      // packages/aws/src/persistence/dynamo/preferences.ts — dynamo store pattern
+      // (mirror this for users.ts / identities.ts)
+      export function createDynamoPreferencesStore(table: TinoTable): PreferencesStore {
+        const entity = createPreferenceEntity(table);
+        return {
+          async get(userId: string, key: string): Promise<string | null> {
+            const { Item } = await entity.build(GetItemCommand)
+              .key({ pk: `PREF#${userId}`, sk: `PREF#${key}` })
+              .send();
+            return Item?.value ?? null;
+          },
+          async set(userId, key, value) {
+            await entity.build(PutItemCommand)
+              .item({ pk: `PREF#${userId}`, sk: `PREF#${key}`, value, updatedAt: Date.now() })
+              .send();
+          },
+          // ... list uses table.build(QueryCommand).entities(entity).query({ partition, range: { beginsWith } })
+        };
+      }
+      //
+      // packages/aws/src/persistence/dynamo/entities.ts — entity factory pattern
+      export function createPreferenceEntity(table: TinoTable) {
+        return new Entity({
+          name: "Preference",
+          table,
+          schema: item({
+            pk: string().key(),
+            sk: string().key(),
+            value: string(),
+            updatedAt: number(),
+          }),
+          timestamps: false,
+        });
+      }
+    conventions: |
+      - Dynamo PutItemCommand for create-with-uniqueness uses
+        `.options({ condition: { attr: 'pk', exists: false } })` in toolbox v2.
+      - Sqlite duplicate-key surfaces as a SQLITE_CONSTRAINT exception from
+        bun:sqlite — wrap and rethrow as a typed `IdentityLinkConflictError`
+        (or plain Error with stable message) so tests can assert on it.
+
+  - id: "a3"
+    intent: "The identity resolver resolves a slack user id to a tino-UUID using the identity table; missing links return null without auto-provisioning."
+    checked: false
+    files:
+      - path: packages/core/src/identity/resolver.ts
+        isNew: true
+        change: "Export createIdentityResolver({users, identities, slackClient, logger}) returning {resolveSlack, resolveGoogle, provisionFromSlack}. resolveSlack/resolveGoogle are pure store reads — no slack API calls."
+    tests:
+      - 'packages/core/tests/identity/resolver.test.ts::"resolveSlack returns the linked tinoUserId"'
+      - 'packages/core/tests/identity/resolver.test.ts::"resolveSlack returns null when no link exists"'
+    verify: "bun run --filter @tino/core test tests/identity/resolver.test.ts"
+    mirror: "packages/core/src/capabilities/registry.ts"
+    context: |
+      // NEW file — key signature it must export:
+      // import type { WebClient } from "@slack/web-api";  // for slackClient typing
+      // import type { AppLogger } from "../slack/app.js";
+      // import type { IdentityProvider, TinoUser } from "./types.js";
+      // import type { UserStore, IdentityStore } from "./store.js";
+      //
+      // export interface IdentityResolver {
+      //   resolveSlack(slackUserId: string): Promise<string | null>;
+      //   resolveGoogle(email: string): Promise<string | null>;
+      //   provisionFromSlack(
+      //     slackUserId: string,
+      //     opts: { mode: 'allowlist' | 'org-domain'; orgDomain?: string }
+      //   ): Promise<TinoUser>;
+      // }
+      //
+      // export function createIdentityResolver(opts: {
+      //   users: UserStore;
+      //   identities: IdentityStore;
+      //   slackClient: WebClient;
+      //   logger: AppLogger;
+      // }): IdentityResolver { ... }
+      //
+      // resolveSlack: identities.resolve('slack', slackUserId) → tinoUserId | null
+      // resolveGoogle: identities.resolve('google', email.toLowerCase())
+    conventions: |
+      - Slack web client type: `import { WebClient } from "@slack/web-api"`.
+        Existing code uses `webApi.WebClient` (namespace import); follow that style.
+      - Logger: `AppLogger` from `../slack/app.js`. Methods: `.info()`, `.warn()`, `.error()` — pino-style {fields, msg}.
+      - Email normalization: lowercase before passing to identities.resolve('google', ...).
+
+  - id: "a4"
+    intent: "provisionFromSlack in org-domain mode auto-creates a tino user when the slack email's domain matches the configured org domain, and rejects when it does not."
+    checked: false
+    files:
+      - path: packages/core/src/identity/resolver.ts
+        isNew: true
+        change: "provisionFromSlack: call slackClient.users.info({user: slackUserId}); extract email; if mode='allowlist' throw 'unknown_user' when no link; if mode='org-domain' check email domain matches opts.orgDomain, create user + link slack identity, else throw 'unknown_user'."
+    tests:
+      - 'packages/core/tests/identity/resolver.test.ts::"provisionFromSlack org-domain creates user when domain matches"'
+      - 'packages/core/tests/identity/resolver.test.ts::"provisionFromSlack org-domain rejects when domain does not match"'
+    verify: "bun run --filter @tino/core test tests/identity/resolver.test.ts"
+    mirror: "packages/core/tests/tools/preferences.test.ts"
+    context: |
+      // packages/core/tests/tools/preferences.test.ts — vitest mock pattern (mirror this style)
+      import { describe, expect, it, vi } from "vitest";
+      const makeStore = (overrides: Partial<PreferencesStore> = {}): PreferencesStore => ({
+        get: vi.fn().mockReturnValue(null),
+        set: vi.fn(),
+        list: vi.fn().mockReturnValue([]),
+        delete: vi.fn(),
+        ...overrides,
+      });
+      //
+      // For resolver.test.ts, mock slackClient.users.info:
+      // const slackClient = { users: { info: vi.fn().mockResolvedValue({
+      //   ok: true, user: { id: 'U123', profile: { email: 'a@example.com' } }
+      // })}} as unknown as WebClient;
+    conventions: |
+      - vitest with vi.fn() / .mockReturnValue() / .mockResolvedValue().
+      - When throwing on policy rejection, use `throw new Error('unknown_user')`
+        — tests typically assert via `await expect(fn()).rejects.toThrow(/unknown_user/)`.
+      - Slack users.info return: `{ ok: true, user: { id, profile: { email, real_name } } }`.
+        Treat missing `profile.email` as 'unknown_user'.
+
+  - id: "a5"
+    intent: "provisionFromSlack merges identities — when the slack user's email matches an existing google-linked tino user, the slack identity is linked to that user instead of creating a duplicate. This is the bidirectional-bootstrap correctness property."
+    checked: false
+    files:
+      - path: packages/core/src/identity/resolver.ts
+        isNew: true
+        change: "In provisionFromSlack: after fetching slack email, FIRST call users.getByEmail(email). If a user exists, call identities.link({provider:'slack', externalId:slackUserId, tinoUserId:user.id}) and update users.update(user.id, {slackUserId}). Only create a new user if no email match."
+    tests:
+      - 'packages/core/tests/identity/resolver.test.ts::"provisionFromSlack merges into existing google-linked user when emails match"'
+    verify: "bun run --filter @tino/core test tests/identity/resolver.test.ts"
+    mirror: "packages/core/src/identity/resolver.ts"
+    context: |
+      // Order of operations in provisionFromSlack:
+      // 1. info = await slackClient.users.info({ user: slackUserId })
+      // 2. email = info.user.profile.email.toLowerCase()
+      // 3. existing = await users.getByEmail(email)
+      // 4. if (existing) {
+      //      await identities.link({ provider:'slack', externalId:slackUserId,
+      //                              tinoUserId: existing.id, linkedAt: Date.now() });
+      //      return await users.update(existing.id, { slackUserId });  // denormalized pointer
+      //    }
+      // 5. if (mode==='allowlist') throw new Error('unknown_user');
+      // 6. if (mode==='org-domain') {
+      //      if (email.split('@')[1] !== opts.orgDomain) throw new Error('unknown_user');
+      //      const user = await users.create({ id: crypto.randomUUID(), email, role:'member', ... });
+      //      await identities.link({ provider:'slack', externalId:slackUserId, tinoUserId:user.id, linkedAt:Date.now() });
+      //      return user;
+      //    }
+    conventions: |
+      - UUID generation: `crypto.randomUUID()` (Node 19+ / Bun) — matches packages/core/src/persistence/tasks.ts:2 pattern.
+      - The merge case is the single most error-prone branch; test isolates it.
+
+  - id: "a6"
+    intent: "The one-shot migration creates a tino user from ALLOWED_SLACK_USER_ID (admin role), links slack and google identities, and copies existing slack-id-keyed history, preferences, and tasks under the new tino-UUID partition. Old records remain in place. Second invocation is a no-op."
+    checked: false
+    files:
+      - path: packages/core/src/identity/migration.ts
+        isNew: true
+        change: "Export migrateToUserModel({configStore, users, identities, history, preferences, tasks, slackClient, allowedSlackUserId, logger}). Idempotency via configStore.get('migration.user-model-v1.completedAt') short-circuit."
+      - path: packages/core/src/agent/history.ts
+        isNew: false
+        change: "Add getWithFallback(tinoUserId, slackUserId) that reads tino-UUID partition first then falls back to slack-id partition. Add appendWithFallback that writes only to tino-UUID partition."
+      - path: packages/core/src/persistence/preferences.ts
+        isNew: false
+        change: "Add getWithFallback(tinoUserId, slackUserId, key) reading tino-UUID first then slack-id."
+      - path: packages/core/src/persistence/tasks.ts
+        isNew: false
+        change: "No interface change — migration uses existing listByUser + a new internal updateUserId or direct DB UPDATE. Confirm rewrite is in-place (gsi1 keys on status, not userId, so safe)."
+      - path: packages/core/src/index.ts
+        isNew: false
+        change: "After migrateEnvToCapabilities call, add: await migrateToUserModel({...}) — threading users/identities through Persistence."
+    tests:
+      - 'packages/core/tests/identity/migration.test.ts::"migrateToUserModel creates admin user and links identities"'
+      - 'packages/core/tests/identity/migration.test.ts::"migrateToUserModel copies history under tino-UUID key"'
+      - 'packages/core/tests/identity/migration.test.ts::"migrateToUserModel copies preferences under tino-UUID key"'
+      - 'packages/core/tests/identity/migration.test.ts::"migrateToUserModel rewrites task.userId in place"'
+      - 'packages/core/tests/identity/migration.test.ts::"migrateToUserModel leaves legacy records intact"'
+      - 'packages/core/tests/identity/migration.test.ts::"migrateToUserModel is idempotent on second run"'
+    verify: "bun run --filter @tino/core test tests/identity/migration.test.ts"
+    mirror: "packages/core/src/capabilities/migration.ts"
+    context: |
+      // packages/core/src/capabilities/migration.ts — idempotency + structured-result pattern (mirror this)
+      // One-time migration from env vars to capability configs.
+      // On first startup after the refactor, if the config table has no
+      // `capability.*` keys but the old env vars are set, this function reads
+      // them, constructs capability configs, and writes them to the config table.
+      // Subsequent startups read from the config table only.
+      import type { ConfigStore } from "../persistence/config.js";
+      import type { AppLogger } from "../slack/app.js";
+      export interface MigrationResult { migrated: string[]; skipped: string[]; alreadyPresent: string[]; }
+      // Safe to call on every startup — no-op if capability configs already exist.
+      export async function migrateEnvToCapabilities(env, configStore, logger): Promise<MigrationResult> { ... }
+      //
+      // packages/core/src/index.ts — current call site for env→capability migration:
+      //   await migrateEnvToCapabilities(env, configStore, logger);
+      // ADD AFTER:
+      //   await migrateToUserModel({
+      //     configStore, users: persistence.users, identities: persistence.identities,
+      //     history: persistence.history, preferences: persistence.preferences,
+      //     tasks: persistence.tasks,
+      //     slackClient: new WebClient(env.SLACK_BOT_TOKEN),
+      //     allowedSlackUserId: env.ALLOWED_SLACK_USER_ID, logger,
+      //   });
+      //
+      // packages/core/src/agent/history.ts — current shape (extend with fallbacks):
+      //   export interface HistoryStore {
+      //     get(userId: string): Promise<ModelMessage[]>;
+      //     append(userId: string, msgs: ModelMessage[]): Promise<void>;
+      //     reset(userId: string): Promise<void>;
+      //     // ADD: getWithFallback(tinoUserId: string, slackUserId: string): Promise<ModelMessage[]>;
+      //     // ADD: appendWithFallback(tinoUserId: string, msgs: ModelMessage[]): Promise<void>;
+      //   }
+    conventions: |
+      - Marker key naming: `migration.<name>.completedAt` — JSON-stringified Date.now().
+      - configStore.get returns string|null; values are JSON-stringified, so use
+        configStore.getTyped<number>('migration.user-model-v1.completedAt', 0) if available
+        (see index.ts line 50: `await configStore.getTyped<string>('bedrock.modelId', DEFAULT)`).
+      - Each migration step must be idempotent: create-if-not-exists / link-if-not-linked / copy-if-target-missing.
+      - Task backfill safety: gsi1pk uses TASK_STATUS#<status>, NOT userId, so single-task UpdateItem is safe (entities.ts:43).
+      - Backup tasks BEFORE rewrite: write `migration.tasks-backup.<taskId>` config key (see plan's rollback story).
+
+  - id: "a7"
+    intent: "The bot owner's existing slack DM behavior is unchanged after wave 0 — the same DM still triggers the same agent run, the same tools, the same history. No user-visible change."
+    checked: false
+    files:
+      - path: packages/core/tests/integration/wave0-no-regression.test.ts
+        isNew: true
+        change: "Integration test: post a synthetic Slack DM through the handler with userId=ALLOWED_SLACK_USER_ID, capture runAgent invocation params (model, history, tools, userId, text), diff against a baseline snapshot. Verify runAgent userId is still the slack id (not yet rewritten — rewriting happens in wave 3)."
+    tests:
+      - 'packages/core/tests/integration/wave0-no-regression.test.ts::"bot owner DM produces identical agent invocation as before wave 0"'
+    verify: "bun run --filter @tino/core test tests/integration/wave0-no-regression.test.ts"
+    mirror: "packages/core/tests/slack"
+    context: |
+      // packages/core/src/slack/app.ts — DmHandler shape that the test mocks/captures
+      export type DmHandler = (userId: string, text: string) => Promise<string>;
+      //
+      // packages/core/src/index.ts:175 — current handler wiring (must remain unchanged):
+      //   const handler: DmHandler = async (userId, text) =>
+      //     runAgent({
+      //       model, history, logger,
+      //       tools: registry.tools,
+      //       userId, text, auditLogger,
+      //       activeCapabilities: registry.capabilityIds,
+      //     });
+      //
+      // packages/core/src/slack/app.ts:24 — gate that must NOT widen in wave 0:
+      //   if (m.user !== env.ALLOWED_SLACK_USER_ID) return;
+    conventions: |
+      - Use vitest `vi.fn()` to mock runAgent and capture call args.
+      - Snapshot test pattern: `expect(captured).toMatchInlineSnapshot(...)` or
+        plain `expect(captured.userId).toBe(env.ALLOWED_SLACK_USER_ID)` — prefer
+        explicit assertions over snapshots for stability.
+      - Test must NOT actually start the slack bolt app — construct the handler
+        directly and invoke it.
+
+  - id: "a8"
+    intent: "All existing tests continue to pass. No regression in the 314+-test suite."
+    checked: false
+    files:
+      - path: packages/core/src/persistence/factory.ts
+        isNew: false
+        change: "Audit: the new users/identities fields on Persistence must not break existing test fixtures that construct Persistence inline (search for { history, tasks, preferences, config, auditLogger } literals in tests and add the new fields, or make them optional)."
+    tests:
+      - "*"
+    verify: "bun run test"
+    mirror: "packages/core/tests"
+    context: |
+      // Existing Persistence consumers to audit (any test that builds a fake Persistence):
+      //   packages/core/tests/scheduler/*.test.ts
+      //   packages/core/tests/server/*.test.ts
+      //   packages/core/tests/capabilities/migration.test.ts
+      // Pattern these tests use: construct a partial Persistence-shaped object and
+      // pass into a function. If the function only reads .config / .history /
+      // .preferences, adding new required fields to the interface still breaks
+      // the fixture's type. Make `users` and `identities` REQUIRED on the
+      // interface (the production factory always provides them) but update test
+      // fixtures explicitly — do NOT mark them optional just to dodge typecheck.
+    conventions: |
+      - Top-level test command: `bun test` (root package.json:11 → runs across workspaces).
+      - Per-workspace: `bun run --filter @tino/core test`.
+      - Lint: `bun run lint` (biome).
+      - Typecheck: `bun run typecheck` — must pass before considering done.
+      - Existing test count baseline (per plan): 314+. Re-run full suite after
+        every file's changes to catch fixture drift early.
