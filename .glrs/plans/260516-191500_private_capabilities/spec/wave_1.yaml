@@ -1,423 +1,500 @@
 # spec/wave_1.yaml
 # Wave 1: Capability scope split (shape only).
-# Pure structural refactor — split CapabilityModule into a discriminated union
-# of SharedCapability | PrivateCapability, refactor the registry to expose
-# `sharedTools` (built once at init) and `buildPrivateTools(userId)` (lazy per
-# runAgent), classify each capability, and split slack into shared (xoxb-) and
-# slack-personal (xoxp-). No per-user storage; private capabilities still read
-# the global `capability.<id>` blob in this wave.
-#
-# Note: Test files live under `packages/core/tests/...`, not `tests/...` as
-# the markdown plan suggests. Verify commands below reflect the actual paths.
-# Project uses vitest (run via bun) — see packages/core/package.json:
-#   "test": "bun --bun ./node_modules/vitest/dist/cli.js run"
-
+# Path note: the markdown plan references `tests/capabilities/*` and
+# `packages/core/src/capabilities/*`. The actual test root in this repo is
+# `packages/core/tests/capabilities/*` — paths below are the real paths.
 items:
   - id: a1
     intent: |
-      CapabilityModule is a discriminated union of SharedCapability and
-      PrivateCapability. The `scope` field is the discriminator. The TypeScript
-      compiler enforces that startFindWork can only be declared on shared
-      capabilities (declaring it on a `scope: 'private'` module is a compile
-      error).
-    checked: false
+      CapabilityModule is a discriminated union of SharedCapability and PrivateCapability.
+      The `scope` field is the discriminator. The TypeScript compiler enforces that
+      `startFindWork` can only be declared on shared capabilities (compile error on private).
+    checked: true
     files:
       - path: packages/core/src/capabilities/types.ts
         isNew: false
         change: |
-          Replace the single CapabilityModule interface with a discriminated
-          union. Add BaseCapability (common fields: id, displayName, fieldSchema),
-          SharedCapability (extends Base, scope: 'shared', registerTools,
-          optional startFindWork), and PrivateCapability (extends Base,
-          scope: 'private', buildToolsForUser returning ToolSet | null).
-          Export `CapabilityModule = SharedCapability | PrivateCapability`.
-          Also extend the exported `CapabilityRegistry` interface: replace
-          `tools: ToolSet` with `sharedTools: ToolSet`,
-          `buildPrivateTools(tinoUserId): Promise<ToolSet>`, and
-          `getActiveCapabilities(tinoUserId): Promise<string[]>`.
+          Split `CapabilityModule` into a discriminated union:
+          - BaseCapability (id, displayName, fieldSchema)
+          - SharedCapability extends Base with scope:'shared', registerTools(), optional startFindWork()
+          - PrivateCapability extends Base with scope:'private', buildToolsForUser(tinoUserId, config|null, configStore, logger): Promise<ToolSet | null>
+          - export type CapabilityModule = SharedCapability | PrivateCapability
+          startFindWork is intentionally absent from PrivateCapability.
+      - path: packages/core/tests/capabilities/scope-types.test-d.ts
+        isNew: true
+        change: |
+          New type-only test asserting:
+            - SharedCapability allows startFindWork
+            - PrivateCapability rejects startFindWork (@ts-expect-error)
+            - CapabilityModule narrows on `scope`
     tests:
       - packages/core/tests/capabilities/scope-types.test-d.ts
-    verify: bun run --filter @tino/core test tests/capabilities/scope-types.test-d.ts && bunx tsc --noEmit -p packages/core
+    verify: bun run test packages/core/tests/capabilities/scope-types.test-d.ts && bunx tsc --noEmit
     mirror: packages/core/src/capabilities/types.ts
     context: |
-      // packages/core/src/capabilities/types.ts (current shape — pre-wave-1)
-      // Single, undifferentiated interface — no scope discriminator.
-      export interface CapabilityConfig {
-        enabled: boolean;
-        credentials: Record<string, string>;
-        settings: Record<string, unknown>;
-        findWork?: { enabled: boolean; intervalMinutes: number; lastScanAt?: number };
+      // packages/core/src/capabilities/types.ts:58-83 (current CapabilityModule — to be split)
+      export interface CapabilityModule {
+        id: string;
+        displayName: string;
+        fieldSchema?: CapField[];
+        registerTools(config: CapabilityConfig, configStore: ConfigStore, logger: AppLogger, tools: ToolSet): Promise<void>;
+        startFindWork?(
+          config: CapabilityConfig,
+          logger: AppLogger,
+          onNewWork: "(summary: string) => Promise<void>,"
+        ): () => void;
       }
-      export interface CapField { /* console field schema */ }
-      // BEFORE: single shape with no scope
-      // export interface CapabilityModule {
-      //   id: string;
-      //   displayName: string;
-      //   fieldSchema?: CapField[];
-      //   registerTools(config, configStore, logger, tools): Promise<void>;
-      //   startFindWork?(config, logger, onNewWork): () => void;
-      // }
-      // AFTER: discriminated union (see plan for full shape)
+
+      // CapabilityRegistry (types.ts:86-107) also needs updating in a2
+      export interface CapabilityRegistry {
+        tools: ToolSet;
+        stopAll(): void;
+        getState(): Record<string, CapabilityRuntimeState>;
+        capabilityIds: string[];
+        reload(): Promise<{ ok: boolean; error?: string }>;
+      }
+
+      // Supporting types that stay unchanged:
+      // CapabilityConfig { enabled, credentials, settings, findWork? }
+      // CapField { key, label, target, kind?, secret?, placeholder?, value? }
+      // CapabilityRuntimeState { toolCount, lastFindWorkScanAt?, lastError? }
     conventions: |
-      ESM imports with .js extensions on relative paths (NodeNext resolution);
-      named exports only (no default exports); `import type` for type-only imports;
-      tabs are 2-space; double-quoted strings; rich JSDoc on public interfaces.
+      ESM imports with `.js` extensions on relative paths even for .ts source.
+      Named exports only (no default exports).
+      Test framework: vitest (run via `bun --bun ./node_modules/vitest/dist/cli.js run`).
+      Type-level tests use `.test-d.ts` suffix; assert with `expectTypeOf` from vitest or `@ts-expect-error` comments.
+      JSDoc on every exported interface/function; explain WHY, not just what.
 
   - id: a2
     intent: |
       The registry exposes `sharedTools` (built once at init) and
       `buildPrivateTools(userId)` (called per agent run). Shared tools never
-      include private-capability tools. `reload()` mutates `sharedTools` in
-      place so external holders of the reference see the new toolset.
+      include private-capability tools.
     checked: false
     files:
       - path: packages/core/src/capabilities/registry.ts
         isNew: false
         change: |
-          Refactor `initCapabilityRegistry` to partition ALL_CAPABILITIES by
-          scope. Build `sharedTools` once at init by walking SharedCapability
-          modules and calling `registerTools`; also register non-capability
-          tools (preferences, tasks). For PrivateCapability modules, do
-          NOTHING at init time. Add `buildPrivateTools(tinoUserId)` that
-          walks private capabilities, reads each one's config (wave 1: from
-          the global `capability.<id>` blob), and merges results from
-          `buildToolsForUser`. Add a `_materializePrivate(tinoUserId)` helper
-          shared with `getActiveCapabilities`. `reload()` clears only the
-          shared-capability keys (not preferences/tasks) and re-runs the
-          shared loop, mutating `sharedTools` in place.
+          - Replace `tools: ToolSet` on CapabilityRegistry with `sharedTools: ToolSet` plus `buildPrivateTools(tinoUserId): Promise<ToolSet>` and `getActiveCapabilities(tinoUserId): Promise<string[]>`.
+          - Split `loadCapabilityTools` so the init loop only handles `scope === 'shared'` modules; private modules are skipped at init.
+          - Implement `buildPrivateTools` that walks ALL_CAPABILITIES, filters scope==='private', reads each one's global `capability.<id>` blob (wave-1 transitional), calls `buildToolsForUser`, merges non-null results. Returns `{}` for SYSTEM_USER_ID.
+          - Implement `getActiveCapabilities(userId)`: union of all enabled shared ids and every private id whose `buildToolsForUser` returned non-null.
+          - `reload()` continues to mutate `sharedTools` in place; private flow is stateless per call.
+      - path: packages/core/src/capabilities/types.ts
+        isNew: false
+        change: |
+          Update `CapabilityRegistry` interface: drop `tools`, add `sharedTools`, `buildPrivateTools(userId)`, `getActiveCapabilities(userId)`. Keep `stopAll`, `getState`, `reload`, `capabilityIds`.
+      - path: packages/core/tests/capabilities/registry.test.ts
+        isNew: false
+        change: |
+          - Replace assertions on `registry.tools` with `registry.sharedTools` plus `await registry.buildPrivateTools(userId)`.
+          - Add cases: "registry exposes shared tools after init", "registry sharedTools does not include gmail tools".
     tests:
       - packages/core/tests/capabilities/registry.test.ts
-    verify: bun run --filter @tino/core test tests/capabilities/registry.test.ts
+    verify: bun run test packages/core/tests/capabilities/registry.test.ts
     mirror: packages/core/src/capabilities/registry.ts
     context: |
-      // BEFORE (shape):
-      //   export interface CapabilityRegistry {
-      //     tools: ToolSet;
-      //     capabilityIds: string[];
-      //     stopAll(): void;
-      //     getState(): Record<string, CapabilityRuntimeState>;
-      //     reload(): Promise<{ ok: boolean; error?: string }>;
-      //   }
-      //
-      // AFTER (extracted from current registry.ts:163-200):
-      // export async function initCapabilityRegistry(opts: RegistryOptions): Promise<CapabilityRegistry> {
-      //   const sharedCapabilities = ALL_CAPABILITIES.filter((c): c is SharedCapability => c.scope === "shared");
-      //   const privateCapabilities = ALL_CAPABILITIES.filter((c): c is PrivateCapability => c.scope === "private");
-      //   const sharedTools: ToolSet = {};
-      //   let stopFns: Array<() => void> = [];
-      //   let state: Record<string, CapabilityRuntimeState> = {};
-      //   let loadedSharedCapabilityIds: string[] = [];
-      //
-      //   await loadSharedCapabilityTools({ configStore, logger, onNewWork, sharedTools, ... });
-      //   // preferences + task tools registered into sharedTools
-      //
-      //   return { sharedTools, buildPrivateTools, getActiveCapabilities, stopAll, getState, reload };
-      // }
-      //
-      // SYSTEM_USER_ID = "SYSTEM"; buildPrivateTools(SYSTEM_USER_ID) returns {}.
+      // packages/core/src/capabilities/registry.ts:61-118 — loadCapabilityTools (the init loop)
+      // Currently calls `cap.registerTools(config, configStore, logger, tools)` unconditionally
+      // for every enabled capability. After wave 1, dispatch on cap.scope:
+      async function loadCapabilityTools(opts: {
+        configStore: "ConfigStore; logger: AppLogger;"
+        onNewWork?: (summary: string) => Promise<void>;
+        tools: ToolSet;
+        state: Record<string, CapabilityRuntimeState>;
+        stopFns: Array<() => void>;
+        loadedCapabilityIds: string[];
+      }): Promise<void> {
+        for (const cap of ALL_CAPABILITIES) {
+          const raw = await configStore.get(`capability.${cap.id}`);
+          // ... JSON parse, enabled check ...
+          await cap.registerTools(config, configStore, logger, tools);
+          // ... findWork poller start ...
+        }
+      }
+
+      // packages/core/src/capabilities/registry.ts:127-264 — initCapabilityRegistry
+      // Returns { tools, capabilityIds, stopAll, getState, reload }
+      // The `tools` object includes both capability tools AND preferences/task tools.
+      // After wave 1: `sharedTools` replaces `tools` for capabilities; preferences/task
+      // tools still go into `sharedTools` (they're always-available).
+
+      // packages/core/src/capabilities/registry.ts:208-262 — reload()
+      // NON_CAPABILITY_TOOLS exclusion set: set_preference, get_preferences,
+      // schedule_task, list_tasks, cancel_task. These must not be cleared on reload.
     conventions: |
-      Closure-captured mutable state for `state`/`stopFns`/`loadedSharedCapabilityIds`;
-      `sharedTools: ToolSet = {}` is a stable reference mutated in place across reloads;
-      per-capability try/catch with `logger.warn` so one bad cap doesn't kill the registry;
-      vitest mocks (`vi.fn()`); SYSTEM_USER_ID sentinel ("SYSTEM") for system-initiated runs.
+      Per-capability errors are logged via `logger.warn({ capabilityId, err })` and recorded in `state[cap.id].lastError`; never thrown out of the loop.
+      Mutate the existing `tools` reference in place during `reload()` so external holders see updates without re-import — preserve this for `sharedTools`.
+      `state` and `stopFns` are mutable buckets re-bound on reload via closure.
 
   - id: a3
     intent: |
-      `buildPrivateTools` materializes per-user tools from the configured
-      private capabilities. SYSTEM_USER_ID returns {} (no private tools).
-      Missing or disabled credentials skip cleanly without throwing
-      (buildToolsForUser returns null and the cap is omitted).
+      `buildPrivateTools` materializes per-user tools from configured private
+      capabilities. SYSTEM_USER_ID returns `{}`. Missing or disabled credentials
+      skip cleanly without throwing (return null from `buildToolsForUser`).
     checked: false
     files:
       - path: packages/core/src/capabilities/registry.ts
         isNew: false
         change: |
-          Inside `_materializePrivate(tinoUserId)`: short-circuit to
-          `{ ids: [], tools: {} }` when `tinoUserId === SYSTEM_USER_ID`.
-          For each private capability, read the global blob (wave 1
-          transitional), JSON.parse with try/catch, and call
-          `cap.buildToolsForUser(tinoUserId, config, configStore, logger)`.
-          Treat a `null` return as "not connected" — skip the capability,
-          do not throw. Catch per-capability exceptions and log.warn so
-          one broken capability doesn't poison the whole materialization.
+          Implement `buildPrivateTools(tinoUserId)` short-circuiting on SYSTEM_USER_ID. Walk private capabilities; per-capability errors are caught and logged (do not abort the whole call).
       - path: packages/core/src/capabilities/gmail.ts
         isNew: false
         change: |
-          Convert from `registerTools` (shared pattern) to `buildToolsForUser`
-          (private pattern). Add `scope: 'private'`. Return `null` when
-          config is missing/disabled or any of clientId/clientSecret/
-          refreshToken is absent. Construct `google.auth.OAuth2` and return
-          a fresh `{ gmail_search, gmail_get_message }` ToolSet.
+          Add `scope: 'private'`. Replace `registerTools` with `buildToolsForUser(tinoUserId, config, configStore, logger)`. Return `null` when `!config?.enabled` or credentials missing. In wave 1 the function still reads from the global `capability.gmail` blob (transitional).
       - path: packages/core/src/capabilities/calendar.ts
         isNew: false
         change: |
-          Same conversion as gmail.ts: scope: 'private',
-          replace registerTools with buildToolsForUser, return null on
-          missing/disabled config or missing credentials.
-    tests:
-      - packages/core/tests/capabilities/registry.test.ts
-      - packages/core/tests/capabilities/gmail.test.ts
-      - packages/core/tests/capabilities/calendar.test.ts
-    verify: bun run --filter @tino/core test tests/capabilities/registry.test.ts tests/capabilities/gmail.test.ts tests/capabilities/calendar.test.ts
-    mirror: packages/core/src/capabilities/gmail.ts
-    context: |
-      // packages/core/src/capabilities/gmail.ts (lines 17-69 — wave-1 shape)
-      import { google } from "googleapis";
-      import type { ConfigStore } from "../persistence/config.js";
-      import type { AppLogger } from "../slack/app.js";
-      import { gmailGetMessageTool, gmailSearchTool } from "../tools/google/gmail.js";
-      import type { CapabilityConfig, PrivateCapability } from "./types.js";
-
-      export const gmailCapability: PrivateCapability = {
-        id: "gmail",
-        displayName: "Gmail",
-        scope: "private",
-        fieldSchema: [ /* clientId, clientSecret, refreshToken */ ],
-        async buildToolsForUser(_tinoUserId, config, _configStore, logger) {
-          if (!config?.enabled) return null;
-          const { clientId, clientSecret, refreshToken } = config.credentials;
-          if (!clientId || !clientSecret || !refreshToken) return null;
-          const auth = new google.auth.OAuth2(clientId, clientSecret);
-          auth.setCredentials({ refresh_token: refreshToken });
-          return {
-            gmail_search: gmailSearchTool(auth, logger),
-            gmail_get_message: gmailGetMessageTool(auth, logger),
-          };
-        },
-      };
-    conventions: |
-      Return `null` from buildToolsForUser to mean "not connected" (NOT throw);
-      destructure `config.credentials` after the null/enabled guard; OAuth client
-      construction is per-call (cheap, isolates user state); fieldSchema declared
-      alongside the module so the console can render an empty card before any blob exists.
-
-  - id: a4
-    intent: |
-      `getActiveCapabilities` returns the right ids for the agent system prompt:
-      shared ids always present (when enabled at init time); private ids present
-      only when `buildToolsForUser` returned non-null for that user. SYSTEM_USER_ID
-      returns shared ids only.
-    checked: false
-    files:
-      - path: packages/core/src/capabilities/registry.ts
-        isNew: false
-        change: |
-          Implement `getActiveCapabilities(tinoUserId)` as the union of
-          `loadedSharedCapabilityIds` (captured at init when registerTools
-          succeeds) and the connected-private ids returned by
-          `_materializePrivate(tinoUserId).ids`. Track shared ids by pushing
-          onto `loadedSharedCapabilityIds` only after `registerTools` succeeds
-          (not when it throws or the cap is disabled).
-    tests:
-      - packages/core/tests/capabilities/registry.test.ts
-    verify: bun run --filter @tino/core test tests/capabilities/registry.test.ts
-    mirror: packages/core/src/capabilities/registry.ts
-    context: |
-      // packages/core/src/capabilities/registry.ts:298-301
-      // async getActiveCapabilities(tinoUserId: string): Promise<string[]> {
-      //   const { ids: privateIds } = await _materializePrivate(tinoUserId);
-      //   return [...loadedSharedCapabilityIds, ...privateIds];
-      // },
-      //
-      // _materializePrivate is the shared helper used by both buildPrivateTools
-      // and getActiveCapabilities — avoids double-materializing on the same call.
-      // For SYSTEM_USER_ID: returns { ids: [], tools: {} } at the top of the helper.
-    conventions: |
-      Use the shared `_materializePrivate` helper (do not duplicate its logic);
-      `loadedSharedCapabilityIds` is pushed inside the per-cap try block AFTER
-      `registerTools` resolves so failed caps don't appear active.
-
-  - id: a5
-    intent: |
-      All existing capabilities are correctly classified.
-      Shared (one credential, all users): github, linear, cloudwatch, slack.
-      Private (per-user credential): gmail, slack-personal, calendar.
-      The xoxp-token-scoped Slack tools live in a NEW slack-personal.ts module,
-      separate from slack.ts (which keeps the bot-token / xoxb- tools).
-    checked: false
-    files:
-      - path: packages/core/src/capabilities/all.ts
-        isNew: false
-        change: |
-          Import slackPersonalCapability and add it to ALL_CAPABILITIES.
-          Confirm sort order (alphabetical by id): calendar, cloudwatch,
-          github, gmail, linear, slack, slack-personal. Add header comment
-          documenting the wave-1 scope classification.
-      - path: packages/core/src/capabilities/github.ts
-        isNew: false
-        change: Add `scope: 'shared'` to the module export. registerTools signature unchanged.
-      - path: packages/core/src/capabilities/linear.ts
-        isNew: false
-        change: Add `scope: 'shared'`.
-      - path: packages/core/src/capabilities/cloudwatch.ts
-        isNew: false
-        change: Add `scope: 'shared'`.
-      - path: packages/core/src/capabilities/slack.ts
-        isNew: false
-        change: |
-          Add `scope: 'shared'`. Remove any xoxp-token-scoped tools (moved
-          to slack-personal.ts). Keep bot-token (xoxb-) tools and DM-handling
-          / find-work code intact.
+          Same shape change as gmail.ts — add `scope: 'private'`, replace `registerTools` with `buildToolsForUser`.
       - path: packages/core/src/capabilities/slack-personal.ts
         isNew: true
         change: |
-          NEW module — extracts the xoxp-token-scoped tools from slack.ts.
-          Mirror gmail.ts in shape: scope: 'private', buildToolsForUser
-          reads `capability.slack-personal.credentials.userToken` from the
-          global blob (wave 1 transitional), returns null when token is
-          missing or capability is disabled. Exports tools like
-          slack_read_dm, slack_search_personal, slack_read_private_channel.
-      - path: packages/core/src/capabilities/gmail.ts
+          New module extracted from slack.ts. `scope: 'private'`. Owns the xoxp-token-scoped tools (slack_list_dms, slack_read_dm, slack_search_messages, slack_read_thread). Reads `capability.slack-personal.credentials.userToken` from the global blob in wave 1. `buildToolsForUser` returns `null` when userToken is missing.
+      - path: packages/core/tests/capabilities/registry.test.ts
         isNew: false
-        change: (See a3 — converted to private + buildToolsForUser.)
-      - path: packages/core/src/capabilities/calendar.ts
-        isNew: false
-        change: (See a3 — converted to private + buildToolsForUser.)
+        change: |
+          Add cases: "buildPrivateTools(SYSTEM) returns empty", "buildPrivateTools includes gmail when configured", "buildPrivateTools skips gmail when disabled", "buildPrivateTools skips gmail when refreshToken missing".
     tests:
-      - packages/core/tests/capabilities/all.test.ts
-      - packages/core/tests/capabilities/slack-personal.test.ts
-      - packages/core/tests/capabilities/slack.test.ts
-    verify: bun run --filter @tino/core test tests/capabilities/all.test.ts tests/capabilities/slack-personal.test.ts tests/capabilities/slack.test.ts
+      - packages/core/tests/capabilities/registry.test.ts
+    verify: bun run test packages/core/tests/capabilities/registry.test.ts
     mirror: packages/core/src/capabilities/gmail.ts
     context: |
-      // packages/core/src/capabilities/all.ts (current — wave-1 shape, lines 16-34)
-      import { calendarCapability } from "./calendar.js";
-      import { cloudwatchCapability } from "./cloudwatch.js";
-      import { githubCapability } from "./github.js";
-      import { gmailCapability } from "./gmail.js";
-      import { linearCapability } from "./linear.js";
-      import { slackCapability } from "./slack.js";
-      import { slackPersonalCapability } from "./slack-personal.js";
-      import type { CapabilityModule } from "./types.js";
+      // packages/core/src/capabilities/gmail.ts:16-60 (current — to be reshaped)
+      export const gmailCapability: CapabilityModule = {
+        id: "gmail",
+        displayName: "Gmail",
+        fieldSchema: [
+          { key: "clientId", label: "Google OAuth Client ID", target: "credentials.clientId", placeholder: "...apps.googleusercontent.com" },
+          { key: "clientSecret", label: "Google OAuth Client Secret", target: "credentials.clientSecret", secret: true },
+          { key: "refreshToken", label: "Refresh Token", target: "credentials.refreshToken", secret: true },
+        ],
+        async registerTools(config, _configStore, logger, tools): Promise<void> {
+          const { clientId, clientSecret, refreshToken } = config.credentials;
+          if (!clientId) throw new Error("Gmail capability: credentials.clientId is not set");
+          if (!clientSecret) throw new Error("Gmail capability: credentials.clientSecret is not set");
+          if (!refreshToken) throw new Error("Gmail capability: credentials.refreshToken is not set");
+          const auth = new google.auth.OAuth2(clientId, clientSecret);
+          auth.setCredentials({ refresh_token: refreshToken });
+          tools.gmail_search = gmailSearchTool(auth);
+          tools.gmail_get_message = gmailGetMessageTool(auth);
+          logger.info("gmail tools enabled");
+        },
+      };
+      // After wave 1: scope: 'private', buildToolsForUser returns null on
+      // missing creds instead of throwing — non-throwing is the contract.
 
-      // Sorted by id: calendar, cloudwatch, github, gmail, linear, slack, slack-personal
+      // SYSTEM_USER_ID lives in packages/core/src/identity/types.ts:57
+      //   export const SYSTEM_USER_ID = "SYSTEM" as const;
+
+      // packages/core/src/capabilities/calendar.ts:16-65 (same shape change)
+      // Uses same Google OAuth pattern; registers calendar_list_events tool.
+
+      // slack.ts:20-64 — currently uses xoxp- user token for ALL tools:
+      // slack_search_messages, slack_read_thread, slack_list_dms, slack_read_dm.
+      // After split: these tools move to slack-personal.ts. slack.ts becomes a
+      // shared shell (scope: 'shared') that registers no tools until bot-token
+      // public-channel search is added in a future wave.
+
+      // NEW file slack-personal.ts exports:
+      //   export const slackPersonalCapability: PrivateCapability
+      //   buildToolsForUser(tinoUserId, config, configStore, logger): Promise<ToolSet | null>
+    conventions: |
+      Throw-on-missing-creds becomes return-null-on-missing-creds for private capabilities — the registry uses null to mean "not connected for this user".
+      Import SYSTEM_USER_ID from `../identity/types.js` (with `.js` extension).
+      Build per-user tools with the same factory functions used today (gmailSearchTool, slackReadDmTool, etc.) — wave 1 only changes WHO calls them, not the tool implementations.
+      The slack tool factories accept (userClient, userCache?) — create the WebClient + cache inside buildToolsForUser.
+
+  - id: a4
+    intent: |
+      `getActiveCapabilities` returns the right ids for the agent system prompt
+      — shared ids always present, private ids present only when the user has creds.
+    checked: false
+    files:
+      - path: packages/core/src/capabilities/registry.ts
+        isNew: false
+        change: |
+          Implement `getActiveCapabilities(tinoUserId)`. For SYSTEM_USER_ID, returns shared ids only. For other users, returns shared ids + private ids whose `buildToolsForUser` returned non-null.
+      - path: packages/core/tests/capabilities/registry.test.ts
+        isNew: false
+        change: |
+          Add cases: "getActiveCapabilities returns shared plus connected private", "getActiveCapabilities for SYSTEM returns shared only".
+    tests:
+      - packages/core/tests/capabilities/registry.test.ts
+    verify: bun run test packages/core/tests/capabilities/registry.test.ts
+    mirror: packages/core/src/capabilities/registry.ts
+    context: |
+      // The current registry exposes `capabilityIds: string[]` as a flat getter:
+      //   get capabilityIds() { return loadedCapabilityIds; }
+      // This is populated by `loadedCapabilityIds.push(cap.id)` inside the
+      // capability loop (registry.ts:99). runAgent callers pass it as:
+      //   activeCapabilities: registry.capabilityIds
+      //
+      // After wave 1, callers switch to:
+      //   const activeCapabilities = await registry.getActiveCapabilities(userId);
+      //
+      // Implementation can re-walk private capabilities to check buildToolsForUser
+      // non-null status, or cache the last buildPrivateTools result per userId.
+      // Coordinate with buildPrivateTools to avoid duplicate config reads when
+      // both are called in the same runAgent dispatch.
+
+      // packages/core/src/agent/systemPrompt.ts uses activeCapabilities to gate
+      // system prompt sections — only needs the string[] of active ids.
+    conventions: |
+      Keep iteration order stable (sort by id) to match the existing capabilityIds ordering — downstream prompt-builders may rely on stable ordering for caching/diffing.
+      Do not expose runtime credentials in the returned ids — only capability ids.
+
+  - id: a5
+    intent: |
+      All existing capabilities are correctly classified. github / linear /
+      cloudwatch / slack are shared; gmail / slack-personal / calendar are private.
+      Slack public-channel/bot-token tools and slack-personal xoxp-token tools live
+      in separate modules.
+    checked: false
+    files:
+      - path: packages/core/src/capabilities/github.ts
+        isNew: false
+        change: "Add `scope: 'shared'` to the module export. No other changes."
+      - path: packages/core/src/capabilities/linear.ts
+        isNew: false
+        change: "Add `scope: 'shared'`. No other changes."
+      - path: packages/core/src/capabilities/cloudwatch.ts
+        isNew: false
+        change: "Add `scope: 'shared'`. No other changes."
+      - path: packages/core/src/capabilities/slack.ts
+        isNew: false
+        change: |
+          Add `scope: 'shared'`. Remove the xoxp-only tools that move to slack-personal.ts.
+          Keep bot-token / shared-channel tools here. Current slack.ts uses xoxp- exclusively
+          (slack_search_messages, slack_read_thread, slack_list_dms, slack_read_dm). After
+          extracting all four to slack-personal.ts, slack.ts becomes a shared shell with
+          scope:'shared' and an empty registerTools (no tools until bot-token search is added).
+          Flag: no tool in the current codebase uses BOTH xoxb- and xoxp- tokens — clean split.
+      - path: packages/core/src/capabilities/slack-personal.ts
+        isNew: true
+        change: |
+          New module owning xoxp-scoped tools. `scope: 'private'`. Mirrors gmail.ts structure.
+          Exports: slackPersonalCapability with buildToolsForUser.
+          Tools moved here: slack_search_messages, slack_read_thread, slack_list_dms, slack_read_dm.
+      - path: packages/core/src/capabilities/gmail.ts
+        isNew: false
+        change: "Add `scope: 'private'` (covered by a3)."
+      - path: packages/core/src/capabilities/calendar.ts
+        isNew: false
+        change: "Add `scope: 'private'` (covered by a3)."
+      - path: packages/core/src/capabilities/all.ts
+        isNew: false
+        change: |
+          Import and add `slackPersonalCapability` to `ALL_CAPABILITIES`. Sort the array
+          alphabetically by id: calendar, cloudwatch, github, gmail, linear, slack, slack-personal.
+      - path: packages/core/tests/capabilities/all.test.ts
+        isNew: true
+        change: |
+          New test file asserting:
+            - all capabilities have a `scope` field
+            - private capabilities expose `buildToolsForUser`
+            - shared capabilities expose `registerTools`
+            - slack-personal is a separate module from slack
+    tests:
+      - packages/core/tests/capabilities/all.test.ts
+    verify: bun run test packages/core/tests/capabilities/all.test.ts
+    mirror: packages/core/src/capabilities/all.ts
+    context: |
+      // packages/core/src/capabilities/all.ts:17-24 (current)
       export const ALL_CAPABILITIES: CapabilityModule[] = [
-        calendarCapability,
-        cloudwatchCapability,
         githubCapability,
-        gmailCapability,
         linearCapability,
         slackCapability,
-        slackPersonalCapability,
+        gmailCapability,
+        calendarCapability,
+        cloudwatchCapability,
       ];
+      // After wave 1 add slackPersonalCapability and sort by id:
+      //   calendar, cloudwatch, github, gmail, linear, slack, slack-personal
+
+      // packages/core/src/capabilities/slack.ts:20-64 (current — uses xoxp- exclusively)
+      // All four tools (slack_search_messages, slack_read_thread, slack_list_dms,
+      // slack_read_dm) use `userClient = new webApi.WebClient(userToken)` where
+      // userToken is the xoxp- token. No tool uses the bot token (xoxb-).
+      // After extraction, slack.ts becomes:
+      //   export const slackCapability: SharedCapability = {
+      //     id: 'slack', displayName: 'Slack', scope: 'shared',
+      //     fieldSchema: [],
+      //     async registerTools(config, configStore, logger, tools) { /* no-op */ },
+      //   };
+
+      // Tool factory imports for slack-personal.ts:
+      // import { slackListDmsTool, slackReadDmTool } from "../tools/slack/dms.js";
+      // import { slackSearchMessagesTool } from "../tools/slack/search.js";
+      // import { slackReadThreadTool } from "../tools/slack/thread.js";
+      // import { createUserCache } from "../slack/userCache.js";
     conventions: |
-      Capabilities sorted alphabetically by id for stable iteration; module-level
-      `export const <name>Capability: SharedCapability | PrivateCapability` (named
-      const, typed by the precise variant — not the union — so editors flag
-      structural mistakes); shared helpers can live in a sibling utility module.
+      Module export naming: `<id>Capability` (camelCase id). For multi-word ids like `slack-personal`, the export is `slackPersonalCapability`.
+      Each capability file is self-contained: schema (fieldSchema), credentials parsing, tool registration. No cross-capability imports except shared helpers.
+      `id` strings are kebab-case; ALL_CAPABILITIES sorted alphabetically by id.
+      Import type for union: `import type { CapabilityModule } from "./types.js"` stays; individual files import `SharedCapability` or `PrivateCapability` as needed.
 
   - id: a6
     intent: |
-      The bot owner's DM behavior is unchanged. Same tools reach runAgent;
-      same agent invocation; same audit log entries. Wave 1 is a pure
-      structural refactor — externally observable behavior is identical.
+      The bot owner's DM behavior is unchanged. Same tools reach `runAgent`;
+      same agent invocation; same audit log entries. Pure plumbing refactor.
     checked: false
     files:
       - path: packages/core/src/index.ts
         isNew: false
         change: |
-          Update each `runAgent` call site (find-work callback ~line 84,
-          slack DM handler ~line 184, scheduler tick ~line 222) to compute
-          tools as `{ ...registry.sharedTools, ...await registry.buildPrivateTools(userId) }`
-          and pass `activeCapabilities` from `await registry.getActiveCapabilities(userId)`.
-          The userId resolution itself is unchanged in wave 1: find-work uses
-          SYSTEM_USER_ID, slack DM uses allowedUserId, scheduler uses task.userId.
+          Update the three `runAgent` call sites that today pass `tools: registry.tools` and `activeCapabilities: registry.capabilityIds`. Each becomes:
+            const privateTools = await registry.buildPrivateTools(userId);
+            const tools = { ...registry.sharedTools, ...privateTools };
+            const activeCapabilities = await registry.getActiveCapabilities(userId);
+            const result = await runAgent({ model, history, logger, tools, userId, text, auditLogger, activeCapabilities });
+          Call sites:
+            1. Line ~84 (onNewWork callback): userId=allowedUserId (bot owner; NOT SYSTEM yet — wave 3 changes this)
+            2. Line ~176 (DM handler in reconnectSlack): userId from slack event
+            3. Line ~213 (scheduler runTask): userId=task.userId
+          Also update line ~99 (`const tools = registry.tools`) and line ~282-283 (tools passed to startServer) — pass `registry.sharedTools` to the console server (it doesn't dispatch agent runs).
       - path: packages/core/src/agent/run.ts
         isNew: false
         change: |
-          Update `RunAgentParams.tools` JSDoc to clarify it's the merged
-          shared + private toolset for the requesting user. No logic change.
-    tests:
-      - packages/core/tests/integration/wave1-no-regression.test.ts
-    verify: bun run --filter @tino/core test tests/integration/wave1-no-regression.test.ts
-    mirror: packages/core/tests/integration/wave0-no-regression.test.ts
-    context: |
-      // packages/core/src/index.ts — call-site shape after wave 1
-      // const userId = task.userId ?? allowedUserId;  // existing logic
-      // const privateTools = await registry.buildPrivateTools(userId);
-      // const tools = { ...registry.sharedTools, ...privateTools };
-      // const activeCapabilities = await registry.getActiveCapabilities(userId);
-      //
-      // const result = await runAgent({
-      //   model, history, logger, tools, userId, text, auditLogger, activeCapabilities,
-      // });
-      //
-      // Note: in wave 1, every runAgent call still effectively dispatches with
-      // the bot owner's identity (the slack DM gate hasn't widened). The
-      // plumbing is per-user but the values are bot-owner-only. Wave 3 widens
-      // the gate; per-user dispatch becomes observable then.
-    conventions: |
-      Spread merge order matters — `sharedTools` first, then `privateTools`
-      (so private wins on key collision, though there should be none); always
-      `await` before spreading the promise return; existing userId resolution
-      logic untouched.
-
-  - id: a7
-    intent: |
-      All existing tests continue to pass after the refactor. No regressions
-      in the existing 314+-test suite. The migration helper still writes the
-      same global capability blobs as today.
-    checked: false
-    files:
+          Update the `RunAgentParams.tools` JSDoc to clarify it's the merged shared+private toolset for the requesting user. NO logic change.
       - path: packages/core/src/capabilities/migration.ts
         isNew: false
         change: |
-          No logic change in wave 1. Add a comment to `migrateEnvToCapabilities`
-          noting that capabilities now classified as `'private'` will move to
-          per-user partition keys (`USER#<botOwnerTinoUserId>#CAP#<capId>`)
-          in wave 2. The wave-1 migration still writes the same global
-          `capability.<id>` blobs.
+          Add a comment block noting that capabilities now classified as `'private'` will move from `capability.<id>` to `USER#<botOwnerTinoUserId>#CAP#<id>` in wave 2. No code change.
+      - path: packages/core/tests/integration/wave1-no-regression.test.ts
+        isNew: true
+        change: |
+          New integration test: spin up registry with the same fake config used by the existing registry tests; assert that for the bot owner's userId, `{ ...sharedTools, ...await buildPrivateTools(userId) }` has the same tool keys as the pre-wave-1 `registry.tools` would have had (modulo the slack/slack-personal split).
+    tests:
+      - packages/core/tests/integration/wave1-no-regression.test.ts
+    verify: bun run test packages/core/tests/integration/wave1-no-regression.test.ts
+    mirror: packages/core/tests/capabilities/registry.test.ts
+    context: |
+      // packages/core/src/index.ts — three runAgent call sites to update:
+
+      // 1. onNewWork callback (line 84-96):
+      const result = await runAgent({
+        model, history: taskHistory, logger,
+        tools: registry.tools,          // ← becomes { ...registry.sharedTools, ...privateTools }
+        userId: allowedUserId,
+        text: prompt, auditLogger,
+        activeCapabilities: registry.capabilityIds,  // ← becomes await registry.getActiveCapabilities(userId)
+      });
+
+      // 2. DM handler in reconnectSlack (line 175-185):
+      const handler: DmHandler = async (userId, text) =>
+        runAgent({
+          model, history, logger,
+          tools: registry.tools,         // ← same change
+          userId, text, auditLogger,
+          activeCapabilities: registry.capabilityIds,  // ← same change
+        });
+
+      // 3. Scheduler runTask (line 213-221):
+      return runAgent({
+        model, history: taskHistory, logger,
+        tools: registry.tools,           // ← same change
+        userId: task.userId,
+        text: taskPrompt, auditLogger,
+        activeCapabilities: registry.capabilityIds,  // ← same change
+      });
+
+      // Line 99: `const tools = registry.tools;` — used for tool-token-count
+      // logging and passed to startServer. After wave 1 this becomes
+      // `const tools = registry.sharedTools;` (console doesn't need private tools).
+
+      // Line 282-283: startServer({ ..., tools, registry, ... })
+      // The `tools` param is used by the console health endpoint to list tool
+      // definitions. After wave 1 it shows shared tools only — acceptable.
+
+      // packages/core/src/agent/run.ts:8-18 (RunAgentParams)
+      export interface RunAgentParams {
+        model: LanguageModel;
+        history: HistoryStore;
+        logger: AppLogger;
+        tools?: ToolSet;
+        userId: string;
+        text: string;
+        auditLogger?: AuditLogger;
+        activeCapabilities?: string[];
+      }
+    conventions: |
+      Top-level await is used in index.ts (ESM module).
+      Bot owner identity flows from `slack.adminUserId` config or `ALLOWED_SLACK_USER_ID` env — stored in `allowedUserId`.
+      No-regression integration test mocks the same ConfigStore as registry.test.ts — see `_helpers.ts` in tests/capabilities/ for mock factories (makeLogger, makeConfigStore).
+      The DM handler is a closure that captures `registry` — no need to thread registry as a param.
+
+  - id: a7
+    intent: |
+      All existing tests continue to pass. The full `bun run test` suite stays green
+      (the existing 314+-test surface is unchanged in observable behavior).
+    checked: false
+    files:
       - path: packages/core/tests/capabilities/registry.test.ts
         isNew: false
         change: |
-          Update existing tests that read `registry.tools` to use
-          `{ ...registry.sharedTools, ...await registry.buildPrivateTools(userId) }`.
-          Add new tests:
-            - registry exposes shared tools immediately after init
-            - registry sharedTools does NOT include private (gmail) tools
-            - buildPrivateTools(SYSTEM) returns {}
-            - buildPrivateTools(<botOwnerId>) includes gmail tools when configured
-            - buildPrivateTools returns {} for gmail when config.enabled=false
-            - buildPrivateTools returns {} for gmail when refreshToken missing
-            - getActiveCapabilities(<botOwnerId>) returns shared + connected private
-            - getActiveCapabilities(SYSTEM) returns shared only
-            - reload() rebuilds shared tools but doesn't affect private flow
-      - path: packages/core/tests/capabilities/scope-types.test-d.ts
+          Update existing assertions that read `registry.tools` to use `registry.sharedTools` plus `await registry.buildPrivateTools(userId)` where appropriate. Existing test cases for "tools registered when enabled", "tools omitted when disabled", "findWork starts when enabled", etc. must continue to pass against the new registry shape.
+      - path: packages/core/tests/capabilities/registry-reload.test.ts
+        isNew: false
+        change: |
+          Update reload-related assertions: `reload()` continues to mutate `sharedTools` in place; private-tool flow is stateless. Confirm reload preserves the sharedTools reference and that subsequent `buildPrivateTools` calls pick up new config.
+      - path: packages/core/tests/capabilities/gmail.test.ts
+        isNew: false
+        change: |
+          Update to call `gmailCapability.buildToolsForUser(...)` instead of `gmailCapability.registerTools(...)`. Adjust assertions: returns null on missing creds (was: throw); returns ToolSet on success.
+      - path: packages/core/tests/capabilities/calendar.test.ts
+        isNew: false
+        change: Same shape adjustment as gmail.test.ts — buildToolsForUser instead of registerTools.
+      - path: packages/core/tests/capabilities/slack.test.ts
+        isNew: false
+        change: |
+          After extracting xoxp- tools to slack-personal.ts, slack.ts becomes a shared no-op shell.
+          Update tests accordingly — slack.test.ts verifies registerTools is callable but registers
+          no tools. The xoxp-tool tests move to slack-personal.test.ts.
+      - path: packages/core/tests/capabilities/slack-personal.test.ts
         isNew: true
         change: |
-          NEW type-level test file using vitest's expectTypeOf and
-          @ts-expect-error directives. Asserts:
-            - SharedCapability allows startFindWork
-            - PrivateCapability rejects startFindWork (@ts-expect-error)
-            - CapabilityModule is the union of both
-          Includes a trivial runtime `expect(true).toBe(true)` so vitest
-          reports the file as a passing test rather than "no tests found".
+          New test file for `slackPersonalCapability.buildToolsForUser`. Mirrors gmail.test.ts
+          structure. Tests: returns tools when userToken configured, returns null when missing.
     tests:
       - "*"
-    verify: bun run --filter @tino/core test
-    mirror: packages/core/tests/capabilities/registry.test.ts
+    verify: bun run test
+    mirror: packages/core/tests/capabilities/gmail.test.ts
     context: |
-      // packages/core/tests/capabilities/scope-types.test-d.ts (lines 12-30)
-      import { describe, expect, expectTypeOf, it } from "vitest";
-      import type { CapabilityModule, PrivateCapability, SharedCapability } from "../../src/capabilities/types.js";
+      // packages/core/tests/capabilities/_helpers.ts — shared test factories
+      export function makeLogger(): AppLogger {
+        return { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+      }
+      export function makeConfigStore(entries: Record<string, unknown> = {}): ConfigStore {
+        const store = new Map<string, string>(Object.entries(entries).map(([k, v]) => [k, JSON.stringify(v)]));
+        return { get: vi.fn(...), getTyped: vi.fn(...), set: vi.fn(...), list: vi.fn(...), delete: vi.fn(...) };
+      }
 
-      describe("CapabilityModule discriminated union — type-level assertions", () => {
-        it("type-checks (runtime anchor)", () => {
-          // This test exists so vitest reports a pass rather than "no tests found".
-          expect(true).toBe(true);
+      // packages/core/tests/capabilities/gmail.test.ts:42-49 (current — to be updated)
+      describe("gmailCapability.registerTools", () => {
+        it("registers gmail_search and gmail_get_message when given full credentials", async () => {
+          const tools: ToolSet = {};
+          await gmailCapability.registerTools(GOOD_CONFIG, makeConfigStore(), makeLogger(), tools);
+          const registered = Object.keys(tools);
+          expect(registered).toContain("gmail_search");
+          expect(registered).toContain("gmail_get_message");
         });
-        it("SharedCapability allows startFindWork", () => {
-          const shared: SharedCapability = {
-            id: "test-shared", displayName: "Test Shared", scope: "shared",
-            async registerTools(_c, _s, _l, _t) {},
-            startFindWork(_c, _l, _o) { return () => {}; },
-          };
-          expectTypeOf(shared).toMatchTypeOf<SharedCapability>();
-        });
-        // ...PrivateCapability rejects startFindWork via @ts-expect-error
-      });
+        // After wave 1: describe("gmailCapability.buildToolsForUser", ...)
+        //   - returns ToolSet with gmail_search/gmail_get_message when creds present
+        //   - returns null when config is null
+        //   - returns null when refreshToken missing (was: throws)
+
+      // packages/core/tests/capabilities/registry.test.ts:93-104 (example assertion to update)
+      // Currently: expect(registry.tools.github_search_code).toBeUndefined();
+      // After:     expect(registry.sharedTools.github_search_code).toBeUndefined();
+
+      // packages/core/tests/capabilities/registry-reload.test.ts
+      // Uses same makeLogger/makeConfigStore pattern. Tests reload() mutates
+      // tools in place. After wave 1: assertions reference `registry.sharedTools`.
     conventions: |
-      vitest with `describe` / `it` / `expect`; `expectTypeOf` for type assertions;
-      `@ts-expect-error <reason>` directive comments to assert compile-time errors;
-      runtime anchor `expect(true).toBe(true)` keeps vitest happy on type-only files;
-      relative imports use `.js` extension (NodeNext) even for `.ts` source.
+      Test framework: vitest, run via `bun run test` (which executes `bun --bun ./node_modules/vitest/dist/cli.js run`).
+      Test file naming: `<module>.test.ts` colocated under `packages/core/tests/<area>/`.
+      Mock helpers via `vi.fn()`; no real network or filesystem in unit tests.
+      Use `describe`/`it`/`expect` from vitest; `beforeEach` for per-test reset.
+      Assertion style: `expect(actual).toBe(expected)` / `toEqual` / `toMatchObject`; never `assert`.
+      Mock googleapis at module level: `vi.mock("googleapis", () => ({ google: { auth: { OAuth2: class FakeOAuth2 {...} }, gmail: () => ({}) } }))`.
+      Mock @slack/bolt at module level for slack tests: `vi.mock("@slack/bolt", ...)`.

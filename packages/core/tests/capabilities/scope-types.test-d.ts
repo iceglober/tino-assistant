@@ -6,7 +6,7 @@
  * available on SharedCapability.
  */
 
-import { expectTypeOf } from "vitest";
+import { describe, it, expectTypeOf } from "vitest";
 import type { PrivateCapability, SharedCapability, CapabilityModule } from "../../src/capabilities/types.js";
 
 describe("CapabilityModule scope discrimination", () => {
