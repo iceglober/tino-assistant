@@ -104,7 +104,7 @@ items:
       A new identity table maps (provider, externalId) → tinoUserId. Linking
       the same external identity twice is rejected. Listing identities for a
       user returns all linked providers.
-    checked: false
+    checked: true
     files:
       - path: packages/core/src/identity/store.ts
         isNew: true
