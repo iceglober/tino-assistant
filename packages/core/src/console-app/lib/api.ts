@@ -106,6 +106,44 @@ export async function putCapability(id: string, data: unknown): Promise<{ ok: tr
   return unwrap(r);
 }
 
+export async function getUserCapabilities(userId: string): Promise<CapabilityEntry[]> {
+  const r = await fetch(`/api/user-capabilities/${encodeURIComponent(userId)}`, {
+    credentials: "include",
+  });
+  return unwrap<CapabilityEntry[]>(r);
+}
+
+export async function putUserCapability(
+  userId: string,
+  capabilityId: string,
+  data: unknown,
+): Promise<{ ok: true; userId: string; id: string }> {
+  const r = await fetch(
+    `/api/user-capabilities/${encodeURIComponent(userId)}/${encodeURIComponent(capabilityId)}`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify(data),
+    },
+  );
+  return unwrap(r);
+}
+
+export async function deleteUserCapability(
+  userId: string,
+  capabilityId: string,
+): Promise<{ ok: true; userId: string; id: string }> {
+  const r = await fetch(
+    `/api/user-capabilities/${encodeURIComponent(userId)}/${encodeURIComponent(capabilityId)}`,
+    {
+      method: "DELETE",
+      credentials: "include",
+    },
+  );
+  return unwrap(r);
+}
+
 export async function getCompliance(): Promise<unknown> {
   const r = await fetch("/api/compliance", { credentials: "include" });
   return unwrap(r);

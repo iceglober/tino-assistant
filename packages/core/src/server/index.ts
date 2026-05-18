@@ -16,6 +16,7 @@ import { createConfigRoutes } from "./routes/config.js";
 import { createHealthRoutes } from "./routes/health.js";
 import { createReloadRoutes } from "./routes/reload.js";
 import { createUsersRoutes } from "./routes/users.js";
+import { createUserCapabilityRoutes } from "./routes/user-capabilities.js";
 
 /**
  * Tino console HTTP server — Hono app on top of `@hono/node-server`.
@@ -27,6 +28,7 @@ import { createUsersRoutes } from "./routes/users.js";
  *   /api/auth/*              → better-auth handler (public; auth lives here)
  *   /api/config*             → protected (auth-gated) config CRUD
  *   /api/capabilities*       → protected capability config
+ *   /api/user-capabilities/* → protected per-user capability config (wave 2)
  *   /api/compliance          → protected HIPAA snapshot
  *   /api/users/:id           → protected user deprovisioning
  *   /api/reload/*            → protected hot-reload (wave 3)
@@ -135,6 +137,7 @@ export async function startServer(opts: StartServerOptions): Promise<StartedServ
   app.route("/api/health", createHealthRoutes({ startTime, tools, registry }));
   app.route("/api/config", createConfigRoutes({ config, logger, auditLogger }));
   app.route("/api/capabilities", createCapabilityRoutes({ config, logger }));
+  app.route("/api/user-capabilities", createUserCapabilityRoutes({ config, logger, auditLogger }));
   app.route("/api/compliance", createComplianceRoutes({ config, auditLogger }));
   app.route("/api/users", createUsersRoutes({ config, logger, auditLogger }));
   app.route("/api/reload", createReloadRoutes({ reconnectSlack, reloadCapabilities, logger, auditLogger }));

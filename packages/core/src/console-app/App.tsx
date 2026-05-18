@@ -5,6 +5,7 @@ import { ToastProvider } from "./hooks/useToast.js";
 import { getConfig, type Session, UnauthorizedError } from "./lib/api.js";
 import { Console, fetchInitialConsoleValues } from "./pages/Console.js";
 import { Login } from "./pages/Login.js";
+import { MyCapabilities } from "./pages/MyCapabilities.js";
 import { Setup } from "./pages/Setup.js";
 
 type AppState =
@@ -104,6 +105,7 @@ export function App(): JSX.Element {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/my-capabilities" element={<MyCapabilities />} />
           <Route path="*" element={<AppRouter />} />
         </Routes>
       </BrowserRouter>

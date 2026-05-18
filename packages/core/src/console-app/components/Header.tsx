@@ -1,4 +1,5 @@
 import { type JSX, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import type { Session } from "../lib/api.js";
 import { restartTino } from "../lib/api.js";
 
@@ -27,6 +28,7 @@ export function Header({
   session: Session | null;
   onSignOut: () => void;
 }): JSX.Element {
+  const navigate = useNavigate();
   const [restarting, setRestarting] = useState(false);
   const [restartError, setRestartError] = useState<string | null>(null);
 
@@ -76,6 +78,15 @@ export function Header({
         {session?.user.email ? (
           <div className="header-user">
             <span className="header-user-email">{session.user.email}</span>
+            <span className="header-user-sep">·</span>
+            <button
+              className="header-signout"
+              type="button"
+              onClick={() => navigate("/my-capabilities")}
+              aria-label="My capabilities"
+            >
+              my capabilities
+            </button>
             <span className="header-user-sep">·</span>
             <button
               className="header-signout"
