@@ -142,4 +142,41 @@ describe("provisionFromSlack", () => {
       }),
     ).rejects.toThrow("unknown_user");
   });
+
+  it("provisionFromSlack merges into existing google-linked user when emails match", async () => {
+    const { users, identities, resolver } = setupWithSlackEmail("alice@acme.com");
+
+    const existingUser = await users.create({
+      id: "uuid-existing-google",
+      email: "alice@acme.com",
+      name: "Alice",
+      role: "member",
+      status: "active",
+      slackUserId: undefined,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    await identities.link({
+      provider: "google",
+      externalId: "alice@acme.com",
+      tinoUserId: existingUser.id,
+      linkedAt: Date.now(),
+    });
+
+    const merged = await resolver.provisionFromSlack("U_ALICE_SLACK", {
+      mode: "org-domain",
+      orgDomain: "acme.com",
+    });
+
+    expect(merged.id).toBe("uuid-existing-google");
+    expect(merged.slackUserId).toBe("U_ALICE_SLACK");
+
+    const linked = await identities.listForUser("uuid-existing-google");
+    expect(linked).toHaveLength(2);
+    expect(linked.find((i) => i.provider === "slack")?.externalId).toBe("U_ALICE_SLACK");
+    expect(linked.find((i) => i.provider === "google")?.externalId).toBe("alice@acme.com");
+
+    const allUsers = await users.list();
+    expect(allUsers).toHaveLength(1);
+  });
 });
