@@ -530,7 +530,7 @@ items:
       credentials — even if a coding bug were to point GetItem at the
       wrong partition, the encryption context would not match and the
       decryption would be rejected. Cryptographic enforcement of D4.
-    checked: false
+    checked: true
     files:
       - path: packages/core/tests/integration/wave2-cross-user-decrypt.test.ts
         isNew: true
