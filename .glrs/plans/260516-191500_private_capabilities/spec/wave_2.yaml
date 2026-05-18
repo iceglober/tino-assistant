@@ -771,7 +771,7 @@ items:
       (registry, capabilities, agent, server, persistence, identity, slack,
       cli, scheduler, tools, console-app) and the new wave-2 suites added
       in a1–a8.
-    checked: false
+    checked: true
     files:
       - path: packages/aws/src/encryption/envelope.ts
         isNew: false
