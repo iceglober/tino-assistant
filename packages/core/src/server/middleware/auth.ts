@@ -60,6 +60,13 @@ export async function createAuth(opts: {
       },
     },
     session: { expiresIn: 60 * 60 * 24 },
+    user: {
+      additionalFields: {
+        role: { type: "string", defaultValue: "member" },
+        status: { type: "string", defaultValue: "active" },
+        slackUserId: { type: "string" },
+      },
+    },
   }) as unknown as Auth;
 
   // Auto-create tables on first run.

@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { WebClient } from "@slack/web-api";
 import { createBedrockModel, DEFAULT_BEDROCK_MODEL_ID, validateBedrockModel } from "./agent/bedrock.js";
 import { createHistoryStore } from "./agent/history.js";
 import { runAgent } from "./agent/run.js";
@@ -6,6 +7,7 @@ import { migrateEnvToCapabilities } from "./capabilities/migration.js";
 import { initCapabilityRegistry } from "./capabilities/registry.js";
 import { loadEnv } from "./env.js";
 import { createLogger } from "./logging/logger.js";
+import { migrateToUserModel } from "./identity/migration.js";
 import { createPersistence } from "./persistence/factory.js";
 import { startScheduler } from "./scheduler/index.js";
 import { startServer } from "./server/index.js";
@@ -19,6 +21,8 @@ const {
   tasks: taskStore,
   preferences: preferencesStore,
   config: configStore,
+  users,
+  identities,
   auditLogger,
 } = await createPersistence(env, logger);
 
@@ -29,6 +33,22 @@ const {
 
 // Run one-time migration from env vars to config store (no-op if already done)
 await migrateEnvToCapabilities(env, configStore, logger);
+
+// Run one-time migration to the multi-user model (wave 0)
+if (env.SLACK_BOT_TOKEN && env.ALLOWED_SLACK_USER_ID) {
+  const slackClient = new WebClient(env.SLACK_BOT_TOKEN);
+  await migrateToUserModel({
+    configStore,
+    users,
+    identities,
+    history,
+    preferences: preferencesStore,
+    tasks: taskStore,
+    slackClient,
+    allowedSlackUserId: env.ALLOWED_SLACK_USER_ID,
+    logger,
+  });
+}
 
 // Read Slack connection config from config store (written by console)
 // configStore.get returns JSON-stringified values, so parse them
