@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { WebClient } from "@slack/web-api";
 import { createBedrockModel, DEFAULT_BEDROCK_MODEL_ID, validateBedrockModel } from "./agent/bedrock.js";
+import { DefaultPrivacyFilter, HistoryAppender } from "./agent/history-appender.js";
 import { createHistoryStore } from "./agent/history.js";
 import { runAgent } from "./agent/run.js";
 import { migrateEnvToCapabilities } from "./capabilities/migration.js";
@@ -37,6 +38,10 @@ const {
 //   - sqlite → in-memory (dev only; entries lost on restart)
 //   - dynamodb → durable, TTL-backed (90d default, see audit/dynamo.ts:22)
 // The shape is identical, so callers don't branch on adapter.
+
+// Create the history-appender seam with default privacy filter (wave 2)
+const privacyFilter = new DefaultPrivacyFilter();
+const historyAppender = new HistoryAppender(history, privacyFilter);
 
 // Run one-time migration from env vars to config store (no-op if already done)
 await migrateEnvToCapabilities(env, configStore, logger);
@@ -122,9 +127,11 @@ const registry = await initCapabilityRegistry({
     const tools = { ...registry.sharedTools, ...privateTools };
     const activeCapabilities = await registry.getActiveCapabilities(allowedUserId);
 
+    const taskHistoryAppender = new HistoryAppender(taskHistory, privacyFilter);
     const result = await runAgent({
       model,
       history: taskHistory,
+      historyAppender: taskHistoryAppender,
       logger,
       tools,
       userId: allowedUserId,
@@ -221,6 +228,7 @@ async function reconnectSlack(): Promise<{ ok: boolean; error?: string }> {
     return runAgent({
       model,
       history,
+      historyAppender,
       logger,
       tools,
       userId,
@@ -260,9 +268,11 @@ async function reconnectSlack(): Promise<{ ok: boolean; error?: string }> {
       const tools = { ...registry.sharedTools, ...privateTools };
       const activeCapabilities = await registry.getActiveCapabilities(task.userId);
 
+      const taskHistoryAppender = new HistoryAppender(taskHistory, privacyFilter);
       return runAgent({
         model,
         history: taskHistory,
+        historyAppender: taskHistoryAppender,
         logger,
         tools,
         userId: task.userId,

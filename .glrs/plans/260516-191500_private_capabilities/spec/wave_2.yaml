@@ -654,7 +654,7 @@ items:
       itself or agent/run.ts BOTH calls history.append( AND references
       "tool-result". Wave 3.5 is therefore a one-line filter swap at the
       construction site in index.ts.
-    checked: false
+    checked: true
     files:
       - path: packages/core/src/agent/history-appender.ts
         isNew: true

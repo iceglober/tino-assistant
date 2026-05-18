@@ -1,6 +1,7 @@
 import { generateText, type LanguageModel, stepCountIs, type ToolSet } from "ai";
 import type { AuditLogger } from "../audit/logger.js";
 import type { AppLogger } from "../slack/app.js";
+import type { HistoryAppender } from "./history-appender.js";
 import type { HistoryStore } from "./history.js";
 import { validateAgentOutput } from "./output-validator.js";
 import { buildSystemPrompt } from "./systemPrompt.js";
@@ -8,6 +9,7 @@ import { buildSystemPrompt } from "./systemPrompt.js";
 export interface RunAgentParams {
   model: LanguageModel;
   history: HistoryStore;
+  historyAppender?: HistoryAppender; // seam for privacy-filtering tool results
   logger: AppLogger;
   tools?: ToolSet; // empty/undefined in Phase 3
   userId: string;
@@ -35,7 +37,7 @@ export interface RunAgentParams {
  *   empty Slack message (which Bolt rejects).
  */
 export async function runAgent(params: RunAgentParams): Promise<string> {
-  const { model, history, logger, tools, userId, text, auditLogger, activeCapabilities = [] } = params;
+  const { model, history, historyAppender, logger, tools, userId, text, auditLogger, activeCapabilities = [] } = params;
 
   await history.append(userId, [{ role: "user", content: text }]);
 
@@ -49,7 +51,11 @@ export async function runAgent(params: RunAgentParams): Promise<string> {
   });
   const durationMs = Date.now() - start;
 
-  await history.append(userId, result.response.messages);
+  if (historyAppender) {
+    await historyAppender.append(userId, result.response.messages);
+  } else {
+    await history.append(userId, result.response.messages);
+  }
 
   // ── Audit: log each tool call ─────────────────────────────────────────────
   if (auditLogger) {
