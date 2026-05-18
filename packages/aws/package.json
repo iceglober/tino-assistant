@@ -25,6 +25,14 @@
     "./encryption": {
       "types": "./dist/encryption/index.d.ts",
       "default": "./dist/encryption/index.js"
+    },
+    "./crypto/types": {
+      "types": "./dist/crypto/types.d.ts",
+      "default": "./dist/crypto/types.js"
+    },
+    "./crypto/kms-adapter": {
+      "types": "./dist/crypto/kms-adapter.d.ts",
+      "default": "./dist/crypto/kms-adapter.js"
     }
   },
   "scripts": {
@@ -53,6 +61,7 @@
     "@pulumi/pulumi": "^3.0.0",
     "@types/bun": "^1.3.14",
     "@types/node": "^25.7.0",
+    "aws-sdk-client-mock": "^4.0.1",
     "typescript": "^6.0.3",
     "vitest": "^4.1.6"
   }

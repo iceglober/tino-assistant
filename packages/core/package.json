@@ -53,6 +53,14 @@
     "./audit/memory": {
       "types": "./dist/audit/memory.d.ts",
       "default": "./dist/audit/memory.js"
+    },
+    "./crypto/types": {
+      "types": "./dist/crypto/types.d.ts",
+      "default": "./dist/crypto/types.js"
+    },
+    "./crypto/factory": {
+      "types": "./dist/crypto/factory.d.ts",
+      "default": "./dist/crypto/factory.js"
     }
   },
   "scripts": {

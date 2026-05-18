@@ -44,6 +44,17 @@ const EnvSchema = z.object({
   // automatically; this is only needed to override that.
   AWS_REGION: z.string().min(1).optional(),
 
+  // KMS key ARN for envelope encryption (production).
+  // Format: arn:aws:kms:region:account:key/id or alias/name.
+  // When set, enables KMS-backed CryptoAdapter for encrypting per-user credentials.
+  // When unset, falls back to LOCAL_DEV_CRYPTO_KEY for local development.
+  KMS_KEY_ARN: z.string().min(1).optional(),
+
+  // Local development crypto key (scrypt password for AES-256-GCM derivation).
+  // Ignored if KMS_KEY_ARN is set. Default: 'dev-key'.
+  // WARNING: Changing this key invalidates all existing encrypted payloads.
+  LOCAL_DEV_CRYPTO_KEY: z.string().min(1).optional(),
+
   // ── Legacy migration vars (optional) ──────────────────────────────────────
   // These are read during the one-time migration from env vars to the config
   // store. After migration, they can be removed from .env.
