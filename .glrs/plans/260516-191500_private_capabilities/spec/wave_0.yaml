@@ -474,7 +474,7 @@ items:
     intent: |
       All existing tests continue to pass. No regression in the 314+-test
       suite.
-    checked: false
+    checked: true
     files: []
     tests:
       - "*"
