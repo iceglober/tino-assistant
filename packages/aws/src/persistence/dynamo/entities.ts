@@ -133,6 +133,26 @@ export function createIdentityEntity(table: TinoTable) {
   });
 }
 
+// ── User Capability ──────────────────────────────────────────────────────────
+
+export function createUserCapabilityEntity(table: TinoTable) {
+  return new Entity({
+    name: "UserCapability",
+    table,
+    schema: item({
+      pk: string().key(), // 'USER#<tinoUserId>'
+      sk: string().key(), // 'CAP#<capabilityId>'
+      tinoUserId: string(),
+      capabilityId: string(),
+      enabled: number(), // 0 or 1 (boolean)
+      credentialsJson: string().optional(),
+      settingsJson: string().optional(),
+      updatedAt: number(),
+    }),
+    timestamps: false,
+  });
+}
+
 // ── Key helpers ──────────────────────────────────────────────────────────────
 
 /** Zero-pad a scheduledAt epoch-seconds value to 13 digits for lexicographic sort. */

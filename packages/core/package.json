@@ -54,6 +54,10 @@
       "types": "./dist/audit/memory.d.ts",
       "default": "./dist/audit/memory.js"
     },
+    "./capabilities/types": {
+      "types": "./dist/capabilities/types.d.ts",
+      "default": "./dist/capabilities/types.js"
+    },
     "./crypto/types": {
       "types": "./dist/crypto/types.d.ts",
       "default": "./dist/crypto/types.js"
@@ -61,6 +65,10 @@
     "./crypto/factory": {
       "types": "./dist/crypto/factory.d.ts",
       "default": "./dist/crypto/factory.js"
+    },
+    "./persistence/user-capabilities": {
+      "types": "./dist/persistence/user-capabilities.d.ts",
+      "default": "./dist/persistence/user-capabilities.js"
     }
   },
   "scripts": {

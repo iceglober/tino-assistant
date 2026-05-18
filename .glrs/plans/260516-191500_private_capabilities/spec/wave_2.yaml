@@ -124,7 +124,7 @@ items:
       (userId, capabilityId) partitions are isolated. List returns enabled
       flags without decryption. Dynamo wiring uses pk=USER#<uid>, sk=CAP#<capId>
       so list() is a real single-partition Query.
-    checked: false
+    checked: true
     files:
       - path: packages/core/src/persistence/user-capabilities.ts
         isNew: true

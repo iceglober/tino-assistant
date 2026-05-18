@@ -1,10 +1,12 @@
 import type { HistoryStore } from "@tino/core/agent/history";
 import type { AuditLogger } from "@tino/core/audit/logger";
+import type { CryptoAdapter } from "@tino/core/crypto/types";
 import type { Env } from "@tino/core/env";
 import type { IdentityStore, UserStore } from "@tino/core/identity/store";
 import type { ConfigStore } from "@tino/core/persistence/config";
 import type { PreferencesStore } from "@tino/core/persistence/preferences";
 import type { TaskStore } from "@tino/core/persistence/tasks";
+import type { UserCapabilityStore } from "@tino/core/persistence/user-capabilities";
 import type { AppLogger } from "@tino/core/slack/app";
 import { createDynamoAuditLogger } from "../../audit/dynamo.js";
 import { createDynamoTable } from "./client.js";
@@ -14,6 +16,7 @@ import { createDynamoIdentityStore } from "./identities.js";
 import { createDynamoPreferencesStore } from "./preferences.js";
 import { createDynamoTaskStore } from "./tasks.js";
 import { createDynamoUserStore } from "./users.js";
+import { createDynamoUserCapabilityStore } from "./user-capabilities.js";
 
 export interface DynamoPersistence {
   history: HistoryStore;
@@ -22,6 +25,7 @@ export interface DynamoPersistence {
   config: ConfigStore;
   users: UserStore;
   identities: IdentityStore;
+  userCapabilities: UserCapabilityStore;
   auditLogger: AuditLogger;
 }
 
@@ -44,7 +48,11 @@ function readAuditRetentionSeconds(): number {
   return Math.floor(days) * 86400;
 }
 
-export async function createDynamoPersistence(env: Env, logger: AppLogger): Promise<DynamoPersistence> {
+export async function createDynamoPersistence(
+  env: Env,
+  logger: AppLogger,
+  cryptoAdapter?: CryptoAdapter,
+): Promise<DynamoPersistence> {
   const tableName = env.DYNAMODB_TABLE_NAME;
   if (!tableName) {
     throw new Error("DYNAMODB_TABLE_NAME env var is required when PERSISTENCE_ADAPTER=dynamodb");
@@ -52,6 +60,10 @@ export async function createDynamoPersistence(env: Env, logger: AppLogger): Prom
 
   const endpoint = env.DYNAMODB_ENDPOINT;
   const table = await createDynamoTable(tableName, endpoint);
+
+  if (!cryptoAdapter) {
+    throw new Error("CryptoAdapter is required for DynamoDB persistence layer");
+  }
 
   const retentionSeconds = readAuditRetentionSeconds();
   logger.info(
@@ -72,6 +84,7 @@ export async function createDynamoPersistence(env: Env, logger: AppLogger): Prom
     config: createDynamoConfigStore(table),
     users: createDynamoUserStore(table),
     identities: createDynamoIdentityStore(table),
+    userCapabilities: createDynamoUserCapabilityStore(table, cryptoAdapter),
     auditLogger: createDynamoAuditLogger(table, retentionSeconds),
   };
 }

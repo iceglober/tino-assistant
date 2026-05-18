@@ -1,11 +1,13 @@
 import type { HistoryStore } from "../agent/history.js";
 import type { AuditLogger } from "../audit/logger.js";
+import type { CryptoAdapter } from "../crypto/types.js";
 import type { Env } from "../env.js";
 import type { IdentityStore, UserStore } from "../identity/store.js";
 import type { AppLogger } from "../slack/app.js";
 import type { ConfigStore } from "./config.js";
 import type { PreferencesStore } from "./preferences.js";
 import type { TaskStore } from "./tasks.js";
+import type { UserCapabilityStore } from "./user-capabilities.js";
 
 export interface Persistence {
   history: HistoryStore;
@@ -22,6 +24,12 @@ export interface Persistence {
    * pairs to tino-UUIDs. Always present.
    */
   identities: IdentityStore;
+  /**
+   * Per-user capability store (wave 2). Stores encrypted credentials and
+   * settings per (userId, capabilityId). Backed by sqlite or dynamodb.
+   * Always present.
+   */
+  userCapabilities: UserCapabilityStore;
   /**
    * Audit logger backing the HIPAA audit trail.
    *
@@ -44,8 +52,16 @@ export interface Persistence {
  * - 'dynamodb': uses DynamoDB Toolbox v2, reads DYNAMODB_TABLE_NAME (required)
  *
  * Dynamic imports keep the DynamoDB SDK out of the bundle when using SQLite.
+ *
+ * @param cryptoAdapter Optional CryptoAdapter for encrypting per-user credentials.
+ *   Required if userCapabilities will be used. If omitted, userCapabilities
+ *   will be created but fail at encrypt/decrypt time.
  */
-export async function createPersistence(env: Env, logger: AppLogger): Promise<Persistence> {
+export async function createPersistence(
+  env: Env,
+  logger: AppLogger,
+  cryptoAdapter?: CryptoAdapter,
+): Promise<Persistence> {
   const adapter = env.PERSISTENCE_ADAPTER ?? "sqlite";
 
   if (adapter === "dynamodb") {
@@ -53,7 +69,7 @@ export async function createPersistence(env: Env, logger: AppLogger): Promise<Pe
     // when using SQLite. The import only resolves if @tino/aws is installed.
     // @ts-expect-error — @tino/aws is an optional peer; not in core's dep tree
     const { createDynamoPersistence } = await import("@tino/aws/persistence");
-    return createDynamoPersistence(env, logger);
+    return createDynamoPersistence(env, logger, cryptoAdapter);
   }
 
   // Default: SQLite
@@ -64,6 +80,7 @@ export async function createPersistence(env: Env, logger: AppLogger): Promise<Pe
   const { createConfigStore } = await import("./config.js");
   const { createMemoryAuditLogger } = await import("../audit/memory.js");
   const { createSqliteUserStore, createSqliteIdentityStore } = await import("../identity/store.js");
+  const { createSqliteUserCapabilityStore } = await import("./user-capabilities.js");
 
   const history = createSqliteHistoryStore({ dbPath, cap: 40 });
   const tasks = createTaskStore({ dbPath });
@@ -71,8 +88,14 @@ export async function createPersistence(env: Env, logger: AppLogger): Promise<Pe
   const config = createConfigStore({ dbPath });
   const users = createSqliteUserStore({ dbPath });
   const identities = createSqliteIdentityStore({ dbPath });
+
+  if (!cryptoAdapter) {
+    throw new Error("CryptoAdapter is required for SQLite persistence layer");
+  }
+
+  const userCapabilities = createSqliteUserCapabilityStore({ dbPath, cryptoAdapter });
   const auditLogger = createMemoryAuditLogger();
 
   logger.info({ adapter: "sqlite", dbPath }, "persistence initialized");
-  return { history, tasks, preferences, config, users, identities, auditLogger };
+  return { history, tasks, preferences, config, users, identities, userCapabilities, auditLogger };
 }
