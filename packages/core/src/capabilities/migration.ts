@@ -6,6 +6,12 @@
  * them, constructs capability configs, and writes them to the config table.
  *
  * Subsequent startups read from the config table only.
+ *
+ * Wave 2 note: Capabilities now classified as 'private' (gmail, calendar,
+ * slack-personal) currently read from the global `capability.<id>` blob
+ * (transitional in wave 1). In wave 2, per-user credentials will move to
+ * `USER#<botOwnerTinoUserId>#CAP#<id>` partitions in the identity store,
+ * and this migration will become user-scoped.
  */
 import type { ConfigStore } from "../persistence/config.js";
 import type { AppLogger } from "../slack/app.js";
