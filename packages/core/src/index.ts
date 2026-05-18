@@ -5,6 +5,8 @@ import { createHistoryStore } from "./agent/history.js";
 import { runAgent } from "./agent/run.js";
 import { migrateEnvToCapabilities } from "./capabilities/migration.js";
 import { initCapabilityRegistry } from "./capabilities/registry.js";
+import { createCryptoAdapter } from "./crypto/factory.js";
+import { migrateCredentialsToUserPartitions } from "./crypto/migration.js";
 import { loadEnv } from "./env.js";
 import { createLogger } from "./logging/logger.js";
 import { migrateToUserModel } from "./identity/migration.js";
@@ -16,6 +18,10 @@ import { createProactiveDm } from "./slack/proactive.js";
 
 const env = loadEnv();
 const logger = createLogger(env);
+
+// Create crypto adapter for encrypting per-user credentials (wave 2)
+const cryptoAdapter = await createCryptoAdapter(env);
+
 const {
   history,
   tasks: taskStore,
@@ -23,8 +29,9 @@ const {
   config: configStore,
   users,
   identities,
+  userCapabilities,
   auditLogger,
-} = await createPersistence(env, logger);
+} = await createPersistence(env, logger, cryptoAdapter);
 
 // `auditLogger` is sourced from the persistence factory:
 //   - sqlite → in-memory (dev only; entries lost on restart)
@@ -49,6 +56,15 @@ if (env.SLACK_BOT_TOKEN && env.ALLOWED_SLACK_USER_ID) {
     logger,
   });
 }
+
+// Run one-time migration to move private-capability credentials to per-user partitions (wave 2)
+await migrateCredentialsToUserPartitions({
+  configStore,
+  userCapabilities,
+  users,
+  logger,
+  allowedSlackUserId: env.ALLOWED_SLACK_USER_ID,
+});
 
 // Read Slack connection config from config store (written by console)
 // configStore.get returns JSON-stringified values, so parse them
@@ -91,6 +107,7 @@ const registry = await initCapabilityRegistry({
   dbPath: env.DB_PATH,
   preferencesStore,
   taskStore,
+  userCapabilities,
   onNewWork: async (summary: string) => {
     // findWork callback — run the agent on the work item and post result to owner
     const taskHistory = createHistoryStore({ cap: 40 });

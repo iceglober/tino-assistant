@@ -16,6 +16,7 @@ import type { ConfigStore } from "../persistence/config.js";
 import type { PreferencesStore } from "../persistence/preferences.js";
 import { createPreferencesStore } from "../persistence/preferences.js";
 import type { TaskStore } from "../persistence/tasks.js";
+import type { UserCapabilityStore } from "../persistence/user-capabilities.js";
 import type { AppLogger } from "../slack/app.js";
 import { getPreferencesTool, setPreferenceTool } from "../tools/preferences.js";
 import { cancelTaskTool, listTasksTool, scheduleTaskTool } from "../tools/tasks.js";
@@ -45,6 +46,12 @@ export interface RegistryOptions {
   preferencesStore?: PreferencesStore;
   /** Task store for schedule_task / list_tasks / cancel_task tools. */
   taskStore?: TaskStore;
+  /**
+   * Per-user capability store for encrypted credentials (wave 2).
+   * When provided, buildPrivateTools checks this store before falling back
+   * to the global configStore for backward compatibility.
+   */
+  userCapabilities?: UserCapabilityStore;
   /**
    * Called when a findWork poller discovers new work.
    * Receives a summary string describing the work item.
@@ -133,7 +140,7 @@ async function loadCapabilityTools(opts: {
  * materialized on-demand via `buildPrivateTools()` per agent run.
  */
 export async function initCapabilityRegistry(opts: RegistryOptions): Promise<CapabilityRegistry> {
-  const { configStore, logger, allowedUserId, dbPath, preferencesStore, taskStore, onNewWork } = opts;
+  const { configStore, logger, allowedUserId, dbPath, preferencesStore, taskStore, userCapabilities, onNewWork } = opts;
   // Mutable buckets — the registry exposes `sharedTools` directly so callers can
   // share a stable reference across reloads (`reload()` mutates this in place).
   const sharedTools: ToolSet = {};
@@ -180,9 +187,11 @@ export async function initCapabilityRegistry(opts: RegistryOptions): Promise<Cap
   /**
    * Build tools for a specific user from private capabilities.
    * Returns empty toolset for SYSTEM_USER_ID; otherwise walks private
-   * capabilities, reads their config from the global `capability.<id>` blob
-   * (wave 1 transitional), and calls buildToolsForUser. Non-null results
-   * are merged. Per-capability errors are logged and skipped.
+   * capabilities and reads their config in this order:
+   *   1. Wave 2+: UserCapabilityStore if available (encrypted per-user)
+   *   2. Wave 1: Global `capability.<id>` blob for backward compatibility
+   *
+   * Non-null results are merged. Per-capability errors are logged and skipped.
    */
   async function buildPrivateTools(tinoUserId: string): Promise<ToolSet> {
     if (tinoUserId === SYSTEM_USER_ID) {
@@ -195,17 +204,34 @@ export async function initCapabilityRegistry(opts: RegistryOptions): Promise<Cap
         continue;
       }
 
-      const raw = await configStore.get(`capability.${cap.id}`);
       let config: CapabilityConfig | null = null;
-      if (raw !== null) {
+
+      // Wave 2: Check UserCapabilityStore first (encrypted per-user)
+      if (userCapabilities) {
         try {
-          config = JSON.parse(raw) as CapabilityConfig;
-        } catch {
-          logger.warn({ capabilityId: cap.id, tinoUserId }, "capability config is not valid JSON, skipping");
-          continue;
-        }
-        if (!config.enabled) {
+          config = await userCapabilities.get(tinoUserId, cap.id);
+        } catch (err) {
+          logger.warn(
+            { capabilityId: cap.id, tinoUserId, err: (err as Error).message },
+            "failed to read from user capability store, falling back to global config",
+          );
           config = null;
+        }
+      }
+
+      // Wave 1 fallback: Check global config if not found in user store
+      if (!config) {
+        const raw = await configStore.get(`capability.${cap.id}`);
+        if (raw !== null) {
+          try {
+            config = JSON.parse(raw) as CapabilityConfig;
+          } catch {
+            logger.warn({ capabilityId: cap.id, tinoUserId }, "capability config is not valid JSON, skipping");
+            continue;
+          }
+          if (!config.enabled) {
+            config = null;
+          }
         }
       }
 
@@ -243,16 +269,29 @@ export async function initCapabilityRegistry(opts: RegistryOptions): Promise<Cap
         continue;
       }
 
-      const raw = await configStore.get(`capability.${cap.id}`);
       let config: CapabilityConfig | null = null;
-      if (raw !== null) {
+
+      // Wave 2: Check UserCapabilityStore first
+      if (userCapabilities) {
         try {
-          config = JSON.parse(raw) as CapabilityConfig;
+          config = await userCapabilities.get(tinoUserId, cap.id);
         } catch {
-          continue;
-        }
-        if (!config.enabled) {
           config = null;
+        }
+      }
+
+      // Wave 1 fallback: Check global config
+      if (!config) {
+        const raw = await configStore.get(`capability.${cap.id}`);
+        if (raw !== null) {
+          try {
+            config = JSON.parse(raw) as CapabilityConfig;
+          } catch {
+            continue;
+          }
+          if (!config.enabled) {
+            config = null;
+          }
         }
       }
 
