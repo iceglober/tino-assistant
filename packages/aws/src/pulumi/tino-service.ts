@@ -366,6 +366,25 @@ export class TinoService extends pulumi.ComponentResource {
       ],
     }).ids;
 
+    // ── IAM task role (created early for KMS key policy) ─────────────────
+    const taskRole = new aws.iam.Role(
+      `${name}-task-role`,
+      {
+        assumeRolePolicy: JSON.stringify({
+          Version: "2012-10-17",
+          Statement: [
+            {
+              Action: "sts:AssumeRole",
+              Effect: "Allow",
+              Principal: { Service: "ecs-tasks.amazonaws.com" },
+            },
+          ],
+        }),
+        tags,
+      },
+      { parent: this },
+    );
+
     // ── KMS key (always) ─────────────────────────────────────────────────
     const callerIdentity = aws.getCallerIdentityOutput();
     const currentRegion = aws.getRegionOutput();
@@ -376,7 +395,7 @@ export class TinoService extends pulumi.ComponentResource {
       {
         description: `tino encryption key (${name})`,
         enableKeyRotation: true,
-        policy: pulumi.all([accountId, currentRegion.name]).apply(([acctId, region]) =>
+        policy: pulumi.all([accountId, currentRegion.name, taskRole.arn]).apply(([acctId, region, taskRoleArn]) =>
           JSON.stringify({
             Version: "2012-10-17",
             Statement: [
@@ -396,6 +415,19 @@ export class TinoService extends pulumi.ComponentResource {
                 Condition: {
                   ArnLike: {
                     "kms:EncryptionContext:aws:logs:arn": `arn:aws:logs:${region}:${acctId}:log-group:*`,
+                  },
+                },
+              },
+              {
+                Sid: "AllowEcsTaskRoleDecryptAndGenerateDataKey",
+                Effect: "Allow",
+                Principal: { AWS: taskRoleArn },
+                Action: ["kms:Decrypt", "kms:GenerateDataKey"],
+                Resource: "*",
+                Condition: {
+                  StringEquals: {
+                    "kms:EncryptionContext:userId": "${aws:username}",
+                    "kms:EncryptionContext:capabilityId": "*",
                   },
                 },
               },
@@ -699,24 +731,6 @@ export class TinoService extends pulumi.ComponentResource {
             ],
           }),
         ),
-      },
-      { parent: this },
-    );
-
-    const taskRole = new aws.iam.Role(
-      `${name}-task-role`,
-      {
-        assumeRolePolicy: JSON.stringify({
-          Version: "2012-10-17",
-          Statement: [
-            {
-              Action: "sts:AssumeRole",
-              Effect: "Allow",
-              Principal: { Service: "ecs-tasks.amazonaws.com" },
-            },
-          ],
-        }),
-        tags,
       },
       { parent: this },
     );

@@ -567,7 +567,7 @@ items:
       The KMS key policy requires userId and capabilityId in the
       EncryptionContext for any Decrypt or GenerateDataKey call from
       the ECS task role. Verified via Pulumi-policy snapshot.
-    checked: false
+    checked: true
     files:
       - path: packages/aws/src/pulumi/tino-service.ts
         isNew: false
