@@ -90,3 +90,56 @@ describe("createIdentityResolver", () => {
     expect(await resolver.resolveGoogle("bob@example.com")).toBeNull();
   });
 });
+
+describe("provisionFromSlack", () => {
+  function setupWithSlackEmail(email: string) {
+    const dbPath = tempDbPath();
+    const users = createSqliteUserStore({ dbPath });
+    const identities = createSqliteIdentityStore({ dbPath });
+    const slackClient: SlackWebClient = {
+      users: {
+        async info() {
+          return { user: { profile: { email } } };
+        },
+      },
+    };
+    const resolver = createIdentityResolver({
+      users,
+      identities,
+      slackClient,
+      logger: noopLogger,
+    });
+    return { users, identities, resolver };
+  }
+
+  it("provisionFromSlack org-domain creates user when domain matches", async () => {
+    const { identities, resolver } = setupWithSlackEmail("alice@acme.com");
+
+    const user = await resolver.provisionFromSlack("U_ALICE", {
+      mode: "org-domain",
+      orgDomain: "acme.com",
+    });
+
+    expect(user.email).toBe("alice@acme.com");
+    expect(user.role).toBe("member");
+    expect(user.status).toBe("active");
+    expect(user.slackUserId).toBe("U_ALICE");
+    expect(user.id).toBeTruthy();
+
+    const linked = await identities.listForUser(user.id);
+    expect(linked).toHaveLength(2);
+    expect(linked.find((i) => i.provider === "slack")?.externalId).toBe("U_ALICE");
+    expect(linked.find((i) => i.provider === "google")?.externalId).toBe("alice@acme.com");
+  });
+
+  it("provisionFromSlack org-domain rejects when domain does not match", async () => {
+    const { resolver } = setupWithSlackEmail("alice@other.com");
+
+    await expect(
+      resolver.provisionFromSlack("U_ALICE", {
+        mode: "org-domain",
+        orgDomain: "acme.com",
+      }),
+    ).rejects.toThrow("unknown_user");
+  });
+});
