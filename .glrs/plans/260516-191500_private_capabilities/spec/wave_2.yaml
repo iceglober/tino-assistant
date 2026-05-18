@@ -323,7 +323,7 @@ items:
       After migration, the bot owner's agent runs use the per-user partition
       for private tools. Decryption succeeds; tools are constructed; the
       gmail capability appears in activeCapabilities.
-    checked: false
+    checked: true
     files:
       - path: packages/core/src/capabilities/registry.ts
         isNew: false

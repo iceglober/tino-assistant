@@ -18,6 +18,8 @@ import { createConfigStore } from "../../src/persistence/config.js";
 import { createSqliteUserCapabilityStore } from "../../src/persistence/user-capabilities.js";
 import type { CapabilityConfig } from "../../src/capabilities/types.js";
 import type { TinoUser } from "../../src/identity/types.js";
+import { SYSTEM_USER_ID } from "../../src/identity/types.js";
+import { initCapabilityRegistry } from "../../src/capabilities/registry.js";
 
 // ---------------------------------------------------------------------------
 // Mock helpers
@@ -484,5 +486,159 @@ describe("migrateCredentialsToUserPartitions", () => {
 
     // Global config should NOT be cleared
     expect(await configStore.get("capability.gmail")).not.toBeNull();
+  });
+
+  it("a4.1. buildPrivateTools includes gmail after migration", async () => {
+    const gmailConfig: CapabilityConfig = {
+      enabled: true,
+      credentials: {
+        clientId: "test-client-id.apps.googleusercontent.com",
+        clientSecret: "test-client-secret",
+        refreshToken: "test-refresh-token",
+      },
+      settings: {},
+    };
+
+    const { configStore, users, dbPath } = createTestStores({
+      "capability.gmail": gmailConfig,
+    });
+    const { userCapabilities } = await createCryptoAdapterAndStore(dbPath);
+    const logger = makeLogger();
+
+    // Create admin user
+    const adminId = crypto.randomUUID();
+    const now = Date.now();
+    await users.create({
+      id: adminId,
+      email: "admin@example.com",
+      role: "admin",
+      status: "active",
+      slackUserId: "U123",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    // Run migration
+    const result = await migrateCredentialsToUserPartitions({
+      configStore,
+      userCapabilities,
+      users,
+      logger,
+      allowedSlackUserId: "U123",
+    });
+
+    expect(result.migrated).toContain("gmail");
+    expect(result.botOwnerTinoUserId).toBe(adminId);
+
+    // Initialize registry with userCapabilities
+    const registry = await initCapabilityRegistry({
+      configStore,
+      logger,
+      allowedUserId: "U123",
+      dbPath,
+      userCapabilities,
+    });
+
+    // Call buildPrivateTools for admin
+    const privateTools = await registry.buildPrivateTools(adminId);
+
+    // Verify gmail tools are present
+    expect(privateTools).toHaveProperty("gmail_search");
+    expect(privateTools).toHaveProperty("gmail_get_message");
+
+    // Verify getActiveCapabilities includes gmail
+    const activeCapabilities = await registry.getActiveCapabilities(adminId);
+    expect(activeCapabilities).toContain("gmail");
+
+    // Verify global config was cleared
+    const globalGmail = await configStore.get("capability.gmail");
+    expect(globalGmail).toBeNull();
+  });
+
+  it("a4.2. getActiveCapabilities lists private capabilities after migration", async () => {
+    const gmailConfig: CapabilityConfig = {
+      enabled: true,
+      credentials: {
+        clientId: "test-client-id.apps.googleusercontent.com",
+        clientSecret: "test-client-secret",
+        refreshToken: "test-refresh-token",
+      },
+      settings: {},
+    };
+
+    const calendarConfig: CapabilityConfig = {
+      enabled: true,
+      credentials: {
+        clientId: "test-client-id.apps.googleusercontent.com",
+        clientSecret: "test-client-secret",
+        refreshToken: "test-refresh-token",
+      },
+      settings: { calendarId: "primary" },
+    };
+
+    const slackPersonalConfig: CapabilityConfig = {
+      enabled: true,
+      credentials: {
+        userToken: "xoxp-test-token",
+      },
+      settings: {},
+    };
+
+    const { configStore, users, dbPath } = createTestStores({
+      "capability.gmail": gmailConfig,
+      "capability.calendar": calendarConfig,
+      "capability.slack-personal": slackPersonalConfig,
+    });
+    const { userCapabilities } = await createCryptoAdapterAndStore(dbPath);
+    const logger = makeLogger();
+
+    // Create admin user
+    const adminId = crypto.randomUUID();
+    const now = Date.now();
+    await users.create({
+      id: adminId,
+      email: "admin@example.com",
+      role: "admin",
+      status: "active",
+      slackUserId: "U456",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    // Run migration
+    const result = await migrateCredentialsToUserPartitions({
+      configStore,
+      userCapabilities,
+      users,
+      logger,
+      allowedSlackUserId: "U456",
+    });
+
+    expect(result.migrated).toEqual(expect.arrayContaining(["gmail", "calendar", "slack-personal"]));
+
+    // Initialize registry with userCapabilities
+    const registry = await initCapabilityRegistry({
+      configStore,
+      logger,
+      allowedUserId: "U456",
+      dbPath,
+      userCapabilities,
+    });
+
+    // Get active capabilities for admin user
+    const adminCapabilities = await registry.getActiveCapabilities(adminId);
+    expect(adminCapabilities).toContain("gmail");
+    expect(adminCapabilities).toContain("calendar");
+    expect(adminCapabilities).toContain("slack-personal");
+
+    // Get active capabilities for SYSTEM_USER_ID (should only include shared)
+    const systemCapabilities = await registry.getActiveCapabilities(SYSTEM_USER_ID);
+    expect(systemCapabilities).not.toContain("gmail");
+    expect(systemCapabilities).not.toContain("calendar");
+    expect(systemCapabilities).not.toContain("slack-personal");
+
+    // Verify deterministic sorting for admin capabilities
+    const adminCapabilities2 = await registry.getActiveCapabilities(adminId);
+    expect(adminCapabilities2).toEqual(adminCapabilities);
   });
 });
