@@ -514,7 +514,7 @@ items:
       The bot owner's existing slack DM behavior is unchanged after wave 0
       — the same DM still triggers the same agent run, the same tools, the
       same history. No user-visible change.
-    checked: false
+    checked: true
     files:
       - path: packages/core/tests/integration/wave0-no-regression.test.ts
         isNew: true
