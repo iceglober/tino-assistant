@@ -24,7 +24,10 @@ export interface AuditEntry {
     | "injection_suspected"
     | "user_deprovisioned"
     | "admin_restart"
-    | "role_change";
+    | "role_change"
+    | "privacy_config_change"
+    | "privacy_scrub"
+    | "privacy_setup_completed";
   toolName?: string;
   capabilityInstanceId?: string;
   /** Parameter KEYS only — never values (values may contain PII or secrets). */
@@ -32,6 +35,7 @@ export interface AuditEntry {
   durationMs?: number;
   status: "success" | "error" | "denied";
   errorMessage?: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface AuditQueryOptions {

@@ -490,7 +490,7 @@ written so it's the user-facing document an end-user reads to understand what ti
 ## acceptance criteria
 
 ```plan-state
-- [ ] id: a1
+- [x] id: a1
   intent: The Calendar privacy filter gates events whose source-side visibility is private or confidential, and gates default-visibility events when the calendar's default itself is private. Public events and explicit default-with-non-private-default pass through. The user-level gateAllByDefault opt-in gates everything when on.
   tests:
     - tests/privacy/calendar-filter.test.ts::"private visibility gates"
@@ -501,7 +501,7 @@ written so it's the user-facing document an end-user reads to understand what ti
     - tests/privacy/calendar-filter.test.ts::"gateAllByDefault gates regardless of source visibility"
   verify: bun run test tests/privacy/calendar-filter.test.ts
 
-- [ ] id: a2
+- [x] id: a2
   intent: The Gmail privacy filter gates threads where any message has a label in privateLabels, or where any participant address is in denyListedAddresses. Conservative threading: one matching message gates the whole thread.
   tests:
     - tests/privacy/gmail-filter.test.ts::"thread with private label gates"
@@ -513,7 +513,7 @@ written so it's the user-facing document an end-user reads to understand what ti
     - tests/privacy/gmail-filter.test.ts::"address matching normalizes plus-addressing"
   verify: bun run test tests/privacy/gmail-filter.test.ts
 
-- [ ] id: a3
+- [x] id: a3
   intent: The Slack privacy filter gates conversations whose id is deny-listed and conversations where any participant is deny-listed. Conservative multi-party: one deny-listed participant gates the whole MPIM.
   tests:
     - tests/privacy/slack-filter.test.ts::"deny-listed conversation id gates"
@@ -522,7 +522,7 @@ written so it's the user-facing document an end-user reads to understand what ti
     - tests/privacy/slack-filter.test.ts::"non-deny-listed conversation persists"
   verify: bun run test tests/privacy/slack-filter.test.ts
 
-- [ ] id: a4
+- [x] id: a4
   intent: The history writer's seam is wired to the real privacy filter. Tool results that the filter gates are persisted as the metadata-only placeholder; non-gated results persist as bodies. The seam is the single path through which tool results enter HISTORY.
   tests:
     - tests/agent/history-appender.test.ts::"private calendar event persists as placeholder"
@@ -532,7 +532,7 @@ written so it's the user-facing document an end-user reads to understand what ti
     - tests/agent/history-appender.test.ts::"feature flag off restores wave-2 default-allow behavior"
   verify: bun run test tests/agent/history-appender.test.ts
 
-- [ ] id: a5
+- [x] id: a5
   intent: PrivacyConfigStore stores per-user privacy config encrypted with userId encryption context. Get returns plaintext config. Different users' configs are isolated. Decryption with mismatched userId fails.
   tests:
     - tests/privacy/config-store.test.ts::"set then get round-trips plaintext config"
@@ -540,7 +540,7 @@ written so it's the user-facing document an end-user reads to understand what ti
     - tests/privacy/config-store.test.ts::"decrypt with wrong userId encryption context fails"
   verify: bun run test tests/privacy/config-store.test.ts
 
-- [ ] id: a6
+- [x] id: a6
   intent: The retroactive scrub re-evaluates persisted history rows under a new (additive) privacy config and overwrites bodies with placeholders. Idempotent. Emits an audit entry on completion.
   tests:
     - tests/privacy/scrub.test.ts::"adding a label scrubs prior matching threads to placeholders"
@@ -549,7 +549,7 @@ written so it's the user-facing document an end-user reads to understand what ti
     - tests/privacy/scrub.test.ts::"scrub completion writes a privacy_scrub audit entry"
   verify: bun run test tests/privacy/scrub.test.ts
 
-- [ ] id: a7
+- [x] id: a7
   intent: The onboarding gate redirects new users to /onboarding until privacy_setup_completed_at is set. API routes return 403 with onboarding_required. The /api/auth/* and /onboarding/* paths bypass the gate.
   tests:
     - tests/server/onboarding-gate.test.ts::"user with null privacy_setup_completed_at is redirected to /onboarding"
@@ -559,7 +559,7 @@ written so it's the user-facing document an end-user reads to understand what ti
     - tests/server/onboarding-gate.test.ts::"/onboarding/* routes bypass the gate"
   verify: bun run test tests/server/onboarding-gate.test.ts
 
-- [ ] id: a8
+- [x] id: a8
   intent: Onboarding pre-population queries return reasonable results against fixture Gmail / Slack / Calendar data, with sensible defaults for the privacy regex pre-checks.
   tests:
     - tests/server/onboarding-routes.test.ts::"gmail labels pre-population includes top 15 labels with privacy regex flags"
@@ -569,7 +569,7 @@ written so it's the user-facing document an end-user reads to understand what ti
     - tests/server/onboarding-routes.test.ts::"finalize requires every connected capability submitted"
   verify: bun run test tests/server/onboarding-routes.test.ts
 
-- [ ] id: a9
+- [x] id: a9
   intent: Tino-assisted setup tools are registered when the user has the corresponding capability connected and has completed onboarding. Mutation tool requires approval (wave 5) or explicit confirm.
   tests:
     - tests/tools/privacy-setup.test.ts::"gmail_create_privacy_filter requires confirm or approval"
@@ -580,7 +580,7 @@ written so it's the user-facing document an end-user reads to understand what ti
     - tests/tools/privacy-setup.test.ts::"tools are not registered until onboarding is complete"
   verify: bun run test tests/tools/privacy-setup.test.ts
 
-- [ ] id: a10
+- [x] id: a10
   intent: CloudWatch / pino log output never contains the body of a private-capability tool result. Verified by running each private tool against fixtures, capturing log output, and asserting no body content appears.
   tests:
     - tests/integration/cloudwatch-lockdown.test.ts::"gmail tool result body never appears in log output"
@@ -589,7 +589,7 @@ written so it's the user-facing document an end-user reads to understand what ti
     - tests/integration/cloudwatch-lockdown.test.ts::"shared capability tool results may appear in logs"
   verify: bun run test tests/integration/cloudwatch-lockdown.test.ts
 
-- [ ] id: a11
+- [x] id: a11
   intent: Periodic re-prompts surface in the console as dismissable cards when tino notices new contacts/conversations/labels matching the privacy regex.
   tests:
     - tests/scheduler/privacy-reprompt.test.ts::"new contact matching regex emits a reprompt"
@@ -598,7 +598,7 @@ written so it's the user-facing document an end-user reads to understand what ti
     - tests/scheduler/privacy-reprompt.test.ts::"reprompt cadence honors per-user setting"
   verify: bun run test tests/scheduler/privacy-reprompt.test.ts
 
-- [ ] id: a12
+- [x] id: a12
   intent: All existing tests continue to pass.
   tests:
     - "*"

@@ -19,6 +19,7 @@ describe("history-appender seam boundary", () => {
     const allowedFiles = new Set([
       path.join(srcDir, "agent/history-appender.ts"),
       path.join(srcDir, "agent/run.ts"),
+      path.join(srcDir, "privacy/scrub.ts"),
     ]);
 
     const violations: string[] = [];
