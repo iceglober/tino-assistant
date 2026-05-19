@@ -279,7 +279,7 @@ items:
       matches an existing google-linked tino user, the slack identity is
       linked to that user instead of creating a duplicate. This is the
       bidirectional-bootstrap correctness property.
-    checked: false
+    checked: true
     files:
       - path: packages/core/src/identity/resolver.ts
         isNew: true
