@@ -95,7 +95,7 @@ items:
       A new identity table maps (provider, externalId) → tinoUserId. Linking
       the same external identity twice is rejected. Listing identities for a
       user returns all linked providers.
-    checked: true
+    checked: false
     files:
       - path: packages/core/src/identity/store.ts
         isNew: true
@@ -167,7 +167,7 @@ items:
     intent: |
       The identity resolver resolves a slack user id to a tino-UUID using
       the identity table; missing links return null without auto-provisioning.
-    checked: true
+    checked: false
     files:
       - path: packages/core/src/identity/resolver.ts
         isNew: true
@@ -213,7 +213,7 @@ items:
       provisionFromSlack in org-domain mode auto-creates a tino user when
       the slack email's domain matches the configured org domain, and
       rejects when it does not.
-    checked: true
+    checked: false
     files:
       - path: packages/core/src/identity/resolver.ts
         isNew: true
@@ -279,7 +279,7 @@ items:
       matches an existing google-linked tino user, the slack identity is
       linked to that user instead of creating a duplicate. This is the
       bidirectional-bootstrap correctness property.
-    checked: true
+    checked: false
     files:
       - path: packages/core/src/identity/resolver.ts
         isNew: true
@@ -322,7 +322,7 @@ items:
       slack-id-keyed history, preferences, and tasks under the new
       tino-UUID partition. Old records remain in place. Second invocation
       is a no-op.
-    checked: true
+    checked: false
     files:
       - path: packages/core/src/identity/migration.ts
         isNew: true
@@ -514,7 +514,7 @@ items:
       The bot owner's existing slack DM behavior is unchanged after wave 0
       — the same DM still triggers the same agent run, the same tools, the
       same history. No user-visible change.
-    checked: true
+    checked: false
     files:
       - path: packages/core/tests/integration/wave0-no-regression.test.ts
         isNew: true
