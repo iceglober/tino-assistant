@@ -5,7 +5,9 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import { type Context, Hono } from "hono";
 import type { AuditLogger } from "../audit/logger.js";
 import type { CapabilityRegistry } from "../capabilities/types.js";
+import type { IdentityStore, UserStore } from "../identity/store.js";
 import type { ConfigStore } from "../persistence/config.js";
+import type { SessionSecondaryStorage } from "../persistence/factory.js";
 import type { AppLogger } from "../slack/app.js";
 import { type AuthVariables, buildAuthMiddleware, createAuth } from "./middleware/auth.js";
 import { createAdminRoutes } from "./routes/admin.js";
@@ -14,6 +16,7 @@ import { createCapabilityRoutes } from "./routes/capabilities.js";
 import { createComplianceRoutes } from "./routes/compliance.js";
 import { createConfigRoutes } from "./routes/config.js";
 import { createHealthRoutes } from "./routes/health.js";
+import { createOrgConfigRoutes } from "./routes/org-config.js";
 import { createReloadRoutes } from "./routes/reload.js";
 import { createUsersRoutes } from "./routes/users.js";
 import { createUserCapabilityRoutes } from "./routes/user-capabilities.js";
@@ -69,6 +72,18 @@ export interface StartServerOptions {
    * client sees the ack.
    */
   shutdown?: (signal: string) => Promise<void> | void;
+  /**
+   * Wave 3 — DynamoDB-backed session store for better-auth's secondaryStorage.
+   * When provided, sessions survive ECS restarts. Omit for local dev (SQLite).
+   */
+  sessionStore?: SessionSecondaryStorage;
+  /**
+   * Wave 3 — identity + user stores for auth middleware tino-UUID resolution.
+   * The middleware resolves the better-auth session email to a tino-UUID via
+   * the identity store, then loads role/status from the user store.
+   */
+  identities?: IdentityStore;
+  users?: UserStore;
 }
 
 export interface StartedServer {
@@ -79,7 +94,19 @@ export interface StartedServer {
 }
 
 export async function startServer(opts: StartServerOptions): Promise<StartedServer> {
-  const { config, logger, tools, registry, auditLogger, reconnectSlack, reloadCapabilities, shutdown } = opts;
+  const {
+    config,
+    logger,
+    tools,
+    registry,
+    auditLogger,
+    reconnectSlack,
+    reloadCapabilities,
+    shutdown,
+    sessionStore,
+    identities,
+    users,
+  } = opts;
   const port = opts.port ?? 3001;
   const startTime = Date.now();
 
@@ -103,6 +130,7 @@ export async function startServer(opts: StartServerOptions): Promise<StartedServ
         baseUrl,
         dbPath: "/tmp/tino-auth.db",
         logger,
+        sessionStore,
       });
       logger.info({ baseUrl, allowedDomain, authEnabled: true }, "console auth: Google OAuth enabled");
     } catch (err) {
@@ -117,7 +145,7 @@ export async function startServer(opts: StartServerOptions): Promise<StartedServ
 
   // Auth-gate everything (the middleware itself permits `/api/auth/*`,
   // `/api/health`, and `/assets/*` to bypass).
-  app.use("*", buildAuthMiddleware({ auth, allowedDomain, logger }));
+  app.use("*", buildAuthMiddleware({ auth, allowedDomain, logger, identities, users, configStore: config }));
 
   // ── /api/auth/* — better-auth handler ─────────────────────────────────────
   // better-auth ships a fetch-style handler at `auth.handler`. Hono's `c.req.raw`
@@ -140,6 +168,9 @@ export async function startServer(opts: StartServerOptions): Promise<StartedServ
   app.route("/api/user-capabilities", createUserCapabilityRoutes({ config, logger, auditLogger }));
   app.route("/api/compliance", createComplianceRoutes({ config, auditLogger }));
   app.route("/api/users", createUsersRoutes({ config, logger, auditLogger }));
+  if (identities && users) {
+    app.route("/api/org", createOrgConfigRoutes({ config, users, identities, logger, auditLogger }));
+  }
   app.route("/api/reload", createReloadRoutes({ reconnectSlack, reloadCapabilities, logger, auditLogger }));
   if (shutdown) {
     app.route("/api/admin", createAdminRoutes({ logger, auditLogger, shutdown }));

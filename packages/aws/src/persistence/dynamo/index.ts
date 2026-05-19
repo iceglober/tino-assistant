@@ -17,6 +17,7 @@ import { createDynamoPreferencesStore } from "./preferences.js";
 import { createDynamoTaskStore } from "./tasks.js";
 import { createDynamoUserStore } from "./users.js";
 import { createDynamoUserCapabilityStore } from "./user-capabilities.js";
+import { createDynamoSessionStore, type SessionSecondaryStorage } from "./session-store.js";
 
 export interface DynamoPersistence {
   history: HistoryStore;
@@ -27,6 +28,7 @@ export interface DynamoPersistence {
   identities: IdentityStore;
   userCapabilities: UserCapabilityStore;
   auditLogger: AuditLogger;
+  sessionStore: SessionSecondaryStorage;
 }
 
 /**
@@ -86,5 +88,6 @@ export async function createDynamoPersistence(
     identities: createDynamoIdentityStore(table),
     userCapabilities: createDynamoUserCapabilityStore(table, cryptoAdapter),
     auditLogger: createDynamoAuditLogger(table, retentionSeconds),
+    sessionStore: createDynamoSessionStore(table),
   };
 }

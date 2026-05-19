@@ -9,6 +9,18 @@ import type { PreferencesStore } from "./preferences.js";
 import type { TaskStore } from "./tasks.js";
 import type { UserCapabilityStore } from "./user-capabilities.js";
 
+/**
+ * better-auth SecondaryStorage interface for session persistence.
+ * Matches better-auth's shape: get/set/delete with optional TTL.
+ * DynamoDB adapter returns a real implementation; SQLite returns undefined
+ * (better-auth falls back to its built-in in-memory store).
+ */
+export interface SessionSecondaryStorage {
+  get: (key: string) => Promise<string | null>;
+  set: (key: string, value: string, ttl?: number) => Promise<void>;
+  delete: (key: string) => Promise<void>;
+}
+
 export interface Persistence {
   history: HistoryStore;
   tasks: TaskStore;
@@ -43,6 +55,12 @@ export interface Persistence {
    * `if (adapter === 'dynamodb')` branching at the entry point.
    */
   auditLogger: AuditLogger;
+  /**
+   * Session store for better-auth's secondaryStorage (wave 3).
+   * DynamoDB adapter provides a durable store; SQLite returns undefined
+   * and better-auth uses its built-in in-memory store.
+   */
+  sessionStore?: SessionSecondaryStorage;
 }
 
 /**

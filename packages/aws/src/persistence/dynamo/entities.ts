@@ -153,6 +153,23 @@ export function createUserCapabilityEntity(table: TinoTable) {
   });
 }
 
+// ── Session (better-auth SecondaryStorage) ──────────────────────────────────
+
+export function createSessionEntity(table: TinoTable) {
+  return new Entity({
+    name: "Session",
+    table,
+    schema: item({
+      pk: string().key(), // 'SESSION#<key>'
+      sk: string().key(), // same as pk
+      value: string(),
+      expiresAt: number().optional(),
+      updatedAt: number(),
+    }),
+    timestamps: false,
+  });
+}
+
 // ── Key helpers ──────────────────────────────────────────────────────────────
 
 /** Zero-pad a scheduledAt epoch-seconds value to 13 digits for lexicographic sort. */

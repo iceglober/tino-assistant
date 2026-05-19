@@ -1,9 +1,13 @@
 import { App, LogLevel } from "@slack/bolt";
 import type { HistoryStore } from "../agent/history.js";
 import type { AuditLogger } from "../audit/logger.js";
+import type { ConfigStore } from "../persistence/config.js";
+import type { IdentityResolver } from "../identity/resolver.js";
+import type { UserStore } from "../identity/store.js";
 import type { Env } from "../env.js";
 import { toSlackMrkdwn } from "./mrkdwn.js";
 import { handleResetCommand } from "./reset.js";
+import { resolveDmSender } from "./resolve-dm-sender.js";
 import type { DmMessageEvent } from "./types.js";
 
 export type DmHandler = (userId: string, text: string) => Promise<string>;
@@ -18,18 +22,18 @@ export interface AppLogger {
 
 export async function handleDmMessage(params: {
   message: Partial<DmMessageEvent>;
-  env: Pick<Env, "ALLOWED_SLACK_USER_ID">;
-  onDmFromOwner: DmHandler;
+  onDm: DmHandler;
   say: (args: { text: string }) => Promise<unknown>;
   logger: AppLogger;
+  identityResolver: IdentityResolver;
+  users: UserStore;
+  configStore: ConfigStore;
   auditLogger?: AuditLogger;
-  /** Track first-message sessions to log a 'login' audit entry. */
   seenUsers?: Set<string>;
 }): Promise<void> {
-  const { message: m, env, onDmFromOwner, say, logger, auditLogger, seenUsers } = params;
+  const { message: m, onDm, say, logger, identityResolver, users, configStore, auditLogger, seenUsers } = params;
 
   if (m.subtype !== undefined) {
-    // bot_message, message_changed, message_deleted, thread_broadcast, etc.
     logger.debug({ subtype: m.subtype }, "ignored message with subtype");
     return;
   }
@@ -44,36 +48,40 @@ export async function handleDmMessage(params: {
     return;
   }
 
-  if (m.user !== env.ALLOWED_SLACK_USER_ID) {
-    logger.warn({ user: m.user, channel: m.channel }, "rejected DM from non-allowlisted user");
-    return;
-  }
-
   if (typeof m.text !== "string" || m.text.length === 0) {
     logger.debug("ignored DM with no text");
     return;
   }
 
-  try {
-    logger.info({ user: m.user, channel: m.channel, textLen: m.text.length }, "owner DM received");
+  const tinoUserId = await resolveDmSender(m.user, {
+    identityResolver,
+    users,
+    configStore,
+    say,
+    auditLogger,
+    logger,
+  });
+  if (!tinoUserId) return;
 
-    // Log 'login' audit entry on first message from this user in this session
-    if (auditLogger && seenUsers && !seenUsers.has(m.user)) {
-      seenUsers.add(m.user);
+  try {
+    logger.info({ user: m.user, tinoUserId, channel: m.channel, textLen: m.text.length }, "DM received");
+
+    if (auditLogger && seenUsers && !seenUsers.has(tinoUserId)) {
+      seenUsers.add(tinoUserId);
       await auditLogger.log({
-        userId: m.user,
+        userId: tinoUserId,
         action: "login",
         status: "success",
       });
     }
 
     const start = Date.now();
-    const reply = await onDmFromOwner(m.user, m.text);
+    const reply = await onDm(tinoUserId, m.text);
     const formatted = toSlackMrkdwn(reply);
     await say({ text: formatted });
     logger.info(
-      { user: m.user, channel: m.channel, replyLen: formatted.length, durationMs: Date.now() - start },
-      "owner DM handled",
+      { user: m.user, tinoUserId, channel: m.channel, replyLen: formatted.length, durationMs: Date.now() - start },
+      "DM handled",
     );
   } catch (err) {
     logger.error({ err }, "handler threw");
@@ -81,30 +89,32 @@ export async function handleDmMessage(params: {
   }
 }
 
-export function createSlackApp(
-  env: Env,
-  onDmFromOwner: DmHandler,
-  logger: AppLogger,
-  history: HistoryStore,
-  auditLogger?: AuditLogger,
-): App {
+export interface CreateSlackAppOpts {
+  env: Env;
+  onDm: DmHandler;
+  logger: AppLogger;
+  history: HistoryStore;
+  identityResolver: IdentityResolver;
+  users: UserStore;
+  configStore: ConfigStore;
+  auditLogger?: AuditLogger;
+}
+
+export function createSlackApp(opts: CreateSlackAppOpts): App {
+  const { env, onDm, logger, history, identityResolver, users, configStore, auditLogger } = opts;
+
   const app = new App({
     token: env.SLACK_BOT_TOKEN,
     appToken: env.SLACK_APP_TOKEN,
     socketMode: true,
-    logLevel: LogLevel.WARN, // bolt is chatty on INFO
+    logLevel: LogLevel.WARN,
   });
 
-  // Dedup: Socket Mode can re-deliver events if the handler takes >3s.
-  // Track seen message timestamps to avoid double-processing.
   const seen = new Set<string>();
-  const SEEN_CAP = 1000; // prevent unbounded growth; old entries don't matter
-
-  // Track users who have sent at least one message this session (for login audit)
+  const SEEN_CAP = 1000;
   const seenUsers = new Set<string>();
 
   app.message(async ({ message, say }) => {
-    // Check for /reset command first (before dedup — /reset should always work)
     const isReset = await handleResetCommand({
       message: message as Partial<DmMessageEvent>,
       env,
@@ -122,10 +132,8 @@ export function createSlackApp(
       }
       seen.add(ts);
       if (seen.size > SEEN_CAP) {
-        // Evict oldest entries. Set iteration order is insertion order.
         const iter = seen.values();
         for (let i = 0; i < SEEN_CAP / 2; i++) iter.next();
-        // Rebuild with the newer half
         const keep = [...seen].slice(SEEN_CAP / 2);
         seen.clear();
         for (const k of keep) seen.add(k);
@@ -134,10 +142,12 @@ export function createSlackApp(
 
     await handleDmMessage({
       message: message as Partial<DmMessageEvent>,
-      env,
-      onDmFromOwner,
+      onDm,
       say,
       logger,
+      identityResolver,
+      users,
+      configStore,
       auditLogger,
       seenUsers,
     });

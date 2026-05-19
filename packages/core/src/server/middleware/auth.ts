@@ -2,32 +2,25 @@ import { Database } from "bun:sqlite";
 import { type Auth, betterAuth } from "better-auth";
 import { getMigrations } from "better-auth/db/migration";
 import type { MiddlewareHandler } from "hono";
+import type { IdentityStore, UserStore } from "../../identity/store.js";
+import type { ConfigStore } from "../../persistence/config.js";
+import type { SessionSecondaryStorage } from "../../persistence/factory.js";
 import type { AppLogger } from "../../slack/app.js";
 
 /**
  * Build a better-auth instance.
  *
- * Mirror of the previous `console/auth.ts` `createAuth` factory — same
- * `betterAuth({ ... })` config block, same migration step. Only the surrounding
- * adapter changes: instead of `toNodeHandler` for raw `node:http`, this module
- * exposes a Hono middleware (`authMiddleware`) and a Hono-shaped auth handler.
+ * ## Session persistence
  *
- * ## Session persistence (gap #7) — MVP behaviour
+ * When `sessionStore` is provided (DynamoDB adapter), sessions persist in
+ * DynamoDB via better-auth's `secondaryStorage` so multi-user deployments
+ * survive ECS restarts. DynamoDB TTL evicts expired sessions automatically.
  *
- * Sessions are stored in SQLite at `dbPath` (defaults to `/tmp/tino-auth.db`
- * in production). On ECS, `/tmp` is wiped between task restarts — sessions
- * are lost and users must re-login. This is acceptable for MVP because the
- * console is a single-user (`ALLOWED_SLACK_USER_ID`) tool and ECS restarts
- * are rare; the re-login flow is one Google-OAuth click (~3-5 seconds).
+ * When `sessionStore` is omitted (SQLite / local dev), better-auth uses
+ * its built-in database-backed sessions via the SQLite `dbPath`.
  *
- * For sessions to survive restarts, `BETTER_AUTH_SECRET` MUST be set to a
- * stable value across restarts. Without it, even a hypothetical durable
- * session store would be invalidated because better-auth's session token
- * signature depends on the secret. In production the secret is provisioned
- * via Pulumi Secrets Manager — see `packages/aws/src/pulumi/secrets.ts`.
- *
- * Future: replace SQLite with a DynamoDB-backed `secondaryStorage` adapter
- * to eliminate the re-login-on-restart trade-off entirely (gap #7 follow-up).
+ * `BETTER_AUTH_SECRET` MUST be set to a stable value across restarts;
+ * without it session token signatures change and all sessions invalidate.
  */
 export async function createAuth(opts: {
   googleClientId: string;
@@ -36,6 +29,7 @@ export async function createAuth(opts: {
   baseUrl: string;
   dbPath?: string;
   logger?: AppLogger;
+  sessionStore?: SessionSecondaryStorage;
 }): Promise<Auth> {
   const envSecret = process.env.BETTER_AUTH_SECRET;
   if (!envSecret) {
@@ -49,7 +43,7 @@ export async function createAuth(opts: {
   }
   const secret = envSecret ?? crypto.randomUUID();
 
-  const auth = betterAuth({
+  const authConfig: Parameters<typeof betterAuth>[0] = {
     baseURL: opts.baseUrl,
     secret,
     database: new Database(opts.dbPath ?? "./tino-auth.db"),
@@ -67,7 +61,13 @@ export async function createAuth(opts: {
         slackUserId: { type: "string" },
       },
     },
-  }) as unknown as Auth;
+  };
+
+  if (opts.sessionStore) {
+    (authConfig as Record<string, unknown>).secondaryStorage = opts.sessionStore;
+  }
+
+  const auth = betterAuth(authConfig) as unknown as Auth;
 
   // Auto-create tables on first run.
   // `auth.options` is a BetterAuthOptions but the public type is loose; cast
@@ -81,12 +81,18 @@ export async function createAuth(opts: {
 
 /**
  * Hono variables we set on the request context after auth passes.
+ *
+ * `id` is the tino-UUID (resolved from better-auth's session via the identity
+ * store), NOT better-auth's internal user id.
  */
 export type AuthVariables = {
   user: {
     id: string;
     email: string;
     name?: string;
+    role: "admin" | "member";
+    status: "active" | "invited" | "suspended";
+    slackUserId?: string | null;
   };
 };
 
@@ -94,61 +100,129 @@ export type AuthVariables = {
  * Build the auth-enforcement middleware for Hono.
  *
  * - Public allowlist (`/api/auth/*`, `/api/health`, `/assets/*`) bypasses the check.
- *   The Hono auth handler at `/api/auth/*` is mounted separately in `server/index.ts`;
- *   this middleware just lets those requests through.
- * - For protected routes: API requests (`/api/*`) get a 401 JSON response when no
- *   session is present. Non-API requests fall through (Hono's static handler then
- *   serves the SPA's `index.html` and the React `<Login>` page handles sign-in).
- * - When `allowedDomain` is set, sessions whose email isn't `@<domain>` get 403.
+ * - Protected API routes get 401 JSON when no session. Non-API falls through to SPA.
+ * - Domain allowlist checked when `allowedDomain` is set.
+ * - When `identities` + `users` are provided, resolves session email → tino-UUID
+ *   and stashes the full tino user on context. Suspended users get 403.
+ * - When stores are absent (local dev), falls back to session-only context.
  *
- * When `auth` is `null` (local dev — no `GOOGLE_OAUTH_CLIENT_ID`), the middleware
- * is a no-op pass-through.
+ * `auth === null` (local dev — no `GOOGLE_OAUTH_CLIENT_ID`) → no-op pass-through.
  */
 export function buildAuthMiddleware(opts: {
   auth: Auth | null;
   allowedDomain: string | undefined;
   logger: AppLogger;
+  identities?: IdentityStore;
+  users?: UserStore;
+  configStore?: ConfigStore;
 }): MiddlewareHandler<{ Variables: AuthVariables }> {
-  const { auth, allowedDomain } = opts;
+  const { auth, allowedDomain, logger, identities, users, configStore } = opts;
 
   return async (c, next) => {
     const url = c.req.path;
 
-    // Public paths that bypass auth (auth routes themselves, health for ALB, static assets)
     if (url.startsWith("/api/auth/") || url === "/api/health" || url.startsWith("/assets/")) {
       await next();
       return;
     }
 
-    // Auth disabled (local dev) — pass through
     if (!auth) {
       await next();
       return;
     }
 
-    // Check session
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
 
     if (!session) {
       if (url.startsWith("/api/")) {
         return c.json({ error: "unauthorized", message: "sign in required" }, 401);
       }
-      // Non-API: fall through. Hono's SPA fallback serves index.html and the
-      // React app shows the <Login> page when /api/auth/get-session returns null.
       await next();
       return;
     }
 
-    // Domain allowlist
     if (allowedDomain && !session.user.email?.endsWith(`@${allowedDomain}`)) {
       return c.json({ error: "forbidden", message: `Only @${allowedDomain} accounts allowed` }, 403);
     }
 
-    // Stash user on context for downstream handlers
+    const email = session.user.email?.toLowerCase();
+
+    if (identities && users && email) {
+      const tinoUserId = await identities.resolve("google", email);
+
+      if (tinoUserId) {
+        const tinoUser = await users.get(tinoUserId);
+        if (!tinoUser) {
+          logger.error({ email, tinoUserId }, "identity link exists but user record missing");
+          return c.json({ error: "forbidden", message: "account not provisioned in tino" }, 403);
+        }
+        if (tinoUser.status === "suspended") {
+          return c.json({ error: "forbidden", message: "your access has been revoked" }, 403);
+        }
+        c.set("user", {
+          id: tinoUser.id,
+          email: tinoUser.email,
+          name: tinoUser.name ?? session.user.name,
+          role: tinoUser.role,
+          status: tinoUser.status,
+          slackUserId: tinoUser.slackUserId,
+        });
+        await next();
+        return;
+      }
+
+      // No tino identity for this email — check org-domain auto-provisioning
+      if (configStore) {
+        const rawMode = await configStore.get("org.accessControl.mode");
+        const mode = rawMode ? (JSON.parse(rawMode) as string) : "allowlist";
+
+        if (mode === "org-domain") {
+          const rawDomain = await configStore.get("org.accessControl.orgDomain");
+          const orgDomain = rawDomain ? (JSON.parse(rawDomain) as string) : undefined;
+
+          if (orgDomain && email.endsWith(`@${orgDomain}`)) {
+            const newUser = await users.create({
+              id: crypto.randomUUID(),
+              email,
+              name: session.user.name ?? undefined,
+              role: "member",
+              status: "active",
+              slackUserId: null,
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+            });
+            await identities.link({
+              provider: "google",
+              externalId: email,
+              tinoUserId: newUser.id,
+              linkedAt: Date.now(),
+            });
+            logger.info({ tinoUserId: newUser.id, email }, "auto-provisioned user via org-domain (console)");
+            c.set("user", {
+              id: newUser.id,
+              email: newUser.email,
+              name: newUser.name,
+              role: newUser.role,
+              status: newUser.status,
+              slackUserId: newUser.slackUserId,
+            });
+            await next();
+            return;
+          }
+        }
+      }
+
+      return c.json({ error: "forbidden", message: "account not provisioned in tino — ask your admin" }, 403);
+    }
+
+    // Fallback: no identity/user stores (local dev or stores not wired)
     c.set("user", {
       id: session.user.id,
-      email: session.user.email,
+      email: session.user.email ?? "",
       name: session.user.name,
+      role: "admin",
+      status: "active",
+      slackUserId: null,
     });
     await next();
   };

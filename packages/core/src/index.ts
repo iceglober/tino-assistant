@@ -11,6 +11,8 @@ import { migrateCredentialsToUserPartitions } from "./crypto/migration.js";
 import { loadEnv } from "./env.js";
 import { createLogger } from "./logging/logger.js";
 import { migrateToUserModel } from "./identity/migration.js";
+import { createIdentityResolver } from "./identity/resolver.js";
+import { SYSTEM_USER_ID } from "./identity/types.js";
 import { createPersistence } from "./persistence/factory.js";
 import { startScheduler } from "./scheduler/index.js";
 import { startServer } from "./server/index.js";
@@ -32,6 +34,7 @@ const {
   identities,
   userCapabilities,
   auditLogger,
+  sessionStore,
 } = await createPersistence(env, logger, cryptoAdapter);
 
 // `auditLogger` is sourced from the persistence factory:
@@ -85,7 +88,18 @@ const slackBotToken = parseConfigValue(await configStore.get("slack.botToken")) 
 const slackAppToken = parseConfigValue(await configStore.get("slack.appToken")) ?? env.SLACK_APP_TOKEN;
 const allowedUserId = parseConfigValue(await configStore.get("slack.adminUserId")) ?? env.ALLOWED_SLACK_USER_ID ?? "";
 
-const hasSlack = Boolean(slackBotToken && slackAppToken && allowedUserId);
+const hasSlack = Boolean(slackBotToken && slackAppToken);
+
+// Warn if the user table is empty and no bootstrap admin can be seeded
+if (!allowedUserId) {
+  const allUsers = await users.list();
+  if (allUsers.length === 0) {
+    logger.warn(
+      "user table is empty and ALLOWED_SLACK_USER_ID is unset — no admin can DM tino. " +
+        "Seed an admin via the console (Google OAuth) or set ALLOWED_SLACK_USER_ID.",
+    );
+  }
+}
 
 // Read Bedrock model ID from config store; fall back to default
 const configuredModelId = await configStore.getTyped<string>("bedrock.modelId", DEFAULT_BEDROCK_MODEL_ID);
@@ -123,9 +137,9 @@ const registry = await initCapabilityRegistry({
       summary,
     ].join("\n");
 
-    const privateTools = await registry.buildPrivateTools(allowedUserId);
+    const privateTools = await registry.buildPrivateTools(SYSTEM_USER_ID);
     const tools = { ...registry.sharedTools, ...privateTools };
-    const activeCapabilities = await registry.getActiveCapabilities(allowedUserId);
+    const activeCapabilities = await registry.getActiveCapabilities(SYSTEM_USER_ID);
 
     const taskHistoryAppender = new HistoryAppender(taskHistory, privacyFilter);
     const result = await runAgent({
@@ -134,7 +148,7 @@ const registry = await initCapabilityRegistry({
       historyAppender: taskHistoryAppender,
       logger,
       tools,
-      userId: allowedUserId,
+      userId: SYSTEM_USER_ID,
       text: prompt,
       auditLogger,
       activeCapabilities,
@@ -220,6 +234,9 @@ async function reconnectSlack(): Promise<{ ok: boolean; error?: string }> {
     ALLOWED_SLACK_USER_ID: adminId,
   };
 
+  const slackClient = new WebClient(botToken);
+  const identityResolver = createIdentityResolver({ users, identities, slackClient, logger });
+
   const handler: DmHandler = async (userId, text) => {
     const privateTools = await registry.buildPrivateTools(userId);
     const tools = { ...registry.sharedTools, ...privateTools };
@@ -240,7 +257,16 @@ async function reconnectSlack(): Promise<{ ok: boolean; error?: string }> {
 
   let nextApp: SlackBoltApp;
   try {
-    nextApp = createSlackApp(slackEnv, handler, logger, history, auditLogger);
+    nextApp = createSlackApp({
+      env: slackEnv,
+      onDm: handler,
+      logger,
+      history,
+      identityResolver,
+      users,
+      configStore,
+      auditLogger,
+    });
     await nextApp.start();
   } catch (err) {
     const msg = (err as Error).message;
@@ -346,6 +372,9 @@ const consoleServer = await startServer({
   reconnectSlack,
   reloadCapabilities,
   shutdown,
+  sessionStore,
+  identities,
+  users,
 });
 
 if (hasSlack) {

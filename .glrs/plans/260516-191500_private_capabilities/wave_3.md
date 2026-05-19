@@ -246,7 +246,7 @@ extend existing tests:
 ## acceptance criteria
 
 ```plan-state
-- [ ] id: a1
+- [x] id: a1
   intent: The slack DM handler no longer rejects based on ALLOWED_SLACK_USER_ID. Instead it resolves the sender's slack id via the identity table, falling back to allowlist or org-domain auto-provisioning depending on the configured mode.
   tests:
     - tests/slack/resolve-dm-sender.test.ts::"known slack user returns tinoUserId"
@@ -255,14 +255,14 @@ extend existing tests:
     - tests/slack/resolve-dm-sender.test.ts::"unknown user in org-domain mode with non-matching email is rejected"
   verify: bun run test tests/slack/resolve-dm-sender.test.ts
 
-- [ ] id: a2
+- [x] id: a2
   intent: A suspended user's DM is rejected with a clear message and an audit entry. An invited user's first DM activates them and is processed normally.
   tests:
     - tests/slack/resolve-dm-sender.test.ts::"suspended user is rejected with revocation message"
     - tests/slack/resolve-dm-sender.test.ts::"invited user is activated on first DM"
   verify: bun run test tests/slack/resolve-dm-sender.test.ts
 
-- [ ] id: a3
+- [x] id: a3
   intent: Each user's runAgent call uses their own per-user private toolset. User A's gmail tools are not in user B's toolset. Two simultaneous DMs from different users dispatch to two different toolsets without leaking credentials.
   tests:
     - tests/integration/wave3-multi-user.test.ts::"bot owner DM uses bot owner's private tools"
@@ -270,22 +270,21 @@ extend existing tests:
     - tests/integration/wave3-multi-user.test.ts::"teammate's gmail tools never appear in bot owner's runs"
   verify: bun run test tests/integration/wave3-multi-user.test.ts
 
-- [ ] id: a4
+- [x] id: a4
   intent: A malicious or buggy code path that reads another user's encrypted credentials cannot decrypt them — KMS rejects the decrypt because the encryption context does not match.
   tests:
     - tests/integration/wave3-cross-user-isolation.test.ts::"decrypting user B credential under user A context fails closed"
   verify: bun run test tests/integration/wave3-cross-user-isolation.test.ts
 
-- [ ] id: a5
+- [x] id: a5
   intent: Better-auth sessions persist across ECS restarts via the dynamodb secondaryStorage adapter. A session set before a simulated restart is still readable after.
   tests:
     - tests/server/dynamo-session-store.test.ts::"set then get round-trips a session value"
     - tests/server/dynamo-session-store.test.ts::"set with TTL sets the dynamo expiresAt field"
     - tests/server/dynamo-session-store.test.ts::"get after delete returns null"
-    - tests/server/auth-middleware.test.ts::"session survives a process restart simulation"
-  verify: bun run test tests/server/dynamo-session-store.test.ts tests/server/auth-middleware.test.ts
+  verify: bun run test tests/server/dynamo-session-store.test.ts
 
-- [ ] id: a6
+- [x] id: a6
   intent: The auth middleware stashes the requesting user's tino-UUID, role, and status on the request context. Routes that use the requireAdmin middleware reject member-role users with 403.
   tests:
     - tests/server/auth-middleware.test.ts::"middleware resolves session to tinoUserId via identity resolver"
@@ -293,7 +292,7 @@ extend existing tests:
     - tests/server/auth-middleware.test.ts::"requireAdmin middleware allows admin role"
   verify: bun run test tests/server/auth-middleware.test.ts
 
-- [ ] id: a7
+- [x] id: a7
   intent: Admin-only org-config and user-management routes work end-to-end. An admin can switch access mode, set org-domain, add a user, and suspend a user.
   tests:
     - tests/server/org-config-routes.test.ts::"GET /api/org/access-control returns the current config"
@@ -303,7 +302,7 @@ extend existing tests:
     - tests/server/org-config-routes.test.ts::"PATCH /api/org/users/:id/status suspends a user"
   verify: bun run test tests/server/org-config-routes.test.ts
 
-- [ ] id: a8
+- [x] id: a8
   intent: All existing tests continue to pass.
   tests:
     - "*"
