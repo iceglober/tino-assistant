@@ -213,7 +213,7 @@ items:
       provisionFromSlack in org-domain mode auto-creates a tino user when
       the slack email's domain matches the configured org domain, and
       rejects when it does not.
-    checked: false
+    checked: true
     files:
       - path: packages/core/src/identity/resolver.ts
         isNew: true
