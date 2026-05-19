@@ -32,10 +32,13 @@ export function MyCapabilities(): JSX.Element {
   const [capsError, setCapsError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  const userId = session?.user.id;
+
   const loadCaps = async (): Promise<void> => {
+    if (!userId) return;
     try {
       setIsLoading(true);
-      const data = await getUserCapabilities(session.user.id);
+      const data = await getUserCapabilities(userId);
       setCaps(data as unknown as CapabilityShape[]);
       setCapsError(null);
     } catch (err) {
@@ -50,7 +53,7 @@ export function MyCapabilities(): JSX.Element {
     void loadCaps();
   }, []);
 
-  if (!session?.user.id) {
+  if (!userId) {
     navigate("/");
     return <div className="page">loading…</div>;
   }
@@ -61,7 +64,7 @@ export function MyCapabilities(): JSX.Element {
       if (!ok) return;
     }
     try {
-      await deleteUserCapability(session.user.id, capabilityId);
+      await deleteUserCapability(userId, capabilityId);
       toast.show("Capability removed", "ok");
       await loadCaps();
     } catch (err) {

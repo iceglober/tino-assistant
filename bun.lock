@@ -70,6 +70,7 @@
         "@linear/sdk": "^84.0.0",
         "@octokit/rest": "^22.0.1",
         "@slack/bolt": "^4.7.2",
+        "@slack/web-api": "^7.15.1",
         "ai": "^6.0.178",
         "better-auth": "^1.6.11",
         "dotenv": "^17.4.2",

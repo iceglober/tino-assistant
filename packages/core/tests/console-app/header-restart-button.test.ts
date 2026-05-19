@@ -27,6 +27,7 @@
 
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
+import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import { Header } from "../../src/console-app/components/Header.js";
 import type { Session } from "../../src/console-app/lib/api.js";
@@ -38,11 +39,13 @@ const SESSION: Session = {
 describe("<Header /> — wave 3.4 restart button", () => {
   it('renders a "restart" button when a session is present', () => {
     const html = renderToString(
-      createElement(Header, {
-        status: "ok",
-        session: SESSION,
-        onSignOut: () => {},
-      }),
+      createElement(MemoryRouter, null,
+        createElement(Header, {
+          status: "ok",
+          session: SESSION,
+          onSignOut: () => {},
+        }),
+      ),
     );
 
     // The button text content lives in the static markup. Match `>restart<`
@@ -60,11 +63,13 @@ describe("<Header /> — wave 3.4 restart button", () => {
     // The header itself still renders (logo + status), but the user-actions
     // cluster (which holds restart + sign out) is gated on session.
     const html = renderToString(
-      createElement(Header, {
-        status: "checking",
-        session: null,
-        onSignOut: () => {},
-      }),
+      createElement(MemoryRouter, null,
+        createElement(Header, {
+          status: "checking",
+          session: null,
+          onSignOut: () => {},
+        }),
+      ),
     );
 
     expect(html).not.toMatch(/>restart</);
