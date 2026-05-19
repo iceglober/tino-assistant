@@ -1,4 +1,5 @@
 import type { ConfigStore } from "@tino/core/persistence/config";
+import { CONFIG_PK, CONFIG_SK_PREFIX, configSk } from "@tino/core/persistence/keys";
 import { DeleteItemCommand, GetItemCommand, PutItemCommand, QueryCommand } from "dynamodb-toolbox";
 import type { TinoTable } from "./client.js";
 import { createConfigEntity } from "./entities.js";
@@ -16,7 +17,7 @@ export function createDynamoConfigStore(table: TinoTable): ConfigStore {
     async get(key: string): Promise<string | null> {
       const { Item } = await entity
         .build(GetItemCommand)
-        .key({ pk: "CONFIG", sk: `CONFIG#${key}` })
+        .key({ pk: CONFIG_PK, sk: configSk(key) })
         .send();
 
       return Item?.value ?? null;
@@ -36,8 +37,8 @@ export function createDynamoConfigStore(table: TinoTable): ConfigStore {
       await entity
         .build(PutItemCommand)
         .item({
-          pk: "CONFIG",
-          sk: `CONFIG#${key}`,
+          pk: CONFIG_PK,
+          sk: configSk(key),
           value: JSON.stringify(value),
           updatedAt: Date.now(),
         })
@@ -49,14 +50,14 @@ export function createDynamoConfigStore(table: TinoTable): ConfigStore {
         .build(QueryCommand)
         .entities(entity)
         .query({
-          partition: "CONFIG",
-          range: { beginsWith: "CONFIG#" },
+          partition: CONFIG_PK,
+          range: { beginsWith: CONFIG_SK_PREFIX },
         })
         .send();
 
       return (Items as Array<{ sk: string; value: string; updatedAt: number }>)
         .map((item) => ({
-          key: item.sk.replace(/^CONFIG#/, ""),
+          key: item.sk.replace(new RegExp(`^${CONFIG_SK_PREFIX}`), ""),
           value: item.value,
           updatedAt: item.updatedAt,
         }))
@@ -71,7 +72,7 @@ export function createDynamoConfigStore(table: TinoTable): ConfigStore {
 
       await entity
         .build(DeleteItemCommand)
-        .key({ pk: "CONFIG", sk: `CONFIG#${key}` })
+        .key({ pk: CONFIG_PK, sk: configSk(key) })
         .send();
 
       return true;

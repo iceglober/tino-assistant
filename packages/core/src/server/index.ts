@@ -17,6 +17,7 @@ import { createComplianceRoutes } from "./routes/compliance.js";
 import { createConfigRoutes } from "./routes/config.js";
 import { createHealthRoutes } from "./routes/health.js";
 import { createAuditRoutes } from "./routes/audit.js";
+import { createInstructionRoutes } from "./routes/instructions.js";
 import { createOrgConfigRoutes } from "./routes/org-config.js";
 import { createReloadRoutes } from "./routes/reload.js";
 import { createUsersRoutes } from "./routes/users.js";
@@ -175,6 +176,7 @@ export async function startServer(opts: StartServerOptions): Promise<StartedServ
   if (auditLogger) {
     app.route("/api/audit", createAuditRoutes({ auditLogger, logger }));
   }
+  app.route("/api/instructions", createInstructionRoutes({ config, logger }));
   app.route("/api/reload", createReloadRoutes({ reconnectSlack, reloadCapabilities, logger, auditLogger }));
   if (shutdown) {
     app.route("/api/admin", createAdminRoutes({ logger, auditLogger, shutdown }));

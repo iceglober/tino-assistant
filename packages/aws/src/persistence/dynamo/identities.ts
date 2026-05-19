@@ -1,6 +1,7 @@
 import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
 import { IdentityLinkConflictError, type IdentityStore } from "@tino/core/identity/store";
 import type { Identity, IdentityProvider } from "@tino/core/identity/types";
+import { identityPk as makeIdentityPk } from "@tino/core/persistence/keys";
 import { GetItemCommand, PutItemCommand, QueryCommand } from "dynamodb-toolbox";
 import type { TinoTable } from "./client.js";
 import { createIdentityEntity } from "./entities.js";
@@ -22,7 +23,7 @@ export function createDynamoIdentityStore(table: TinoTable): IdentityStore {
   const entity = createIdentityEntity(table);
 
   function identityPk(provider: IdentityProvider, externalId: string): string {
-    return `IDENTITY#${provider}#${externalId}`;
+    return makeIdentityPk(provider, externalId);
   }
 
   return {

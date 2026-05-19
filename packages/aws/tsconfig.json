@@ -25,7 +25,8 @@
       "@tino/core/persistence/config": ["../core/src/persistence/config.ts"],
       "@tino/core/persistence/factory": ["../core/src/persistence/factory.ts"],
       "@tino/core/slack/app": ["../core/src/slack/app.ts"],
-      "@tino/core/crypto/types": ["../core/src/crypto/types.ts"]
+      "@tino/core/crypto/types": ["../core/src/crypto/types.ts"],
+      "@tino/core/persistence/keys": ["../core/src/persistence/keys.ts"]
     }
   },
   "include": ["src/**/*"]

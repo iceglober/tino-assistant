@@ -1,5 +1,7 @@
 import { generateText, type LanguageModel, stepCountIs, type ToolSet } from "ai";
 import type { AuditLogger } from "../audit/logger.js";
+import { resolveInstructionsForUser } from "../instructions/loader.js";
+import type { ConfigStore } from "../persistence/config.js";
 import type { AppLogger } from "../slack/app.js";
 import type { HistoryAppender } from "./history-appender.js";
 import type { HistoryStore } from "./history.js";
@@ -17,6 +19,8 @@ export interface RunAgentParams {
   auditLogger?: AuditLogger;
   /** Active capability IDs for this user — used by the output validator. */
   activeCapabilities?: string[];
+  /** Config store for loading instructions. When absent, instructions are skipped. */
+  configStore?: ConfigStore;
 }
 
 /**
@@ -37,14 +41,18 @@ export interface RunAgentParams {
  *   empty Slack message (which Bolt rejects).
  */
 export async function runAgent(params: RunAgentParams): Promise<string> {
-  const { model, history, historyAppender, logger, tools, userId, text, auditLogger, activeCapabilities = [] } = params;
+  const { model, history, historyAppender, logger, tools, userId, text, auditLogger, activeCapabilities = [], configStore } = params;
 
   await history.append(userId, [{ role: "user", content: text }]);
+
+  const instructions = configStore
+    ? await resolveInstructionsForUser({ tinoUserId: userId, configStore })
+    : undefined;
 
   const start = Date.now();
   const result = await generateText({
     model,
-    system: buildSystemPrompt({ activeCapabilities, toolNames: Object.keys(tools ?? {}) }),
+    system: buildSystemPrompt({ activeCapabilities, toolNames: Object.keys(tools ?? {}), instructions }),
     messages: await history.get(userId),
     tools: tools ?? {},
     stopWhen: stepCountIs(10),

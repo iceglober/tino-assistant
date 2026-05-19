@@ -19,6 +19,11 @@ export interface CapabilityConfig {
     intervalMinutes: number;
     lastScanAt?: number; // epoch ms
   };
+  instructions?: {
+    text?: string;
+    permissions?: Partial<{ write: boolean; delete: boolean; crossContextShare: boolean }>;
+    canShareWith?: string[];
+  };
 }
 
 /** Runtime state tracked per capability (not persisted). */

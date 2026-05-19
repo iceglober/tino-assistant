@@ -1,3 +1,4 @@
+import { sessionPk } from "@tino/core/persistence/keys";
 import { DeleteItemCommand, GetItemCommand, PutItemCommand } from "dynamodb-toolbox";
 import type { TinoTable } from "./client.js";
 import { createSessionEntity } from "./entities.js";
@@ -26,7 +27,7 @@ export function createDynamoSessionStore(table: TinoTable): SessionSecondaryStor
     async get(key: string): Promise<string | null> {
       const { Item } = await entity
         .build(GetItemCommand)
-        .key({ pk: `SESSION#${key}`, sk: `SESSION#${key}` })
+        .key({ pk: sessionPk(key), sk: sessionPk(key) })
         .send();
 
       if (!Item) return null;
@@ -40,8 +41,8 @@ export function createDynamoSessionStore(table: TinoTable): SessionSecondaryStor
 
     async set(key: string, value: string, ttl?: number): Promise<void> {
       const item = {
-        pk: `SESSION#${key}`,
-        sk: `SESSION#${key}`,
+        pk: sessionPk(key),
+        sk: sessionPk(key),
         value,
         updatedAt: Date.now(),
         ...(ttl !== undefined && ttl > 0
@@ -55,7 +56,7 @@ export function createDynamoSessionStore(table: TinoTable): SessionSecondaryStor
     async delete(key: string): Promise<void> {
       await entity
         .build(DeleteItemCommand)
-        .key({ pk: `SESSION#${key}`, sk: `SESSION#${key}` })
+        .key({ pk: sessionPk(key), sk: sessionPk(key) })
         .send();
     },
   };

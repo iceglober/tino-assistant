@@ -69,6 +69,10 @@
     "./persistence/user-capabilities": {
       "types": "./dist/persistence/user-capabilities.d.ts",
       "default": "./dist/persistence/user-capabilities.js"
+    },
+    "./persistence/keys": {
+      "types": "./dist/persistence/keys.d.ts",
+      "default": "./dist/persistence/keys.js"
     }
   },
   "scripts": {

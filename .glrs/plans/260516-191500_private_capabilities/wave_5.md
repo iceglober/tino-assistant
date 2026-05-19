@@ -175,7 +175,7 @@ unit tests for the key helpers. covers: tenantPrefix returns "" by default; user
 ## acceptance criteria
 
 ```plan-state
-- [ ] id: a1
+- [x] id: a1
   intent: The instruction resolver implements the precedence rules from product.md — permissions resolve via most-restrictive-wins regardless of level; behavioral text resolves via later-overrides-earlier ordered by level (base → org → cap-type → cap-instance → user).
   tests:
     - tests/instructions/resolver.test.ts::"empty input returns default permissions"
@@ -184,14 +184,14 @@ unit tests for the key helpers. covers: tenantPrefix returns "" by default; user
     - tests/instructions/resolver.test.ts::"two cap-instance instructions with disagreeing permissions record a conflict"
   verify: bun run test tests/instructions/resolver.test.ts
 
-- [ ] id: a2
+- [x] id: a2
   intent: The system prompt includes the resolved instructions in a structured Instructions section. Permissions appear in a Permissions section.
   tests:
     - tests/agent/system-prompt.test.ts::"system prompt includes Instructions section"
     - tests/agent/system-prompt.test.ts::"system prompt includes Permissions section"
   verify: bun run test tests/agent/system-prompt.test.ts
 
-- [ ] id: a3
+- [x] id: a3
   intent: Per-instance isolation prevents data from one capability instance leaking into a context that shouldn't see it. canShareWith is the explicit allow-list.
   tests:
     - tests/instructions/isolation.test.ts::"tool result from instance A is visible in context A"
@@ -199,7 +199,7 @@ unit tests for the key helpers. covers: tenantPrefix returns "" by default; user
     - tests/instructions/isolation.test.ts::"tool result from instance B is visible when canShareWith includes A"
   verify: bun run test tests/instructions/isolation.test.ts
 
-- [ ] id: a4
+- [x] id: a4
   intent: All partition keys are constructed via the keys module. The tenant prefix is currently empty string but is the single point of change for a future multi-tenant offering.
   tests:
     - tests/persistence/keys.test.ts::"tenantPrefix returns empty string by default"
@@ -207,7 +207,7 @@ unit tests for the key helpers. covers: tenantPrefix returns "" by default; user
     - tests/persistence/keys.test.ts::"changing tenantPrefix changes all derived keys"
   verify: bun run test tests/persistence/keys.test.ts
 
-- [ ] id: a5
+- [x] id: a5
   intent: Admin and user instruction APIs work end-to-end. An admin can set org-level instructions; a member can set their own user-level instructions; the system prompt for a member's run includes both with the user-level appended last.
   tests:
     - tests/server/instructions-routes.test.ts::"admin can set org instructions"
@@ -216,7 +216,7 @@ unit tests for the key helpers. covers: tenantPrefix returns "" by default; user
     - tests/integration/wave5-instruction-resolution.test.ts::"agent run for member includes org and user instructions in order"
   verify: bun run test tests/server/instructions-routes.test.ts tests/integration/wave5-instruction-resolution.test.ts
 
-- [ ] id: a6
+- [x] id: a6
   intent: All existing tests continue to pass.
   tests:
     - "*"

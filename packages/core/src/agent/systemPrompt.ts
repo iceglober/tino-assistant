@@ -16,9 +16,16 @@
  * @param opts.toolNames - Names of tools actually registered in the ToolSet.
  *   Always-on tool sections (preferences, task scheduling) are gated on
  *   actual tool presence rather than a hardcoded assumption that they load.
+ * @param opts.instructions - Resolved instructions from the instruction
+ *   precedence resolver. When present, appends Instructions and Permissions
+ *   sections to the prompt.
  */
-export function buildSystemPrompt(opts: { activeCapabilities: string[]; toolNames: string[] }): string {
-  const { activeCapabilities, toolNames } = opts;
+export function buildSystemPrompt(opts: {
+  activeCapabilities: string[];
+  toolNames: string[];
+  instructions?: { permissions: { write: boolean; delete: boolean; crossContextShare: boolean }; behaviorChunks: Array<{ source: string; text: string }> };
+}): string {
+  const { activeCapabilities, toolNames, instructions } = opts;
 
   const active = new Set(activeCapabilities);
   const tools = new Set(toolNames);
@@ -211,6 +218,25 @@ Keep the prep concise — 5-10 bullet points max. The user reads this on their p
 - Use get_preferences at the start of conversations to check for saved user preferences (timezone, formatting style, etc.).
 - When the user says "remember that I prefer X" or "my timezone is Y", call set_preference to save it.
 - Preferences persist across restarts.`;
+  }
+
+  // ── Instructions (wave 5) ────────────────────────────────────────────────
+  if (instructions?.behaviorChunks.length) {
+    prompt += "\n\nInstructions:";
+    for (const chunk of instructions.behaviorChunks) {
+      prompt += `\n[${chunk.source}] ${chunk.text}`;
+    }
+  }
+
+  if (instructions) {
+    const { write, delete: del, crossContextShare } = instructions.permissions;
+    const denied: string[] = [];
+    if (!write) denied.push("write");
+    if (!del) denied.push("delete");
+    if (!crossContextShare) denied.push("cross-context sharing");
+    if (denied.length > 0) {
+      prompt += `\n\nPermissions:\nThe following actions are denied by policy: ${denied.join(", ")}. Do not perform these actions even if the user requests them.`;
+    }
   }
 
   return prompt;

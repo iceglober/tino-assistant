@@ -157,3 +157,73 @@ describe("buildSystemPrompt — capability-gated sections", () => {
     expect(promptWithoutTasks).not.toContain("schedule_task(");
   });
 });
+
+describe("buildSystemPrompt — wave 5 instructions", () => {
+  it("system prompt includes Instructions section when behaviorChunks present", () => {
+    const prompt = buildSystemPrompt({
+      activeCapabilities: [],
+      toolNames: [],
+      instructions: {
+        permissions: { write: true, delete: true, crossContextShare: true },
+        behaviorChunks: [
+          { source: "org-policy", text: "respond in Spanish" },
+          { source: "user-prefs", text: "be extra concise" },
+        ],
+      },
+    });
+    expect(prompt).toContain("Instructions:");
+    expect(prompt).toContain("[org-policy] respond in Spanish");
+    expect(prompt).toContain("[user-prefs] be extra concise");
+    // org-policy appears before user-prefs
+    expect(prompt.indexOf("[org-policy]")).toBeLessThan(prompt.indexOf("[user-prefs]"));
+  });
+
+  it("system prompt includes Permissions section when actions are denied", () => {
+    const prompt = buildSystemPrompt({
+      activeCapabilities: [],
+      toolNames: [],
+      instructions: {
+        permissions: { write: false, delete: true, crossContextShare: false },
+        behaviorChunks: [],
+      },
+    });
+    expect(prompt).toContain("Permissions:");
+    expect(prompt).toContain("write");
+    expect(prompt).toContain("cross-context sharing");
+    expect(prompt).not.toContain("delete");
+  });
+
+  it("system prompt omits Permissions section when all allowed", () => {
+    const prompt = buildSystemPrompt({
+      activeCapabilities: [],
+      toolNames: [],
+      instructions: {
+        permissions: { write: true, delete: true, crossContextShare: true },
+        behaviorChunks: [],
+      },
+    });
+    expect(prompt).not.toContain("Permissions:");
+  });
+
+  it("system prompt omits Instructions section when no behaviorChunks", () => {
+    const prompt = buildSystemPrompt({
+      activeCapabilities: [],
+      toolNames: [],
+      instructions: {
+        permissions: { write: true, delete: true, crossContextShare: true },
+        behaviorChunks: [],
+      },
+    });
+    expect(prompt).not.toContain("Instructions:");
+  });
+
+  it("system prompt works without instructions (backward compat)", () => {
+    const prompt = buildSystemPrompt({
+      activeCapabilities: [],
+      toolNames: [],
+    });
+    expect(prompt).toContain("You are tino");
+    expect(prompt).not.toContain("Instructions:");
+    expect(prompt).not.toContain("Permissions:");
+  });
+});

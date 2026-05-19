@@ -1,6 +1,7 @@
 import type { UserCapabilityStore } from "@tino/core/persistence/user-capabilities";
 import type { CryptoAdapter, EncryptionContext, EnvelopeCiphertext } from "@tino/core/crypto/types";
 import type { CapabilityConfig } from "@tino/core/capabilities/types";
+import { CAP_SK_PREFIX, capabilitySk as makeCapSk, userCapPk } from "@tino/core/persistence/keys";
 import { DeleteItemCommand, GetItemCommand, PutItemCommand, QueryCommand } from "dynamodb-toolbox";
 import type { TinoTable } from "./client.js";
 import { createUserCapabilityEntity } from "./entities.js";
@@ -21,11 +22,11 @@ export function createDynamoUserCapabilityStore(
   const entity = createUserCapabilityEntity(table);
 
   function userPk(tinoUserId: string): string {
-    return `USER#${tinoUserId}`;
+    return userCapPk(tinoUserId);
   }
 
   function capabilitySk(capabilityId: string): string {
-    return `CAP#${capabilityId}`;
+    return makeCapSk(capabilityId);
   }
 
   async function encryptCredentials(
@@ -107,13 +108,13 @@ export function createDynamoUserCapabilityStore(
         .entities(entity)
         .query({
           partition: userPk(userId),
-          range: { beginsWith: "CAP#" },
+          range: { beginsWith: CAP_SK_PREFIX },
         })
         .send();
 
       return (Items as Array<{ sk: string; enabled: number }>)
         .map((item) => ({
-          capabilityId: item.sk.replace(/^CAP#/, ""),
+          capabilityId: item.sk.replace(new RegExp(`^${CAP_SK_PREFIX}`), ""),
           enabled: item.enabled === 1,
         }))
         .sort((a, b) => a.capabilityId.localeCompare(b.capabilityId));

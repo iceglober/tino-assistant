@@ -1,5 +1,6 @@
 import type { UserStore } from "@tino/core/identity/store";
 import type { TinoUser } from "@tino/core/identity/types";
+import { ORG_USER_PARTITION, orgUserPk } from "@tino/core/persistence/keys";
 import { GetItemCommand, PutItemCommand, QueryCommand, UpdateItemCommand } from "dynamodb-toolbox";
 import type { TinoTable } from "./client.js";
 import { createUserEntity } from "./entities.js";
@@ -19,7 +20,7 @@ export function createDynamoUserStore(table: TinoTable): UserStore {
   const entity = createUserEntity(table);
 
   function userPk(id: string): string {
-    return `ORG#USER#${id}`;
+    return orgUserPk(id);
   }
 
   function rowToUser(item: {
@@ -81,7 +82,7 @@ export function createDynamoUserStore(table: TinoTable): UserStore {
         .build(QueryCommand)
         .entities(entity)
         .query({
-          partition: "ORG#USER#", // begins-with on pk via index? no — Query needs an exact partition.
+          partition: `${ORG_USER_PARTITION}#`, // begins-with on pk via index? no — Query needs an exact partition.
           // DynamoDB Query requires an exact partition key, not a prefix; we
           // can't scan all USER#<id> rows efficiently with the table's pk/sk
           // schema alone. Fall back to a Scan-style filter via the table's
@@ -104,7 +105,7 @@ export function createDynamoUserStore(table: TinoTable): UserStore {
       // for a single bot-owner user, so list is best-effort here. A future
       // wave (admin UI) adds a GSI keyed on a constant ORG#USER partition.
       try {
-        const { Items = [] } = await table.build(QueryCommand).entities(entity).query({ partition: "ORG#USER" }).send();
+        const { Items = [] } = await table.build(QueryCommand).entities(entity).query({ partition: ORG_USER_PARTITION }).send();
         return (Items as Array<Parameters<typeof rowToUser>[0]>)
           .map(rowToUser)
           .sort((a, b) => a.createdAt - b.createdAt);
