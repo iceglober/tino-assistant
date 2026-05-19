@@ -134,14 +134,14 @@ component test: header renders different nav items based on `user.role`.
 ## acceptance criteria
 
 ```plan-state
-- [ ] id: a1
+- [x] id: a1
   intent: Admin-only routes are server-side enforced. A member's session cannot hit /api/audit, /api/org/users, /api/org/access-control, or /api/capabilities — all return 403. An admin's session can hit all of them.
   tests:
     - tests/integration/wave4-role-enforcement.test.ts::"member is rejected from admin routes"
     - tests/integration/wave4-role-enforcement.test.ts::"admin can access admin routes"
   verify: bun run test tests/integration/wave4-role-enforcement.test.ts
 
-- [ ] id: a2
+- [x] id: a2
   intent: The audit route returns all entries for admins and only the requesting user's entries for members. Filters by user, action, and date range work.
   tests:
     - tests/server/audit-routes.test.ts::"admin sees all entries with no filter"
@@ -151,7 +151,7 @@ component test: header renders different nav items based on `user.role`.
     - tests/server/audit-routes.test.ts::"pagination cursor returns next page"
   verify: bun run test tests/server/audit-routes.test.ts
 
-- [ ] id: a3
+- [x] id: a3
   intent: Role changes are guarded against foot-guns and audited. An admin cannot demote themselves; an admin cannot demote the last remaining admin; every role change emits a role_change audit entry.
   tests:
     - tests/server/users-routes.test.ts::"admin cannot demote self"
@@ -159,20 +159,20 @@ component test: header renders different nav items based on `user.role`.
     - tests/server/users-routes.test.ts::"role change emits role_change audit entry"
   verify: bun run test tests/server/users-routes.test.ts
 
-- [ ] id: a4
+- [x] id: a4
   intent: A demoted user immediately loses admin access on their next request, without needing to log out. The middleware reads role from the live user record on every request rather than caching it in the session token.
   tests:
     - tests/integration/wave4-role-enforcement.test.ts::"demoted admin cannot hit admin routes on next request"
   verify: bun run test tests/integration/wave4-role-enforcement.test.ts
 
-- [ ] id: a5
+- [x] id: a5
   intent: The console renders different navigation for admins and members. Admin-only pages redirect members away with a clear message.
   tests:
     - tests/console-app/header-role-nav.test.tsx::"member nav lacks admin links"
     - tests/console-app/header-role-nav.test.tsx::"admin nav includes admin links"
   verify: bun run test tests/console-app/header-role-nav.test.tsx
 
-- [ ] id: a6
+- [x] id: a6
   intent: All existing tests continue to pass.
   tests:
     - "*"

@@ -31,6 +31,7 @@ export function Header({
   const navigate = useNavigate();
   const [restarting, setRestarting] = useState(false);
   const [restartError, setRestartError] = useState<string | null>(null);
+  const isAdmin = session?.user.role === "admin";
 
   const statusText =
     status === "ok"
@@ -76,7 +77,7 @@ export function Header({
           <span>{statusText}</span>
         </div>
         {session?.user.email ? (
-          <div className="header-user">
+          <nav className="header-user" aria-label="Console navigation">
             <span className="header-user-email">{session.user.email}</span>
             <span className="header-user-sep">·</span>
             <button
@@ -91,6 +92,37 @@ export function Header({
             <button
               className="header-signout"
               type="button"
+              onClick={() => navigate("/me/activity")}
+              aria-label="My activity"
+            >
+              my activity
+            </button>
+            {isAdmin ? (
+              <>
+                <span className="header-user-sep">·</span>
+                <button
+                  className="header-signout"
+                  type="button"
+                  onClick={() => navigate("/users")}
+                  aria-label="Users"
+                >
+                  users
+                </button>
+                <span className="header-user-sep">·</span>
+                <button
+                  className="header-signout"
+                  type="button"
+                  onClick={() => navigate("/audit")}
+                  aria-label="Audit log"
+                >
+                  audit
+                </button>
+              </>
+            ) : null}
+            <span className="header-user-sep">·</span>
+            <button
+              className="header-signout"
+              type="button"
               onClick={() => void onRestart()}
               disabled={restarting}
               aria-label="Restart tino"
@@ -101,7 +133,7 @@ export function Header({
             <button className="header-signout" type="button" onClick={onSignOut}>
               sign out
             </button>
-          </div>
+          </nav>
         ) : null}
         {restartError ? (
           <div role="alert" style={{ color: "var(--err)", marginLeft: 12 }}>

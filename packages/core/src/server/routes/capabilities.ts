@@ -4,6 +4,8 @@ import { buildCapabilityView, buildConfigFromPayload, findCapability } from "../
 import type { CapabilityConfig } from "../../capabilities/types.js";
 import type { ConfigStore } from "../../persistence/config.js";
 import type { AppLogger } from "../../slack/app.js";
+import type { AuthVariables } from "../middleware/auth.js";
+import { requireAdmin } from "../middleware/require-admin.js";
 
 /**
  * /api/capabilities — list and update capability configs.
@@ -19,9 +21,11 @@ import type { AppLogger } from "../../slack/app.js";
  * yet. PUT accepts either the schema-driven `{ enabled, fields: [{key,value}] }`
  * shape (preferred) or a raw `CapabilityConfig` blob (legacy passthrough).
  */
-export function createCapabilityRoutes(opts: { config: ConfigStore; logger: AppLogger }): Hono {
-  const app = new Hono();
+export function createCapabilityRoutes(opts: { config: ConfigStore; logger: AppLogger }): Hono<{ Variables: AuthVariables }> {
+  const app = new Hono<{ Variables: AuthVariables }>();
   const { config, logger } = opts;
+
+  app.use("*", requireAdmin());
 
   app.get("/", async (c) => {
     const entries = await config.list();

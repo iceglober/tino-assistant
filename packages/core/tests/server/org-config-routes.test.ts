@@ -196,4 +196,120 @@ describe("org-config routes", () => {
     });
     expect(res.status).toBe(404);
   });
+
+  it("GET /api/org/users lists all users", async () => {
+    const existingUsers: TinoUser[] = [
+      { id: "u1", email: "a@acme.io", role: "admin", status: "active", slackUserId: null, createdAt: 1000, updatedAt: 1000 },
+      { id: "u2", email: "b@acme.io", role: "member", status: "active", slackUserId: null, createdAt: 2000, updatedAt: 2000 },
+    ];
+    const users = makeUsers(existingUsers);
+    const config = makeConfigStore();
+    const identities = makeIdentities();
+    const auditLogger = { log: vi.fn().mockResolvedValue(undefined), query: vi.fn(), count: vi.fn(), lastEntryAt: vi.fn() };
+
+    const app = new Hono<{ Variables: AuthVariables }>();
+    app.use("*", async (c, next) => {
+      c.set("user", adminUser);
+      await next();
+    });
+    app.route("/api/org", createOrgConfigRoutes({ config, users, identities, logger: noopLogger(), auditLogger }));
+
+    const res = await app.request("/api/org/users");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { users: TinoUser[] };
+    expect(body.users).toHaveLength(2);
+  });
+
+  it("PATCH /api/org/users/:id changes role and emits role_change audit", async () => {
+    const existingUsers: TinoUser[] = [
+      { id: "tino-uuid-admin", email: "admin@acme.io", role: "admin", status: "active", slackUserId: "U_ADMIN", createdAt: 1000, updatedAt: 1000 },
+      { id: "tino-uuid-other-admin", email: "admin2@acme.io", role: "admin", status: "active", slackUserId: null, createdAt: 1000, updatedAt: 1000 },
+      { id: "tino-uuid-target", email: "target@acme.io", role: "member", status: "active", slackUserId: null, createdAt: 1000, updatedAt: 1000 },
+    ];
+    const users = makeUsers(existingUsers);
+    const config = makeConfigStore();
+    const identities = makeIdentities();
+    const auditLogger = { log: vi.fn().mockResolvedValue(undefined), query: vi.fn(), count: vi.fn(), lastEntryAt: vi.fn() };
+
+    const app = new Hono<{ Variables: AuthVariables }>();
+    app.use("*", async (c, next) => {
+      c.set("user", adminUser);
+      await next();
+    });
+    app.route("/api/org", createOrgConfigRoutes({ config, users, identities, logger: noopLogger(), auditLogger }));
+
+    const res = await app.request("/api/org/users/tino-uuid-target", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ role: "admin" }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { ok: boolean; user: TinoUser };
+    expect(body.ok).toBe(true);
+    expect(body.user.role).toBe("admin");
+    expect(auditLogger.log).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "role_change" }),
+    );
+  });
+
+  it("admin cannot demote self", async () => {
+    const existingUsers: TinoUser[] = [
+      { id: "tino-uuid-admin", email: "admin@acme.io", role: "admin", status: "active", slackUserId: "U_ADMIN", createdAt: 1000, updatedAt: 1000 },
+    ];
+    const users = makeUsers(existingUsers);
+    const config = makeConfigStore();
+    const identities = makeIdentities();
+    const auditLogger = { log: vi.fn().mockResolvedValue(undefined), query: vi.fn(), count: vi.fn(), lastEntryAt: vi.fn() };
+
+    const app = new Hono<{ Variables: AuthVariables }>();
+    app.use("*", async (c, next) => {
+      c.set("user", adminUser);
+      await next();
+    });
+    app.route("/api/org", createOrgConfigRoutes({ config, users, identities, logger: noopLogger(), auditLogger }));
+
+    const res = await app.request("/api/org/users/tino-uuid-admin", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ role: "member" }),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toMatch(/cannot change your own role/);
+  });
+
+  it("last-admin guard blocks demotion when only one non-suspended admin remains", async () => {
+    const actorAdmin: AuthVariables["user"] = {
+      id: "tino-uuid-actor",
+      email: "actor@acme.io",
+      name: "Actor",
+      role: "admin",
+      status: "active",
+      slackUserId: null,
+    };
+    const existingUsers: TinoUser[] = [
+      { id: "tino-uuid-actor", email: "actor@acme.io", role: "admin", status: "active", slackUserId: null, createdAt: 1000, updatedAt: 1000 },
+      { id: "tino-uuid-target", email: "target@acme.io", role: "admin", status: "suspended", slackUserId: null, createdAt: 1000, updatedAt: 1000 },
+    ];
+    const users = makeUsers(existingUsers);
+    const config = makeConfigStore();
+    const identities = makeIdentities();
+    const auditLogger = { log: vi.fn().mockResolvedValue(undefined), query: vi.fn(), count: vi.fn(), lastEntryAt: vi.fn() };
+
+    const app = new Hono<{ Variables: AuthVariables }>();
+    app.use("*", async (c, next) => {
+      c.set("user", actorAdmin);
+      await next();
+    });
+    app.route("/api/org", createOrgConfigRoutes({ config, users, identities, logger: noopLogger(), auditLogger }));
+
+    const res = await app.request("/api/org/users/tino-uuid-target", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ role: "member" }),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toMatch(/cannot demote the last admin/);
+  });
 });

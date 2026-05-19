@@ -150,7 +150,7 @@ export async function getCompliance(): Promise<unknown> {
 }
 
 export interface Session {
-  user: { id: string; email: string; name?: string };
+  user: { id: string; email: string; name?: string; role?: "admin" | "member" };
 }
 
 export async function getSession(): Promise<Session | null> {
@@ -170,6 +170,78 @@ export async function signOut(): Promise<void> {
   } catch {
     /* ignore */
   }
+}
+
+// ── Wave 4 — audit + user management ───────────────────────────────────────
+
+export interface AuditEntryView {
+  timestamp: number;
+  userId: string;
+  action: string;
+  toolName?: string;
+  status: "success" | "error" | "denied";
+  errorMessage?: string;
+}
+
+export interface OrgUser {
+  id: string;
+  email: string;
+  name?: string;
+  role: "admin" | "member";
+  status: "active" | "invited" | "suspended";
+  slackUserId: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export async function getAuditEntries(params?: {
+  userId?: string;
+  action?: string;
+  since?: number;
+  limit?: number;
+}): Promise<AuditEntryView[]> {
+  const qs = new URLSearchParams();
+  if (params?.userId) qs.set("userId", params.userId);
+  if (params?.action) qs.set("action", params.action);
+  if (params?.since) qs.set("since", String(params.since));
+  if (params?.limit) qs.set("limit", String(params.limit));
+  const url = `/api/audit${qs.toString() ? `?${qs}` : ""}`;
+  const r = await fetch(url, { credentials: "include" });
+  const data = await unwrap<{ entries: AuditEntryView[] }>(r);
+  return data.entries;
+}
+
+export async function getOrgUsers(): Promise<OrgUser[]> {
+  const r = await fetch("/api/org/users", { credentials: "include" });
+  const data = await unwrap<{ users: OrgUser[] }>(r);
+  return data.users;
+}
+
+export async function patchOrgUser(
+  userId: string,
+  patch: { role?: string; status?: string },
+): Promise<{ ok: boolean; user: OrgUser; error?: string }> {
+  const r = await fetch(`/api/org/users/${encodeURIComponent(userId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(patch),
+  });
+  return unwrap(r);
+}
+
+export async function addOrgUser(data: {
+  email: string;
+  slackUserId?: string;
+  role?: string;
+}): Promise<{ ok: boolean; user: OrgUser }> {
+  const r = await fetch("/api/org/users", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(data),
+  });
+  return unwrap(r);
 }
 
 // ── Wave 3 — hot-reload + admin restart ────────────────────────────────────

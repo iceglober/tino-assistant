@@ -105,6 +105,83 @@ export function createOrgConfigRoutes(opts: OrgConfigRoutesOpts): Hono<{ Variabl
     return c.json({ ok: true, user: newUser }, 201);
   });
 
+  app.get("/users", async (c) => {
+    const allUsers = await users.list();
+    return c.json({ users: allUsers });
+  });
+
+  app.patch("/users/:id", async (c) => {
+    const targetId = decodeURIComponent(c.req.param("id"));
+    const body = await c.req.json<{ role?: string; status?: string }>();
+    const adminUser = c.get("user");
+
+    const target = await users.get(targetId);
+    if (!target) {
+      return c.json({ error: "user not found" }, 404);
+    }
+
+    const patch: Partial<{ role: "admin" | "member"; status: "active" | "suspended" }> = {};
+
+    if (body.role && body.role !== target.role) {
+      if (!["admin", "member"].includes(body.role)) {
+        return c.json({ error: "role must be 'admin' or 'member'" }, 400);
+      }
+      if (targetId === adminUser.id) {
+        return c.json({ error: "you cannot change your own role" }, 400);
+      }
+      if (body.role === "member" && target.role === "admin") {
+        const allUsers = await users.list();
+        const adminCount = allUsers.filter((u) => u.role === "admin" && u.status !== "suspended").length;
+        if (adminCount <= 1) {
+          return c.json({ error: "cannot demote the last admin" }, 400);
+        }
+      }
+      patch.role = body.role as "admin" | "member";
+    }
+
+    if (body.status && body.status !== target.status) {
+      if (!["active", "suspended"].includes(body.status)) {
+        return c.json({ error: "status must be 'active' or 'suspended'" }, 400);
+      }
+      patch.status = body.status as "active" | "suspended";
+    }
+
+    if (Object.keys(patch).length === 0) {
+      return c.json({ ok: true, user: target });
+    }
+
+    const updated = await users.update(targetId, patch);
+
+    if (auditLogger) {
+      if (patch.role) {
+        await auditLogger.log({
+          userId: adminUser.id,
+          action: "role_change",
+          toolName: `user:${targetId}`,
+          status: "success",
+          errorMessage: JSON.stringify({
+            targetUserId: targetId,
+            oldRole: target.role,
+            newRole: patch.role,
+            actorUserId: adminUser.id,
+          }),
+        });
+      }
+      if (patch.status) {
+        await auditLogger.log({
+          userId: adminUser.id,
+          action: "config_change",
+          toolName: `user:${targetId}:status`,
+          status: "success",
+        });
+      }
+    }
+
+    logger.info({ targetId, patch, by: adminUser.id }, "user updated by admin");
+    return c.json({ ok: true, user: updated });
+  });
+
+  // Legacy status-only endpoint (wave 3 compat)
   app.patch("/users/:id/status", async (c) => {
     const targetId = decodeURIComponent(c.req.param("id"));
     const body = await c.req.json<{ status: string }>();

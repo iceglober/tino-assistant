@@ -16,6 +16,7 @@ import { createCapabilityRoutes } from "./routes/capabilities.js";
 import { createComplianceRoutes } from "./routes/compliance.js";
 import { createConfigRoutes } from "./routes/config.js";
 import { createHealthRoutes } from "./routes/health.js";
+import { createAuditRoutes } from "./routes/audit.js";
 import { createOrgConfigRoutes } from "./routes/org-config.js";
 import { createReloadRoutes } from "./routes/reload.js";
 import { createUsersRoutes } from "./routes/users.js";
@@ -170,6 +171,9 @@ export async function startServer(opts: StartServerOptions): Promise<StartedServ
   app.route("/api/users", createUsersRoutes({ config, logger, auditLogger }));
   if (identities && users) {
     app.route("/api/org", createOrgConfigRoutes({ config, users, identities, logger, auditLogger }));
+  }
+  if (auditLogger) {
+    app.route("/api/audit", createAuditRoutes({ auditLogger, logger }));
   }
   app.route("/api/reload", createReloadRoutes({ reconnectSlack, reloadCapabilities, logger, auditLogger }));
   if (shutdown) {

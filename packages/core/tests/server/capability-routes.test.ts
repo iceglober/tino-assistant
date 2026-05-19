@@ -12,11 +12,37 @@
 
 import { Hono } from "hono";
 import { describe, expect, it } from "vitest";
+import type { AuthVariables } from "../../src/server/middleware/auth.js";
 import { createCapabilityRoutes } from "../../src/server/routes/capabilities.js";
 import { makeConfigStore, noopLogger } from "./_helpers.js";
 
-function mountCapabilities(opts: Parameters<typeof createCapabilityRoutes>[0]): Hono {
-  const app = new Hono();
+const adminUser: AuthVariables["user"] = {
+  id: "tino-uuid-admin",
+  email: "admin@acme.io",
+  name: "Admin",
+  role: "admin",
+  status: "active",
+  slackUserId: "U_ADMIN",
+};
+
+const memberUser: AuthVariables["user"] = {
+  id: "tino-uuid-member",
+  email: "member@acme.io",
+  name: "Member",
+  role: "member",
+  status: "active",
+  slackUserId: "U_MEMBER",
+};
+
+function mountCapabilities(
+  opts: Parameters<typeof createCapabilityRoutes>[0],
+  user: AuthVariables["user"] = adminUser,
+): Hono<{ Variables: AuthVariables }> {
+  const app = new Hono<{ Variables: AuthVariables }>();
+  app.use("*", async (c, next) => {
+    c.set("user", user);
+    await next();
+  });
   app.route("/api/capabilities", createCapabilityRoutes(opts));
   return app;
 }
@@ -120,5 +146,23 @@ describe("PUT /api/capabilities/:id", () => {
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: string };
     expect(body.error).toMatch(/JSON/);
+  });
+});
+
+describe("requireAdmin enforcement on /api/capabilities", () => {
+  it("member cannot GET /api/capabilities", async () => {
+    const app = mountCapabilities({ config: makeConfigStore(), logger: noopLogger() }, memberUser);
+    const res = await app.request("/api/capabilities");
+    expect(res.status).toBe(403);
+  });
+
+  it("member cannot PUT /api/capabilities/:id", async () => {
+    const app = mountCapabilities({ config: makeConfigStore(), logger: noopLogger() }, memberUser);
+    const res = await app.request("/api/capabilities/github", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ enabled: true, fields: [] }),
+    });
+    expect(res.status).toBe(403);
   });
 });
