@@ -167,7 +167,7 @@ items:
     intent: |
       The identity resolver resolves a slack user id to a tino-UUID using
       the identity table; missing links return null without auto-provisioning.
-    checked: false
+    checked: true
     files:
       - path: packages/core/src/identity/resolver.ts
         isNew: true
