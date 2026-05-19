@@ -13,7 +13,7 @@
 import { Hono } from "hono";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createBedrockRoutes } from "../../src/server/routes/bedrock.js";
-import { noopLogger } from "./_helpers.js";
+import { fakeAdmin, noopLogger } from "./_helpers.js";
 
 vi.mock("../../src/agent/bedrock.js", () => ({
   validateBedrockModel: vi.fn(),
@@ -24,6 +24,7 @@ import { validateBedrockModel } from "../../src/agent/bedrock.js";
 
 function mountBedrock(opts: Parameters<typeof createBedrockRoutes>[0]): Hono {
   const app = new Hono();
+  app.use("*", fakeAdmin());
   app.route("/api/bedrock", createBedrockRoutes(opts));
   return app;
 }

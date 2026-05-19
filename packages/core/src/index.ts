@@ -1,7 +1,9 @@
 import "dotenv/config";
 import { WebClient } from "@slack/web-api";
 import { createBedrockModel, DEFAULT_BEDROCK_MODEL_ID, validateBedrockModel } from "./agent/bedrock.js";
-import { DefaultPrivacyFilter, HistoryAppender } from "./agent/history-appender.js";
+import { HistoryAppender } from "./agent/history-appender.js";
+import { createPrivacyConfigStore } from "./privacy/config-store.js";
+import { SourceRespectingPrivacyFilter } from "./privacy/source-respecting-filter.js";
 import { createHistoryStore } from "./agent/history.js";
 import { runAgent } from "./agent/run.js";
 import { migrateEnvToCapabilities } from "./capabilities/migration.js";
@@ -42,8 +44,9 @@ const {
 //   - dynamodb → durable, TTL-backed (90d default, see audit/dynamo.ts:22)
 // The shape is identical, so callers don't branch on adapter.
 
-// Create the history-appender seam with default privacy filter (wave 2)
-const privacyFilter = new DefaultPrivacyFilter();
+// Create privacy config store (encrypted per-user config) and wire the real filter
+const privacyConfigStore = createPrivacyConfigStore({ configStore, crypto: cryptoAdapter });
+const privacyFilter = new SourceRespectingPrivacyFilter((userId) => privacyConfigStore.get(userId));
 const historyAppender = new HistoryAppender(history, privacyFilter);
 
 // Run one-time migration from env vars to config store (no-op if already done)
@@ -375,6 +378,7 @@ const consoleServer = await startServer({
   sessionStore,
   identities,
   users,
+  privacyConfigStore,
 });
 
 if (hasSlack) {

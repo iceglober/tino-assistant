@@ -15,6 +15,30 @@ export interface OnboardingDeps {
   getCalendarVisibility?: (userId: string) => Promise<{ defaultVisibility: string; calendars: Array<{ id: string; summary: string; defaultVisibility: string }> }>;
 }
 
+function isStringArray(v: unknown): v is string[] {
+  return Array.isArray(v) && v.every((x) => typeof x === "string");
+}
+
+function validateGmail(v: unknown): v is { privateLabels: string[]; denyListedAddresses: string[]; threadingMode: "conservative" } {
+  if (!v || typeof v !== "object") return false;
+  const o = v as Record<string, unknown>;
+  return isStringArray(o.privateLabels) && isStringArray(o.denyListedAddresses) && o.threadingMode === "conservative";
+}
+
+function validateSlack(v: unknown): v is { denyListedConversationIds: string[]; denyListedUserIds: string[]; multiPartyMode: "conservative" } {
+  if (!v || typeof v !== "object") return false;
+  const o = v as Record<string, unknown>;
+  return isStringArray(o.denyListedConversationIds) && isStringArray(o.denyListedUserIds) && o.multiPartyMode === "conservative";
+}
+
+const VALID_VISIBILITIES = new Set(["default", "public", "private", "confidential"]);
+
+function validateCalendar(v: unknown): v is { defaultVisibility: string; gateAllByDefault: boolean } {
+  if (!v || typeof v !== "object") return false;
+  const o = v as Record<string, unknown>;
+  return typeof o.defaultVisibility === "string" && VALID_VISIBILITIES.has(o.defaultVisibility) && typeof o.gateAllByDefault === "boolean";
+}
+
 export function createOnboardingRoutes(deps: OnboardingDeps): Hono<{ Variables: AuthVariables }> {
   const { privacyConfigStore, logger } = deps;
   const app = new Hono<{ Variables: AuthVariables }>();
@@ -75,14 +99,17 @@ export function createOnboardingRoutes(deps: OnboardingDeps): Hono<{ Variables: 
       lastRepromptAt: current?.lastRepromptAt ?? null,
     };
 
-    if (capId === "gmail" && body.gmail) {
+    if (capId === "gmail") {
+      if (!validateGmail(body.gmail)) return c.json({ error: "invalid gmail config" }, 400);
       updated.gmail = body.gmail;
-    } else if (capId === "slack" && body.slack) {
+    } else if (capId === "slack") {
+      if (!validateSlack(body.slack)) return c.json({ error: "invalid slack config" }, 400);
       updated.slack = body.slack;
-    } else if (capId === "calendar" && body.calendar) {
+    } else if (capId === "calendar") {
+      if (!validateCalendar(body.calendar)) return c.json({ error: "invalid calendar config" }, 400);
       updated.calendar = body.calendar;
     } else {
-      return c.json({ error: `unknown capability: ${capId}` }, 400);
+      return c.json({ error: "unknown capability" }, 400);
     }
 
     await privacyConfigStore.set(user.id, updated);

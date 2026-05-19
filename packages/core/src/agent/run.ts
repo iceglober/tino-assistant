@@ -5,6 +5,7 @@ import type { ConfigStore } from "../persistence/config.js";
 import type { AppLogger } from "../slack/app.js";
 import type { HistoryAppender } from "./history-appender.js";
 import type { HistoryStore } from "./history.js";
+import { logToolResult } from "../logging/redaction.js";
 import { validateAgentOutput } from "./output-validator.js";
 import { buildSystemPrompt } from "./systemPrompt.js";
 
@@ -78,6 +79,9 @@ export async function runAgent(params: RunAgentParams): Promise<string> {
           durationMs,
           status: "success",
         });
+      }
+      for (const toolResult of step.toolResults ?? []) {
+        logToolResult(logger, { toolName: toolResult.toolName }, toolResult.result);
       }
     }
   }

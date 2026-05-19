@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { validateBedrockModel } from "../../agent/bedrock.js";
 import type { AppLogger } from "../../slack/app.js";
+import { requireAdmin } from "../middleware/require-admin.js";
 
 /**
  * /api/bedrock — Bedrock-related operations.
@@ -15,6 +16,8 @@ import type { AppLogger } from "../../slack/app.js";
 export function createBedrockRoutes(opts: { logger: AppLogger }): Hono {
   const app = new Hono();
   const { logger } = opts;
+
+  app.use("*", requireAdmin());
 
   app.post("/validate", async (c) => {
     let body: unknown;

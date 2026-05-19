@@ -1,18 +1,10 @@
+import { TOOL_TO_CAPABILITY } from "../privacy/filter.js";
 import type { AppLogger } from "../slack/app.js";
 
 const PRIVATE_CAPABILITY_IDS = new Set(["gmail", "slack-personal", "calendar"]);
 
-const PRIVATE_TOOL_NAMES = new Set([
-  "calendar_list_events",
-  "gmail_search",
-  "gmail_get_message",
-  "slack_list_dms",
-  "slack_read_dm",
-  "slack_read_thread",
-]);
-
 export function isPrivateCapabilityTool(toolName: string): boolean {
-  return PRIVATE_TOOL_NAMES.has(toolName);
+  return toolName in TOOL_TO_CAPABILITY;
 }
 
 export function logToolResult(

@@ -6,12 +6,21 @@
  * NOT exported from the package — purely a test fixture.
  */
 
+import type { MiddlewareHandler } from "hono";
 import { vi } from "vitest";
 import type { ConfigStore } from "../../src/persistence/config.js";
 import type { AppLogger } from "../../src/slack/app.js";
+import type { AuthVariables } from "../../src/server/middleware/auth.js";
 
 export function noopLogger(): AppLogger {
   return { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
+}
+
+export function fakeAdmin(): MiddlewareHandler<{ Variables: AuthVariables }> {
+  return async (c, next) => {
+    c.set("user", { id: "admin-1", role: "admin" } as any);
+    await next();
+  };
 }
 
 export function makeConfigStore(entries: Record<string, unknown> = {}): ConfigStore {

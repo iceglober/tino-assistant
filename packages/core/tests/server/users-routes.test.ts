@@ -15,10 +15,11 @@ import { Hono } from "hono";
 import { describe, expect, it } from "vitest";
 import { createMemoryAuditLogger } from "../../src/audit/memory.js";
 import { createUsersRoutes } from "../../src/server/routes/users.js";
-import { makeConfigStore, noopLogger } from "./_helpers.js";
+import { fakeAdmin, makeConfigStore, noopLogger } from "./_helpers.js";
 
 function mountUsers(opts: Parameters<typeof createUsersRoutes>[0]): Hono {
   const app = new Hono();
+  app.use("*", fakeAdmin());
   app.route("/api/users", createUsersRoutes(opts));
   return app;
 }

@@ -9,7 +9,7 @@ const PRIVATE_CAPABILITIES: Record<string, (toolArgs: unknown, toolResult: unkno
   "slack-personal": slackFilter,
 };
 
-const TOOL_TO_CAPABILITY: Record<string, string> = {
+export const TOOL_TO_CAPABILITY: Record<string, string> = {
   calendar_list_events: "calendar",
   gmail_search: "gmail",
   gmail_get_message: "gmail",

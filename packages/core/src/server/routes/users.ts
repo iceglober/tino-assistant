@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import type { AuditLogger } from "../../audit/logger.js";
 import type { ConfigStore } from "../../persistence/config.js";
 import type { AppLogger } from "../../slack/app.js";
+import { requireAdmin } from "../middleware/require-admin.js";
 
 /**
  * /api/users — admin user-management endpoints.
@@ -20,6 +21,8 @@ export function createUsersRoutes(opts: {
 }): Hono {
   const app = new Hono();
   const { config, logger, auditLogger } = opts;
+
+  app.use("*", requireAdmin());
 
   app.delete("/:userId", async (c) => {
     const targetUserId = decodeURIComponent(c.req.param("userId"));

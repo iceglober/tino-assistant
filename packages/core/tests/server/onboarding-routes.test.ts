@@ -118,6 +118,35 @@ describe("onboarding routes", () => {
     expect(body.completedAt).toBeGreaterThan(0);
   });
 
+  it("POST /complete/gmail validates the config shape", async () => {
+    const app = buildApp();
+
+    const bad = await app.request("/api/onboarding/complete/gmail", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ gmail: { junk: true } }),
+    });
+    expect(bad.status).toBe(400);
+
+    const good = await app.request("/api/onboarding/complete/gmail", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ gmail: { privateLabels: ["Private"], denyListedAddresses: [], threadingMode: "conservative" } }),
+    });
+    expect(good.status).toBe(200);
+  });
+
+  it("POST /complete/calendar rejects invalid visibility", async () => {
+    const app = buildApp();
+
+    const bad = await app.request("/api/onboarding/complete/calendar", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ calendar: { defaultVisibility: "bogus", gateAllByDefault: false } }),
+    });
+    expect(bad.status).toBe(400);
+  });
+
   it("PRIVACY_REGEX matches expected keywords", () => {
     expect(PRIVACY_REGEX.test("private")).toBe(true);
     expect(PRIVACY_REGEX.test("Personal")).toBe(true);

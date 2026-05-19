@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { AuditLogger } from "../../audit/logger.js";
 import type { AppLogger } from "../../slack/app.js";
+import { requireAdmin } from "../middleware/require-admin.js";
 
 /**
  * /api/admin — admin-only operational endpoints.
@@ -28,6 +29,8 @@ export function createAdminRoutes(opts: {
 }): Hono {
   const app = new Hono();
   const { logger, auditLogger, shutdown } = opts;
+
+  app.use("*", requireAdmin());
 
   app.post("/restart", async (c) => {
     if (auditLogger) {

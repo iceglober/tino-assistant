@@ -22,6 +22,9 @@ import { createOrgConfigRoutes } from "./routes/org-config.js";
 import { createReloadRoutes } from "./routes/reload.js";
 import { createUsersRoutes } from "./routes/users.js";
 import { createUserCapabilityRoutes } from "./routes/user-capabilities.js";
+import { createOnboardingRoutes } from "./routes/onboarding.js";
+import { onboardingGate } from "./middleware/onboarding-gate.js";
+import type { PrivacyConfigStore } from "../privacy/config-store.js";
 
 /**
  * Tino console HTTP server — Hono app on top of `@hono/node-server`.
@@ -86,6 +89,7 @@ export interface StartServerOptions {
    */
   identities?: IdentityStore;
   users?: UserStore;
+  privacyConfigStore?: PrivacyConfigStore;
 }
 
 export interface StartedServer {
@@ -108,6 +112,7 @@ export async function startServer(opts: StartServerOptions): Promise<StartedServ
     sessionStore,
     identities,
     users,
+    privacyConfigStore,
   } = opts;
   const port = opts.port ?? 3001;
   const startTime = Date.now();
@@ -149,6 +154,11 @@ export async function startServer(opts: StartServerOptions): Promise<StartedServ
   // `/api/health`, and `/assets/*` to bypass).
   app.use("*", buildAuthMiddleware({ auth, allowedDomain, logger, identities, users, configStore: config }));
 
+  // Onboarding gate — blocks console access until privacy setup completes (wave 3.5)
+  if (privacyConfigStore) {
+    app.use("*", onboardingGate({ privacyConfigStore }));
+  }
+
   // ── /api/auth/* — better-auth handler ─────────────────────────────────────
   // better-auth ships a fetch-style handler at `auth.handler`. Hono's `c.req.raw`
   // is a `Request` and `c.body` accepts a `Response`, so this is a one-line wire-up.
@@ -182,6 +192,9 @@ export async function startServer(opts: StartServerOptions): Promise<StartedServ
     app.route("/api/admin", createAdminRoutes({ logger, auditLogger, shutdown }));
   }
   app.route("/api/bedrock", createBedrockRoutes({ logger }));
+  if (privacyConfigStore) {
+    app.route("/api/onboarding", createOnboardingRoutes({ privacyConfigStore, logger }));
+  }
 
   // ── Logo asset (preserve the old multi-path lookup) ───────────────────────
   // The Dockerfile pins `WORKDIR /app` and copies `assets/` into the image,

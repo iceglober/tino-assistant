@@ -18,6 +18,7 @@ import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import { createMemoryAuditLogger } from "../../src/audit/memory.js";
 import { createAdminRoutes } from "../../src/server/routes/admin.js";
+import { fakeAdmin } from "./_helpers.js";
 import type { AppLogger } from "../../src/slack/app.js";
 
 function noopLogger(): AppLogger {
@@ -26,6 +27,7 @@ function noopLogger(): AppLogger {
 
 function mountAdmin(opts: Parameters<typeof createAdminRoutes>[0]): Hono {
   const app = new Hono();
+  app.use("*", fakeAdmin());
   app.route("/api/admin", createAdminRoutes(opts));
   return app;
 }

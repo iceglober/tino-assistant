@@ -14,10 +14,11 @@ import { Hono } from "hono";
 import { describe, expect, it } from "vitest";
 import { createMemoryAuditLogger } from "../../src/audit/memory.js";
 import { createConfigRoutes } from "../../src/server/routes/config.js";
-import { makeConfigStore, noopLogger } from "./_helpers.js";
+import { fakeAdmin, makeConfigStore, noopLogger } from "./_helpers.js";
 
 function mountConfig(opts: Parameters<typeof createConfigRoutes>[0]): Hono {
   const app = new Hono();
+  app.use("*", fakeAdmin());
   app.route("/api/config", createConfigRoutes(opts));
   return app;
 }

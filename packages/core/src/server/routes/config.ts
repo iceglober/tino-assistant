@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import type { AuditLogger } from "../../audit/logger.js";
 import type { ConfigStore } from "../../persistence/config.js";
 import type { AppLogger } from "../../slack/app.js";
+import { requireAdmin } from "../middleware/require-admin.js";
 
 /**
  * /api/config — list, set, delete config entries.
@@ -21,6 +22,8 @@ export function createConfigRoutes(opts: {
 }): Hono {
   const app = new Hono();
   const { config, logger, auditLogger } = opts;
+
+  app.use("*", requireAdmin());
 
   app.get("/", async (c) => {
     const entries = await config.list();

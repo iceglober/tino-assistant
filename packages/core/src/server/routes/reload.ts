@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { AuditLogger } from "../../audit/logger.js";
 import type { AppLogger } from "../../slack/app.js";
+import { requireAdmin } from "../middleware/require-admin.js";
 
 /**
  * /api/reload — hot-reload endpoints for Slack connection and capabilities.
@@ -28,6 +29,8 @@ export function createReloadRoutes(
 ): Hono {
   const app = new Hono();
   const { reconnectSlack, reloadCapabilities, logger, auditLogger } = opts;
+
+  app.use("*", requireAdmin());
 
   app.post("/slack", async (c) => {
     if (!reconnectSlack) {
