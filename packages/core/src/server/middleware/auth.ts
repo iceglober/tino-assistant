@@ -189,7 +189,8 @@ export function buildAuthMiddleware(opts: {
 
       if (mode === "org-domain" && orgDomain && email.endsWith(`@${orgDomain}`)) {
         const existingUsers = await users.list();
-        const role = existingUsers.length === 0 ? "admin" : "member";
+        const hasAdmin = existingUsers.some((u) => u.role === "admin");
+        const role = hasAdmin ? "member" : "admin";
 
         const newUser = await users.create({
           id: crypto.randomUUID(),

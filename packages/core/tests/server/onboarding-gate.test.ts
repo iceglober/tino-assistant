@@ -83,4 +83,21 @@ describe("onboarding gate middleware", () => {
     const res = await app.request("/api/health");
     expect(res.status).toBe(200);
   });
+
+  it("admin users bypass the gate even without privacy config", async () => {
+    const app = new Hono();
+    app.use("*", async (c, next) => {
+      c.set("user" as any, { id: "admin-1", role: "admin" });
+      await next();
+    });
+    app.use("*", onboardingGate({ privacyConfigStore: stubConfigStore(false) }));
+    app.get("/api/config", (c) => c.json({ ok: true }));
+    app.get("/dashboard", (c) => c.text("ok"));
+
+    const apiRes = await app.request("/api/config");
+    expect(apiRes.status).toBe(200);
+
+    const dashRes = await app.request("/dashboard");
+    expect(dashRes.status).toBe(200);
+  });
 });

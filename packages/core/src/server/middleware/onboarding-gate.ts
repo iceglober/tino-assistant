@@ -20,6 +20,8 @@ export function onboardingGate(opts: {
     const user = c.get("user");
     if (!user) return next();
 
+    if (user.role === "admin") return next();
+
     const config = await opts.privacyConfigStore.get(user.id);
     if (config != null) return next();
 
