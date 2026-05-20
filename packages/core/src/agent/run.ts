@@ -81,7 +81,7 @@ export async function runAgent(params: RunAgentParams): Promise<string> {
         });
       }
       for (const toolResult of step.toolResults ?? []) {
-        logToolResult(logger, { toolName: toolResult.toolName }, toolResult.result);
+        logToolResult(logger, { toolName: toolResult.toolName }, toolResult.output);
       }
     }
   }

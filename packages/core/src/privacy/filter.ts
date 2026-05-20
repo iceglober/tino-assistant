@@ -1,12 +1,12 @@
 import { calendarFilter } from "./calendar.js";
 import { gmailFilter } from "./gmail.js";
 import { slackFilter } from "./slack.js";
-import type { Decision, PrivacyConfig } from "./types.js";
+import type { CapabilityFilter, Decision, PrivacyConfig } from "./types.js";
 
-const PRIVATE_CAPABILITIES: Record<string, (toolArgs: unknown, toolResult: unknown, config: unknown) => Decision> = {
-  calendar: calendarFilter,
-  gmail: gmailFilter,
-  "slack-personal": slackFilter,
+const PRIVATE_CAPABILITIES: Record<string, CapabilityFilter> = {
+  calendar: calendarFilter as CapabilityFilter,
+  gmail: gmailFilter as CapabilityFilter,
+  "slack-personal": slackFilter as CapabilityFilter,
 };
 
 export const TOOL_TO_CAPABILITY: Record<string, string> = {

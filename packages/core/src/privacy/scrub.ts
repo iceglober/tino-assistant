@@ -1,4 +1,4 @@
-import type { ModelMessage } from "ai";
+import type { ModelMessage, ToolResultPart } from "ai";
 import type { AuditLogger } from "../audit/logger.js";
 import type { HistoryStore } from "../agent/history.js";
 import type { AppLogger } from "../slack/app.js";
@@ -64,7 +64,7 @@ export async function runScrub(deps: {
       if (decision.persist) return part;
 
       rowsScrubbed++;
-      return { ...part, output: decision.placeholder };
+      return { ...part, output: decision.placeholder as unknown as ToolResultPart["output"] };
     });
 
     return { ...msg, content: filteredContent };

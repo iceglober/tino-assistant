@@ -1,4 +1,4 @@
-import type { ToolSet } from "ai";
+import { jsonSchema, type ToolSet } from "ai";
 
 const PRIVACY_REGEX = /private|personal|hr|legal|medical|doctor|therapy|family|finance|tax/i;
 
@@ -8,12 +8,12 @@ export function calendarSuggestPrivateTool(deps: {
   return {
     calendar_suggest_private: {
       description: "Scan recent calendar events and suggest ones that might be private. Read-only.",
-      parameters: {
-        type: "object" as const,
+      inputSchema: jsonSchema({
+        type: "object",
         properties: {
           daysBack: { type: "number", description: "How many days back to scan (default: 30)" },
         },
-      },
+      }),
       execute: async (input: { daysBack?: number }) => {
         const events = await deps.getRecentEvents("", input.daysBack ?? 30);
         const suggestions = events

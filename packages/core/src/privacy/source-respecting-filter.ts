@@ -1,4 +1,4 @@
-import type { ModelMessage } from "ai";
+import type { ModelMessage, ToolResultPart } from "ai";
 import type { PrivacyFilter } from "../agent/history-appender.js";
 import { evaluate, isPrivateCapability } from "./filter.js";
 import type { PrivacyConfig } from "./types.js";
@@ -47,7 +47,7 @@ export class SourceRespectingPrivacyFilter implements PrivacyFilter {
 
         return {
           ...part,
-          output: decision.placeholder,
+          output: decision.placeholder as unknown as ToolResultPart["output"],
         };
       });
 

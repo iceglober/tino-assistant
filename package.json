@@ -6,7 +6,9 @@
   ],
   "scripts": {
     "build": "bun run --filter @tino/core build && bun run --filter @tino/aws build && bun run --filter @tino/cli build",
-    "dev": "bun run --filter @tino/core dev",
+    "start": "PERSISTENCE_ADAPTER=sqlite bun packages/core/src/index.ts",
+    "start:full": "bun packages/core/src/index.ts",
+    "dev": "PERSISTENCE_ADAPTER=sqlite bun --watch packages/core/src/index.ts",
     "test": "bun run --filter '*' test",
     "typecheck": "bun run --filter '*' typecheck",
     "lint": "bun run --filter '*' lint",

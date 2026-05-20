@@ -30,7 +30,7 @@ interface GmailToolResult {
 
 function normalizeAddress(addr: string): string {
   const match = addr.match(/<([^>]+)>/);
-  const raw = match ? match[1] : addr;
+  const raw = match ? match[1]! : addr;
   const lower = raw.trim().toLowerCase();
   const atIdx = lower.indexOf("@");
   if (atIdx === -1) return lower;

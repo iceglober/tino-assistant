@@ -1,4 +1,4 @@
-import type { ToolSet } from "ai";
+import { jsonSchema, type ToolSet } from "ai";
 
 export function calendarCheckDefaultsTool(deps: {
   getCalendarSettings: (userId: string) => Promise<{ defaultVisibility: string; calendars: Array<{ id: string; summary: string; defaultVisibility: string }> }>;
@@ -7,7 +7,7 @@ export function calendarCheckDefaultsTool(deps: {
   return {
     calendar_check_defaults: {
       description: "Check calendar default visibility settings. Read-only.",
-      parameters: { type: "object" as const, properties: {} },
+      inputSchema: jsonSchema({ type: "object", properties: {} }),
       execute: async () => {
         const settings = await deps.getCalendarSettings("");
         const warnings: string[] = [];

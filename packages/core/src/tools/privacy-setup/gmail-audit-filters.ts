@@ -1,4 +1,4 @@
-import type { ToolSet } from "ai";
+import { jsonSchema, type ToolSet } from "ai";
 
 export interface GmailFilter {
   id: string;
@@ -18,7 +18,7 @@ export function gmailAuditFiltersTool(deps: {
   return {
     gmail_audit_filters: {
       description: "Lists Gmail filters and suggests privacy-related improvements. Read-only.",
-      parameters: { type: "object" as const, properties: {} },
+      inputSchema: jsonSchema({ type: "object", properties: {} }),
       execute: async () => {
         const filters = await deps.listFilters("");
         const suggestions: AuditSuggestion[] = [];
