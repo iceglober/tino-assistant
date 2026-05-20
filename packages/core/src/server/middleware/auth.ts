@@ -171,45 +171,53 @@ export function buildAuthMiddleware(opts: {
         return;
       }
 
-      // No tino identity for this email — check org-domain auto-provisioning
+      // No tino identity for this email — check org-domain auto-provisioning.
+      // Resolve the effective mode and domain: explicit config takes precedence,
+      // but when allowedDomain is set it implies org-domain trust.
+      let mode = "allowlist";
+      let orgDomain: string | undefined;
+
       if (configStore) {
         const rawMode = await configStore.get("org.accessControl.mode");
-        const mode = rawMode ? (JSON.parse(rawMode) as string) : "allowlist";
+        mode = rawMode ? (JSON.parse(rawMode) as string) : (allowedDomain ? "org-domain" : "allowlist");
+        const rawDomain = await configStore.get("org.accessControl.orgDomain");
+        orgDomain = rawDomain ? (JSON.parse(rawDomain) as string) : allowedDomain;
+      } else if (allowedDomain) {
+        mode = "org-domain";
+        orgDomain = allowedDomain;
+      }
 
-        if (mode === "org-domain") {
-          const rawDomain = await configStore.get("org.accessControl.orgDomain");
-          const orgDomain = rawDomain ? (JSON.parse(rawDomain) as string) : undefined;
+      if (mode === "org-domain" && orgDomain && email.endsWith(`@${orgDomain}`)) {
+        const existingUsers = await users.list();
+        const role = existingUsers.length === 0 ? "admin" : "member";
 
-          if (orgDomain && email.endsWith(`@${orgDomain}`)) {
-            const newUser = await users.create({
-              id: crypto.randomUUID(),
-              email,
-              name: session.user.name ?? undefined,
-              role: "member",
-              status: "active",
-              slackUserId: null,
-              createdAt: Date.now(),
-              updatedAt: Date.now(),
-            });
-            await identities.link({
-              provider: "google",
-              externalId: email,
-              tinoUserId: newUser.id,
-              linkedAt: Date.now(),
-            });
-            logger.info({ tinoUserId: newUser.id, email }, "auto-provisioned user via org-domain (console)");
-            c.set("user", {
-              id: newUser.id,
-              email: newUser.email,
-              name: newUser.name,
-              role: newUser.role,
-              status: newUser.status,
-              slackUserId: newUser.slackUserId,
-            });
-            await next();
-            return;
-          }
-        }
+        const newUser = await users.create({
+          id: crypto.randomUUID(),
+          email,
+          name: session.user.name ?? undefined,
+          role,
+          status: "active",
+          slackUserId: null,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        });
+        await identities.link({
+          provider: "google",
+          externalId: email,
+          tinoUserId: newUser.id,
+          linkedAt: Date.now(),
+        });
+        logger.info({ tinoUserId: newUser.id, email, role }, "auto-provisioned user via org-domain (console)");
+        c.set("user", {
+          id: newUser.id,
+          email: newUser.email,
+          name: newUser.name,
+          role: newUser.role,
+          status: newUser.status,
+          slackUserId: newUser.slackUserId,
+        });
+        await next();
+        return;
       }
 
       return c.json({ error: "forbidden", message: "account not provisioned in tino — ask your admin" }, 403);
