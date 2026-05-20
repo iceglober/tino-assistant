@@ -58,7 +58,7 @@ export async function createAuth(opts: {
       additionalFields: {
         role: { type: "string", defaultValue: "member" },
         status: { type: "string", defaultValue: "active" },
-        slackUserId: { type: "string" },
+        slackUserId: { type: "string", required: false },
       },
     },
   };
