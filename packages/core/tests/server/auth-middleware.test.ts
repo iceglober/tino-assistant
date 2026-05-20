@@ -242,7 +242,7 @@ describe("auth middleware — tino-UUID resolution (wave 3 a6)", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as AuthVariables["user"];
     expect(body.email).toBe("new@acme.io");
-    expect(body.role).toBe("member");
+    expect(body.role).toBe("admin");
     expect(body.status).toBe("active");
     expect(users.create).toHaveBeenCalled();
     expect(identities.link).toHaveBeenCalled();

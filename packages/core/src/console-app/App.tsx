@@ -1,5 +1,5 @@
 import { type JSX, useEffect, useState } from "react";
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { InsecureBanner } from "./components/InsecureBanner.js";
 import { ToastProvider } from "./hooks/useToast.js";
 import { getConfig, type Session, UnauthorizedError } from "./lib/api.js";
@@ -7,7 +7,6 @@ import { Audit } from "./pages/Audit.js";
 import { Console, fetchInitialConsoleValues } from "./pages/Console.js";
 import { Login } from "./pages/Login.js";
 import { MyActivity } from "./pages/MyActivity.js";
-import { MyCapabilities } from "./pages/MyCapabilities.js";
 import { Setup } from "./pages/Setup.js";
 import { Users } from "./pages/Users.js";
 
@@ -108,7 +107,7 @@ export function App(): JSX.Element {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
-          <Route path="/my-capabilities" element={<MyCapabilities />} />
+          <Route path="/my-capabilities" element={<Navigate to="/" replace />} />
           <Route path="/me/activity" element={<MyActivity />} />
           <Route path="/users" element={<Users />} />
           <Route path="/audit" element={<Audit />} />

@@ -36,7 +36,6 @@ describe("<Header /> — wave 4 role-conditional nav", () => {
 
   it("admin nav still includes common links", () => {
     const html = renderHeader(adminSession);
-    expect(html).toMatch(/aria-label="My capabilities"/);
     expect(html).toMatch(/aria-label="My activity"/);
     expect(html).toMatch(/>sign out</);
   });
@@ -51,7 +50,6 @@ describe("<Header /> — wave 4 role-conditional nav", () => {
 
   it("member nav includes common links", () => {
     const html = renderHeader(memberSession);
-    expect(html).toMatch(/aria-label="My capabilities"/);
     expect(html).toMatch(/aria-label="My activity"/);
     expect(html).toMatch(/>my activity</);
     expect(html).toMatch(/>sign out</);
@@ -64,6 +62,5 @@ describe("<Header /> — wave 4 role-conditional nav", () => {
     const html = renderHeader(legacySession);
     expect(html).not.toMatch(/aria-label="Users"/);
     expect(html).not.toMatch(/aria-label="Audit log"/);
-    expect(html).toMatch(/aria-label="My capabilities"/);
   });
 });

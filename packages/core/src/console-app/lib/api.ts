@@ -29,6 +29,7 @@ export interface CapabilityField {
 export interface CapabilityEntry {
   id: string;
   displayName: string;
+  scope: "shared" | "private";
   enabled: boolean;
   fields: CapabilityField[];
   findWork?: { enabled: boolean; intervalMinutes: number; lastScanAt?: number };

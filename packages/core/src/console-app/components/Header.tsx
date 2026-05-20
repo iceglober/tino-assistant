@@ -83,15 +83,6 @@ export function Header({
             <button
               className="header-signout"
               type="button"
-              onClick={() => navigate("/my-capabilities")}
-              aria-label="My capabilities"
-            >
-              my capabilities
-            </button>
-            <span className="header-user-sep">·</span>
-            <button
-              className="header-signout"
-              type="button"
               onClick={() => navigate("/me/activity")}
               aria-label="My activity"
             >

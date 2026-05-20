@@ -19,6 +19,7 @@ import type { CapabilityConfig, CapabilityModule, CapField } from "./types.js";
 export interface CapabilityView {
   id: string;
   displayName: string;
+  scope: "shared" | "private";
   enabled: boolean;
   fields: CapField[];
   findWork?: CapabilityConfig["findWork"];
@@ -74,6 +75,7 @@ export function buildCapabilityView(
   return {
     id: cap.id,
     displayName: cap.displayName,
+    scope: cap.scope,
     enabled: !!config.enabled,
     fields,
     findWork: config.findWork,

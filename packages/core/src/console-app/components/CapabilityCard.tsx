@@ -22,6 +22,7 @@ interface CapField {
 export interface CapabilityShape {
   id: string;
   displayName?: string;
+  scope?: "shared" | "private";
   enabled?: boolean;
   fields?: CapField[];
   /** Whether the capability's tools are currently registered (from /api/health). */
@@ -31,10 +32,11 @@ export interface CapabilityShape {
 const CAP_META: Record<string, { icon: string; name: string; desc: string }> = {
   github: { icon: "🐙", name: "GitHub", desc: "repos, issues, PRs" },
   calendar: { icon: "📅", name: "Calendar", desc: "Google Calendar events" },
-  gmail: { icon: "✉️", name: "Gmail", desc: "read and send email" },
+  gmail: { icon: "✉️", name: "Gmail", desc: "search and read email" },
   linear: { icon: "📐", name: "Linear", desc: "issues and projects" },
   cloudwatch: { icon: "☁️", name: "CloudWatch", desc: "AWS logs and metrics" },
-  slack: { icon: "💬", name: "Slack read", desc: "read channel history" },
+  slack: { icon: "💬", name: "Slack", desc: "search channels and DMs" },
+  "slack-personal": { icon: "🔒", name: "Slack (personal)", desc: "read your DMs with a user token" },
 };
 
 /**
