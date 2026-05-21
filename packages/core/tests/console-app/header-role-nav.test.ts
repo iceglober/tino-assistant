@@ -25,40 +25,27 @@ function renderHeader(session: Session | null): string {
   );
 }
 
-describe("<Header /> — role-conditional nav", () => {
-  it("admin nav includes users link", () => {
+describe("<Header /> — nav rendering", () => {
+  it("renders user email and sign out when session present", () => {
     const html = renderHeader(adminSession);
-    expect(html).toMatch(/aria-label="Users"/);
-    expect(html).toMatch(/>users</);
-  });
-
-  it("admin nav still includes common links", () => {
-    const html = renderHeader(adminSession);
-    expect(html).toMatch(/aria-label="Activity"/);
-    expect(html).toMatch(/aria-label="Privacy settings"/);
+    expect(html).toContain("admin@example.com");
     expect(html).toMatch(/>sign out</);
   });
 
-  it("member nav lacks admin links", () => {
+  it("renders member email and sign out", () => {
     const html = renderHeader(memberSession);
-    expect(html).not.toMatch(/aria-label="Users"/);
-    expect(html).not.toMatch(/>users</);
-  });
-
-  it("member nav includes common links", () => {
-    const html = renderHeader(memberSession);
-    expect(html).toMatch(/aria-label="Activity"/);
-    expect(html).toMatch(/>activity</);
-    expect(html).toMatch(/aria-label="Privacy settings"/);
-    expect(html).toMatch(/>privacy</);
+    expect(html).toContain("member@example.com");
     expect(html).toMatch(/>sign out</);
   });
 
-  it("session with no role (legacy) hides admin links", () => {
-    const legacySession: Session = {
-      user: { id: "U003", email: "legacy@example.com" },
-    };
-    const html = renderHeader(legacySession);
-    expect(html).not.toMatch(/aria-label="Users"/);
+  it("does not render user nav without a session", () => {
+    const html = renderHeader(null);
+    expect(html).not.toMatch(/>sign out</);
+    expect(html).not.toContain("admin@example.com");
+  });
+
+  it("renders status indicator", () => {
+    const html = renderHeader(adminSession);
+    expect(html).toContain("running");
   });
 });

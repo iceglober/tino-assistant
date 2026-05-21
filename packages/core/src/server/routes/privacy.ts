@@ -64,13 +64,23 @@ export function createPrivacyRoutes(deps: PrivacyRouteDeps): Hono<{ Variables: A
       connectedCapabilities = [];
       const caps = await deps.userCapabilities.list(user.id);
       for (const cap of caps) {
-        if (cap.enabled) connectedCapabilities.push(cap.capabilityId);
+        if (!cap.enabled) continue;
+        const cfg = await deps.userCapabilities.get(user.id, cap.capabilityId);
+        if (cfg?.credentials && Object.values(cfg.credentials).some((v) => !!v)) {
+          connectedCapabilities.push(cap.capabilityId);
+        }
       }
     } else if (deps.configStore) {
       connectedCapabilities = [];
       for (const capId of ["gmail", "calendar", "slack-personal"]) {
         const raw = await deps.configStore.get(`user.${user.id}.capability.${capId}`);
-        if (raw) connectedCapabilities.push(capId);
+        if (!raw) continue;
+        try {
+          const cfg = JSON.parse(raw) as { credentials?: Record<string, string> };
+          if (cfg.credentials && Object.values(cfg.credentials).some((v) => !!v)) {
+            connectedCapabilities.push(capId);
+          }
+        } catch { /* malformed config */ }
       }
     } else {
       connectedCapabilities = [];
