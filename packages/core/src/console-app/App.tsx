@@ -55,8 +55,9 @@ function AppRouter(): JSX.Element {
 
   if (loading || phase === "loading") {
     return (
-      <div className="page" style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "60vh" }}>
-        <p className="empty">loading…</p>
+      <div className="splash">
+        <img src="/assets/tino-logo.png" alt="tino" className="splash-logo" />
+        <div className="splash-wordmark">tino</div>
       </div>
     );
   }

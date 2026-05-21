@@ -1345,6 +1345,32 @@ body {
   padding-top: 10vh;
 }
 
+/* ── Splash (loading state) ─────────────────────────────────────── */
+.splash {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100dvh;
+  gap: 16px;
+}
+.splash-logo {
+  width: 56px;
+  height: 56px;
+  border-radius: 12px;
+  animation: splash-pulse 2s ease-in-out infinite;
+}
+.splash-wordmark {
+  font-size: 1.143rem;
+  font-weight: 600;
+  color: var(--text-sec);
+  letter-spacing: -0.01em;
+}
+@keyframes splash-pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
 /* ── Add capability card ────────────────────────────────────────── */
 .add-cap-card {
   border-style: dashed;
