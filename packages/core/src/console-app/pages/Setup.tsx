@@ -1,36 +1,27 @@
 import { type JSX, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { RevealInput } from "../components/RevealInput.js";
 import { SaveButton, useSaveState } from "../components/SaveButton.js";
 import { useToast } from "../hooks/useToast.js";
+import type { Session } from "../lib/api.js";
 import { putConfig, reloadSlack } from "../lib/api.js";
 
-/**
- * Setup flow — two-step progressive setup.
- *
- * Mirror: `html.ts:1047-1202` (markup for screen-welcome and screen-basics) +
- * `saveSlack` and `saveBasics` at `html.ts:1589-1639`.
- *
- * Step 1: connect Slack (bot token + app token).
- * Step 2: configure agent (Bedrock model + admin user ID).
- *
- * `initialStep` is set by App.tsx based on whether Slack is already configured.
- */
-export function Setup({ initialStep = 1 }: { initialStep?: 1 | 2 }): JSX.Element {
-  const navigate = useNavigate();
+export function Setup({
+  onComplete,
+}: {
+  session: Session;
+  onComplete: () => void;
+}): JSX.Element {
   const toast = useToast();
 
-  const [step, setStep] = useState<1 | 2>(initialStep);
-  const [slackBanner, setSlackBanner] = useState(initialStep === 2);
+  const [step, setStep] = useState<1 | 2>(1);
+  const [slackBanner, setSlackBanner] = useState(false);
 
-  // Step 1 state
   const [botToken, setBotToken] = useState("");
   const [appToken, setAppToken] = useState("");
   const [botErr, setBotErr] = useState("");
   const [appErr, setAppErr] = useState("");
   const slackSave = useSaveState();
 
-  // Step 2 state
   const [modelId, setModelId] = useState("");
   const [adminId, setAdminId] = useState("");
   const [modelErr, setModelErr] = useState("");
@@ -55,7 +46,6 @@ export function Setup({ initialStep = 1 }: { initialStep?: 1 | 2 }): JSX.Element
       await putConfig("slack.appToken", appToken.trim());
     });
     if (ok) {
-      // Ch.8 first-success: show banner on step 2
       setTimeout(() => {
         setSlackBanner(true);
         setStep(2);
@@ -77,12 +67,11 @@ export function Setup({ initialStep = 1 }: { initialStep?: 1 | 2 }): JSX.Element
       await putConfig("slack.adminUserId", adminId.trim());
     });
     if (ok) {
-      // Trigger Slack reconnect now that all three tokens are saved
       const reload = await reloadSlack();
       if (!reload.ok) {
         toast.show(`Config saved, but Slack connect failed: ${reload.error ?? "unknown"}`, "err");
       }
-      setTimeout(() => navigate("/"), 700);
+      setTimeout(() => onComplete(), 700);
     } else {
       toast.show("Could not save config", "err");
     }
@@ -97,14 +86,6 @@ export function Setup({ initialStep = 1 }: { initialStep?: 1 | 2 }): JSX.Element
 
       {step === 1 ? (
         <div className="setup-screen">
-          {/* biome-ignore lint/a11y/useSemanticElements: progress indicator, not a form fieldset */}
-          <div className="setup-steps" role="group" aria-label="Setup progress: step 1 of 3">
-            <div className="setup-step active" aria-current="step" />
-            <div className="setup-step" />
-            <div className="setup-step" />
-            <span className="setup-step-label">step 1 of 3</span>
-          </div>
-
           <h1 className="setup-heading">connect Slack.</h1>
           <p className="setup-lead">
             tino lives in Slack. give it your bot and app tokens and it'll be ready to take requests in under a minute.
@@ -169,7 +150,7 @@ export function Setup({ initialStep = 1 }: { initialStep?: 1 | 2 }): JSX.Element
               state={slackSave.state}
               idleLabel="connect Slack"
               savingLabel="connecting…"
-              savedLabel="✓ connected"
+              savedLabel="connected"
               errorLabel="failed — retry"
               size="large"
               onClick={onConnectSlack}
@@ -205,14 +186,6 @@ export function Setup({ initialStep = 1 }: { initialStep?: 1 | 2 }): JSX.Element
         </div>
       ) : (
         <div className="setup-screen">
-          {/* biome-ignore lint/a11y/useSemanticElements: progress indicator, not a form fieldset */}
-          <div className="setup-steps" role="group" aria-label="Setup progress: step 2 of 3">
-            <div className="setup-step done" />
-            <div className="setup-step active" aria-current="step" />
-            <div className="setup-step" />
-            <span className="setup-step-label">step 2 of 3</span>
-          </div>
-
           <div className={`success-banner${slackBanner ? " visible" : ""}`} role="status">
             <span className="success-banner-icon">✓</span>
             <div className="success-banner-body">
@@ -223,7 +196,7 @@ export function Setup({ initialStep = 1 }: { initialStep?: 1 | 2 }): JSX.Element
 
           <h1 className="setup-heading">configure the agent.</h1>
           <p className="setup-lead">
-            two more things: which Bedrock model to use, and your Slack user ID so tino knows who the admin is.
+            which Bedrock model to use, and your Slack user ID so tino knows who the admin is.
           </p>
 
           <div className="field-group">
@@ -289,7 +262,7 @@ export function Setup({ initialStep = 1 }: { initialStep?: 1 | 2 }): JSX.Element
               state={basicsSave.state}
               idleLabel="finish setup"
               savingLabel="saving…"
-              savedLabel="✓ done"
+              savedLabel="done"
               errorLabel="failed — retry"
               size="large"
               onClick={onSaveBasics}

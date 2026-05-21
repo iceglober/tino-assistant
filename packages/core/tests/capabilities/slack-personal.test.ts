@@ -2,7 +2,7 @@
  * Wave 1 — capability module test for `slack-personal` (private).
  *
  * Verifies:
- *   - `buildToolsForUser()` with a `userToken` returns all four slack_* tools.
+ *   - `buildToolsForUser()` with a `userToken` returns the three slack_* tools.
  *   - `buildToolsForUser()` returns null when config is null (not connected).
  *   - `buildToolsForUser()` returns null when credentials.userToken is missing.
  *
@@ -43,15 +43,15 @@ const BAD_CONFIG: CapabilityConfig = {
 };
 
 describe("slackPersonalCapability.buildToolsForUser", () => {
-  it("returns all four slack_* tools when given a userToken", async () => {
+  it("returns three slack_* tools when given a userToken", async () => {
     const tools = await slackPersonalCapability.buildToolsForUser("user123", GOOD_CONFIG, makeConfigStore(), makeLogger());
     expect(tools).not.toBeNull();
 
     const registered = Object.keys(tools!);
     expect(registered).toContain("slack_search_messages");
-    expect(registered).toContain("slack_read_thread");
     expect(registered).toContain("slack_list_dms");
     expect(registered).toContain("slack_read_dm");
+    expect(registered).not.toContain("slack_read_thread");
   });
 
   it("returns null when config is null", async () => {

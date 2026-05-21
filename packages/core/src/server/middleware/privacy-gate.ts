@@ -2,9 +2,9 @@ import type { MiddlewareHandler } from "hono";
 import type { PrivacyConfigStore } from "../../privacy/config-store.js";
 import type { AuthVariables } from "./auth.js";
 
-const BYPASS_PREFIXES = ["/onboarding", "/api/onboarding", "/api/auth", "/api/health", "/assets"];
+const BYPASS_PREFIXES = ["/privacy", "/api/privacy", "/api/auth", "/api/health", "/assets"];
 
-export function onboardingGate(opts: {
+export function privacyGate(opts: {
   enabled?: boolean;
   privacyConfigStore?: PrivacyConfigStore;
 }): MiddlewareHandler<{ Variables: AuthVariables }> {
@@ -25,10 +25,11 @@ export function onboardingGate(opts: {
     const config = await opts.privacyConfigStore.get(user.id);
     if (config != null) return next();
 
+    // Only block API calls that require privacy config — no navigation redirects
     if (c.req.path.startsWith("/api/")) {
-      return c.json({ error: "onboarding_required" }, 403);
+      return c.json({ error: "privacy_config_required" }, 403);
     }
 
-    return c.redirect("/onboarding");
+    return next();
   };
 }

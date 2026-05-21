@@ -2,13 +2,12 @@ import { Hono } from "hono";
 import { describe, expect, it } from "vitest";
 import type { PrivacyConfigStore } from "../../src/privacy/config-store.js";
 import type { PrivacyConfig } from "../../src/privacy/types.js";
-import { onboardingGate } from "../../src/server/middleware/onboarding-gate.js";
+import { privacyGate } from "../../src/server/middleware/privacy-gate.js";
 
 const baseConfig: PrivacyConfig = {
-  version: 1,
-  gmail: { privateLabels: [], denyListedAddresses: [], threadingMode: "conservative" },
+  version: 2,
+  email: { privateFolders: [], denyListedAddresses: [] },
   lastReviewedAt: Date.now(),
-  lastRepromptAt: null,
 };
 
 function stubConfigStore(hasConfig: boolean): PrivacyConfigStore {
@@ -26,37 +25,37 @@ function buildApp(hasConfig: boolean) {
     c.set("user" as any, { id: "user-1", role: "member" });
     await next();
   });
-  app.use("*", onboardingGate({ privacyConfigStore: stubConfigStore(hasConfig) }));
+  app.use("*", privacyGate({ privacyConfigStore: stubConfigStore(hasConfig) }));
   app.get("/dashboard", (c) => c.text("ok"));
   app.get("/api/config", (c) => c.json({ ok: true }));
   app.get("/api/auth/get-session", (c) => c.json({ session: true }));
   app.get("/api/health", (c) => c.json({ status: "ok" }));
-  app.get("/onboarding/gmail", (c) => c.text("gmail step"));
-  app.get("/api/onboarding/gmail/labels", (c) => c.json({ labels: [] }));
+  app.get("/privacy/email", (c) => c.text("email step"));
+  app.get("/api/privacy/email/labels", (c) => c.json({ labels: [] }));
   return app;
 }
 
-describe("onboarding gate middleware", () => {
-  it("user with no privacy config is redirected to /onboarding", async () => {
+describe("privacy gate middleware", () => {
+  it("user with no privacy config can access non-API routes (no redirect)", async () => {
     const app = buildApp(false);
     const res = await app.request("/dashboard");
-    expect(res.status).toBe(302);
-    expect(res.headers.get("location")).toBe("/onboarding");
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe("ok");
   });
 
-  it("user with completed onboarding reaches main console", async () => {
+  it("user with completed privacy config reaches main console", async () => {
     const app = buildApp(true);
     const res = await app.request("/dashboard");
     expect(res.status).toBe(200);
     expect(await res.text()).toBe("ok");
   });
 
-  it("api routes return 403 when onboarding incomplete", async () => {
+  it("api routes return 403 when privacy config missing", async () => {
     const app = buildApp(false);
     const res = await app.request("/api/config");
     expect(res.status).toBe(403);
     const body = (await res.json()) as { error: string };
-    expect(body.error).toBe("onboarding_required");
+    expect(body.error).toBe("privacy_config_required");
   });
 
   it("/api/auth/* routes bypass the gate", async () => {
@@ -65,16 +64,16 @@ describe("onboarding gate middleware", () => {
     expect(res.status).toBe(200);
   });
 
-  it("/onboarding/* routes bypass the gate", async () => {
+  it("/privacy/* routes bypass the gate", async () => {
     const app = buildApp(false);
-    const res = await app.request("/onboarding/gmail");
+    const res = await app.request("/privacy/email");
     expect(res.status).toBe(200);
-    expect(await res.text()).toBe("gmail step");
+    expect(await res.text()).toBe("email step");
   });
 
-  it("/api/onboarding/* routes bypass the gate", async () => {
+  it("/api/privacy/* routes bypass the gate", async () => {
     const app = buildApp(false);
-    const res = await app.request("/api/onboarding/gmail/labels");
+    const res = await app.request("/api/privacy/email/labels");
     expect(res.status).toBe(200);
   });
 
@@ -90,7 +89,7 @@ describe("onboarding gate middleware", () => {
       c.set("user" as any, { id: "admin-1", role: "admin" });
       await next();
     });
-    app.use("*", onboardingGate({ privacyConfigStore: stubConfigStore(false) }));
+    app.use("*", privacyGate({ privacyConfigStore: stubConfigStore(false) }));
     app.get("/api/config", (c) => c.json({ ok: true }));
     app.get("/dashboard", (c) => c.text("ok"));
 

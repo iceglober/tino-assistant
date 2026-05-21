@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calendarFilter } from "../../src/privacy/calendar.js";
+import { calendarFilter } from "../../src/privacy/calendar-filter.js";
 import type { CalendarPrivacyConfig } from "../../src/privacy/types.js";
 
 const baseConfig: CalendarPrivacyConfig = {

@@ -5,12 +5,11 @@ import type { PrivacyConfig } from "../../src/privacy/types.js";
 const stubLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
 
 const baseConfig: PrivacyConfig = {
-  version: 1,
-  gmail: { privateLabels: ["Private"], denyListedAddresses: [], threadingMode: "conservative" },
-  slack: { denyListedConversationIds: [], denyListedUserIds: [], multiPartyMode: "conservative" },
+  version: 2,
+  email: { privateFolders: ["Private"], denyListedAddresses: [] },
+  messaging: { denyListedConversationIds: [], denyListedUserIds: [] },
   calendar: { defaultVisibility: "public", gateAllByDefault: false },
   lastReviewedAt: Date.now(),
-  lastRepromptAt: null,
 };
 
 describe("privacy re-prompt", () => {
@@ -18,7 +17,7 @@ describe("privacy re-prompt", () => {
     const signals = await checkPrivacyReprompt({
       userId: "user-1",
       config: baseConfig,
-      getRecentGmailContacts: async () => [
+      getRecentEmailContacts: async () => [
         { email: "doctor@example.com", name: "Dr. Smith" },
         { email: "alice@work.com", name: "Alice" },
       ],
@@ -34,7 +33,7 @@ describe("privacy re-prompt", () => {
     const signals = await checkPrivacyReprompt({
       userId: "user-1",
       config: baseConfig,
-      getRecentSlackDms: async () => [
+      getRecentDMs: async () => [
         { userId: "U1", userName: "Dr. Medical" },
         { userId: "U2", userName: "Bob" },
       ],
@@ -63,13 +62,13 @@ describe("privacy re-prompt", () => {
   it("reprompt cadence honors per-user setting (no signals when contacts already deny-listed)", async () => {
     const config: PrivacyConfig = {
       ...baseConfig,
-      gmail: { privateLabels: ["Private"], denyListedAddresses: ["doctor@example.com"], threadingMode: "conservative" },
+      email: { privateFolders: ["Private"], denyListedAddresses: ["doctor@example.com"] },
     };
 
     const signals = await checkPrivacyReprompt({
       userId: "user-1",
       config,
-      getRecentGmailContacts: async () => [
+      getRecentEmailContacts: async () => [
         { email: "doctor@example.com", name: "Dr. Smith" },
       ],
       logger: stubLogger,

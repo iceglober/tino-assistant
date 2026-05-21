@@ -11,8 +11,8 @@ export interface RepromptSignal {
 export interface RepromptDeps {
   userId: string;
   config: PrivacyConfig;
-  getRecentGmailContacts?: () => Promise<Array<{ email: string; name?: string }>>;
-  getRecentSlackDms?: () => Promise<Array<{ userId: string; userName: string }>>;
+  getRecentEmailContacts?: () => Promise<Array<{ email: string; name?: string }>>;
+  getRecentDMs?: () => Promise<Array<{ userId: string; userName: string }>>;
   getCalendarVisibility?: () => Promise<string>;
   logger: AppLogger;
 }
@@ -21,9 +21,9 @@ export async function checkPrivacyReprompt(deps: RepromptDeps): Promise<Reprompt
   const { config, logger } = deps;
   const signals: RepromptSignal[] = [];
 
-  if (deps.getRecentGmailContacts && config.gmail) {
-    const contacts = await deps.getRecentGmailContacts();
-    const denySet = new Set(config.gmail.denyListedAddresses.map((a) => a.toLowerCase()));
+  if (deps.getRecentEmailContacts && config.email) {
+    const contacts = await deps.getRecentEmailContacts();
+    const denySet = new Set(config.email.denyListedAddresses.map((a) => a.toLowerCase()));
     for (const contact of contacts) {
       const localPart = contact.email.split("@")[0] ?? "";
       if (PRIVACY_REGEX.test(contact.name ?? "") || PRIVACY_REGEX.test(localPart)) {
@@ -37,9 +37,9 @@ export async function checkPrivacyReprompt(deps: RepromptDeps): Promise<Reprompt
     }
   }
 
-  if (deps.getRecentSlackDms && config.slack) {
-    const dms = await deps.getRecentSlackDms();
-    const denySet = new Set(config.slack.denyListedUserIds);
+  if (deps.getRecentDMs && config.messaging) {
+    const dms = await deps.getRecentDMs();
+    const denySet = new Set(config.messaging.denyListedUserIds);
     for (const dm of dms) {
       if (PRIVACY_REGEX.test(dm.userName) && !denySet.has(dm.userId)) {
         signals.push({

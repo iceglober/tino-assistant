@@ -1,16 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { gmailFilter } from "../../src/privacy/gmail.js";
-import type { GmailPrivacyConfig } from "../../src/privacy/types.js";
+import { emailFilter } from "../../src/privacy/email-filter.js";
+import type { EmailPrivacyConfig } from "../../src/privacy/types.js";
 
-const baseConfig: GmailPrivacyConfig = {
-  privateLabels: ["Private", "HR"],
+const baseConfig: EmailPrivacyConfig = {
+  privateFolders: ["Private", "HR"],
   denyListedAddresses: ["therapist@example.com"],
-  threadingMode: "conservative",
 };
 
-describe("gmail privacy filter", () => {
-  it("thread with private label gates", () => {
-    const result = gmailFilter(
+describe("email privacy filter", () => {
+  it("thread with private folder gates", () => {
+    const result = emailFilter(
       {},
       {
         messages: [
@@ -21,13 +20,13 @@ describe("gmail privacy filter", () => {
     );
     expect(result.persist).toBe(false);
     if (!result.persist) {
-      expect(result.placeholder.reason).toBe("private_label");
+      expect(result.placeholder.reason).toBe("private_folder");
       expect(result.placeholder.metadata.threadId).toBe("t1");
     }
   });
 
   it("thread with deny-listed sender gates", () => {
-    const result = gmailFilter(
+    const result = emailFilter(
       {},
       {
         messages: [
@@ -43,7 +42,7 @@ describe("gmail privacy filter", () => {
   });
 
   it("thread with deny-listed cc gates", () => {
-    const result = gmailFilter(
+    const result = emailFilter(
       {},
       {
         messages: [
@@ -56,7 +55,7 @@ describe("gmail privacy filter", () => {
   });
 
   it("thread where matching message is mid-thread gates whole thread", () => {
-    const result = gmailFilter(
+    const result = emailFilter(
       {},
       {
         messages: [
@@ -71,7 +70,7 @@ describe("gmail privacy filter", () => {
   });
 
   it("thread with no matches persists", () => {
-    const result = gmailFilter(
+    const result = emailFilter(
       {},
       {
         messages: [
@@ -83,8 +82,8 @@ describe("gmail privacy filter", () => {
     expect(result.persist).toBe(true);
   });
 
-  it("label matching is case-insensitive", () => {
-    const result = gmailFilter(
+  it("folder matching is case-insensitive", () => {
+    const result = emailFilter(
       {},
       {
         messages: [
@@ -97,7 +96,7 @@ describe("gmail privacy filter", () => {
   });
 
   it("address matching normalizes plus-addressing", () => {
-    const result = gmailFilter(
+    const result = emailFilter(
       {},
       {
         messages: [
@@ -109,8 +108,8 @@ describe("gmail privacy filter", () => {
     expect(result.persist).toBe(false);
   });
 
-  it("single message (gmail_get_message) with deny-listed from gates", () => {
-    const result = gmailFilter(
+  it("single message with deny-listed from gates", () => {
+    const result = emailFilter(
       {},
       {
         id: "m1",
@@ -125,7 +124,7 @@ describe("gmail privacy filter", () => {
   });
 
   it("no config means persist", () => {
-    const result = gmailFilter(
+    const result = emailFilter(
       {},
       {
         messages: [

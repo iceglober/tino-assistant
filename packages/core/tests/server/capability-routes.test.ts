@@ -63,9 +63,9 @@ describe("GET /api/capabilities", () => {
     const ids = body.map((v) => v.id);
     expect(ids).toContain("github");
     expect(ids).toContain("linear");
-    // Field schemas come through (e.g., github exposes a `token` field).
+    // Field schemas come through (e.g., github exposes OAuth fields).
     const github = body.find((v) => v.id === "github");
-    expect(github?.fields.some((f) => f.key === "token")).toBe(true);
+    expect(github?.fields.some((f) => f.key === "clientId")).toBe(true);
     // No stored blob → enabled defaults to false.
     expect(github?.enabled).toBe(false);
   });
@@ -74,8 +74,8 @@ describe("GET /api/capabilities", () => {
     const config = makeConfigStore({
       "capability.github": {
         enabled: true,
-        credentials: { token: "ghp_test" },
-        settings: { defaultRepo: "owner/repo" },
+        credentials: { clientId: "Iv1.test", clientSecret: "sec_test" },
+        settings: {},
       },
     });
     const app = mountCapabilities({ config, logger: noopLogger() });
@@ -89,8 +89,8 @@ describe("GET /api/capabilities", () => {
     }>;
     const github = body.find((v) => v.id === "github");
     expect(github?.enabled).toBe(true);
-    const tokenField = github?.fields.find((f) => f.key === "token");
-    expect(tokenField?.value).toBe("ghp_test");
+    const idField = github?.fields.find((f) => f.key === "clientId");
+    expect(idField?.value).toBe("Iv1.test");
   });
 });
 
@@ -104,7 +104,7 @@ describe("PUT /api/capabilities/:id", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         enabled: true,
-        fields: [{ key: "token", value: "ghp_new" }],
+        fields: [{ key: "clientId", value: "Iv1.new" }],
       }),
     });
     expect(res.status).toBe(200);
@@ -119,7 +119,7 @@ describe("PUT /api/capabilities/:id", () => {
       credentials: Record<string, string>;
     };
     expect(parsed.enabled).toBe(true);
-    expect(parsed.credentials.token).toBe("ghp_new");
+    expect(parsed.credentials.clientId).toBe("Iv1.new");
   });
 
   it("returns 400 for an unknown capability id", async () => {

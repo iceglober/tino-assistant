@@ -17,12 +17,11 @@ function makeConfigStore() {
 }
 
 const testConfig: PrivacyConfig = {
-  version: 1,
-  gmail: { privateLabels: ["Private"], denyListedAddresses: ["therapist@example.com"], threadingMode: "conservative" },
-  slack: { denyListedConversationIds: ["D_THERAPIST"], denyListedUserIds: ["U_THERAPIST"], multiPartyMode: "conservative" },
+  version: 2,
+  email: { privateFolders: ["Private"], denyListedAddresses: ["therapist@example.com"] },
+  messaging: { denyListedConversationIds: ["D_THERAPIST"], denyListedUserIds: ["U_THERAPIST"] },
   calendar: { defaultVisibility: "public", gateAllByDefault: false },
   lastReviewedAt: Date.now(),
-  lastRepromptAt: null,
 };
 
 describe("PrivacyConfigStore", () => {
@@ -55,36 +54,62 @@ describe("PrivacyConfigStore", () => {
 
     await store.set("user-1", testConfig);
 
-    // Manually tamper: try to decrypt user-1's config as user-2
     const raw = await configStore.get("user.user-1.privacy_config");
     expect(raw).not.toBeNull();
 
-    // Store user-1's encrypted blob under user-2's key
     await configStore.set("user.user-2.privacy_config", JSON.parse(raw!));
 
-    // Attempt to read as user-2 — should fail (wrong encryption context)
     const result = await store.get("user-2");
     expect(result).toBeNull();
   });
 
-  it("computeDelta detects added labels", () => {
+  it("lazy-migrates v1 config to v2 on read", async () => {
+    const crypto = new LocalAdapter();
+    const configStore = makeConfigStore();
+    const store = createPrivacyConfigStore({ configStore, crypto });
+
+    const v1Config = {
+      version: 1,
+      gmail: { privateLabels: ["Private", "HR"], denyListedAddresses: ["therapist@example.com"], threadingMode: "conservative" },
+      slack: { denyListedConversationIds: ["D_THERAPIST"], denyListedUserIds: ["U_THERAPIST"], multiPartyMode: "conservative" },
+      calendar: { defaultVisibility: "confidential", gateAllByDefault: true },
+      lastReviewedAt: 1700000000000,
+      lastRepromptAt: null,
+    };
+
+    const plaintext = JSON.stringify(v1Config);
+    const envelope = await crypto.encrypt(plaintext, { userId: "user-1", capabilityId: "privacy_config", fieldName: "config" });
+    await configStore.set("user.user-1.privacy_config", envelope);
+
+    const result = await store.get("user-1");
+    expect(result).not.toBeNull();
+    expect(result!.version).toBe(2);
+    expect(result!.email).toEqual({ privateFolders: ["Private", "HR"], denyListedAddresses: ["therapist@example.com"] });
+    expect(result!.messaging).toEqual({ denyListedConversationIds: ["D_THERAPIST"], denyListedUserIds: ["U_THERAPIST"] });
+    expect(result!.calendar).toEqual({ defaultVisibility: "private", gateAllByDefault: true });
+    expect(result!.lastReviewedAt).toBe(1700000000000);
+    expect((result as any).lastRepromptAt).toBeUndefined();
+    expect((result as any).gmail).toBeUndefined();
+    expect((result as any).slack).toBeUndefined();
+  });
+
+  it("computeDelta detects added folders", () => {
     const crypto = new LocalAdapter();
     const store = createPrivacyConfigStore({ configStore: makeConfigStore(), crypto });
 
     const current: PrivacyConfig = {
-      version: 1,
-      gmail: { privateLabels: ["Private"], denyListedAddresses: [], threadingMode: "conservative" },
+      version: 2,
+      email: { privateFolders: ["Private"], denyListedAddresses: [] },
       lastReviewedAt: 0,
-      lastRepromptAt: null,
     };
     const proposed: PrivacyConfig = {
       ...current,
-      gmail: { privateLabels: ["Private", "HR"], denyListedAddresses: ["therapist@example.com"], threadingMode: "conservative" },
+      email: { privateFolders: ["Private", "HR"], denyListedAddresses: ["therapist@example.com"] },
     };
 
     const delta = store.computeDelta(current, proposed);
-    expect(delta.gmail?.addedLabels).toEqual(["HR"]);
-    expect(delta.gmail?.addedAddresses).toEqual(["therapist@example.com"]);
+    expect(delta.email?.addedFolders).toEqual(["HR"]);
+    expect(delta.email?.addedAddresses).toEqual(["therapist@example.com"]);
     expect(store.isAdditive(delta)).toBe(true);
   });
 
@@ -93,18 +118,17 @@ describe("PrivacyConfigStore", () => {
     const store = createPrivacyConfigStore({ configStore: makeConfigStore(), crypto });
 
     const current: PrivacyConfig = {
-      version: 1,
-      gmail: { privateLabels: ["Private", "HR"], denyListedAddresses: [], threadingMode: "conservative" },
+      version: 2,
+      email: { privateFolders: ["Private", "HR"], denyListedAddresses: [] },
       lastReviewedAt: 0,
-      lastRepromptAt: null,
     };
     const proposed: PrivacyConfig = {
       ...current,
-      gmail: { privateLabels: ["Private"], denyListedAddresses: [], threadingMode: "conservative" },
+      email: { privateFolders: ["Private"], denyListedAddresses: [] },
     };
 
     const delta = store.computeDelta(current, proposed);
-    expect(delta.gmail?.removedLabels).toEqual(["HR"]);
+    expect(delta.email?.removedFolders).toEqual(["HR"]);
     expect(store.isAdditive(delta)).toBe(false);
   });
 });

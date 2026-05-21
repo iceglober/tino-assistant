@@ -25,33 +25,32 @@ function renderHeader(session: Session | null): string {
   );
 }
 
-describe("<Header /> — wave 4 role-conditional nav", () => {
-  it("admin nav includes users and audit links", () => {
+describe("<Header /> — role-conditional nav", () => {
+  it("admin nav includes users link", () => {
     const html = renderHeader(adminSession);
     expect(html).toMatch(/aria-label="Users"/);
-    expect(html).toMatch(/aria-label="Audit log"/);
     expect(html).toMatch(/>users</);
-    expect(html).toMatch(/>audit</);
   });
 
   it("admin nav still includes common links", () => {
     const html = renderHeader(adminSession);
-    expect(html).toMatch(/aria-label="My activity"/);
+    expect(html).toMatch(/aria-label="Activity"/);
+    expect(html).toMatch(/aria-label="Privacy settings"/);
     expect(html).toMatch(/>sign out</);
   });
 
   it("member nav lacks admin links", () => {
     const html = renderHeader(memberSession);
     expect(html).not.toMatch(/aria-label="Users"/);
-    expect(html).not.toMatch(/aria-label="Audit log"/);
     expect(html).not.toMatch(/>users</);
-    expect(html).not.toMatch(/>audit</);
   });
 
   it("member nav includes common links", () => {
     const html = renderHeader(memberSession);
-    expect(html).toMatch(/aria-label="My activity"/);
-    expect(html).toMatch(/>my activity</);
+    expect(html).toMatch(/aria-label="Activity"/);
+    expect(html).toMatch(/>activity</);
+    expect(html).toMatch(/aria-label="Privacy settings"/);
+    expect(html).toMatch(/>privacy</);
     expect(html).toMatch(/>sign out</);
   });
 
@@ -61,6 +60,5 @@ describe("<Header /> — wave 4 role-conditional nav", () => {
     };
     const html = renderHeader(legacySession);
     expect(html).not.toMatch(/aria-label="Users"/);
-    expect(html).not.toMatch(/aria-label="Audit log"/);
   });
 });

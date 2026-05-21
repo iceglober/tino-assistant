@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import type { Decision, GmailPrivacyConfig } from "./types.js";
+import type { Decision, EmailPrivacyConfig } from "./types.js";
 
-interface GmailMessage {
+interface EmailMessage {
   id?: string;
   threadId?: string;
   from?: string;
@@ -13,8 +13,8 @@ interface GmailMessage {
   internalDate?: string;
 }
 
-interface GmailToolResult {
-  messages?: GmailMessage[];
+interface EmailToolResult {
+  messages?: EmailMessage[];
   id?: string;
   threadId?: string;
   from?: string;
@@ -55,13 +55,13 @@ function hashLabel(label: string): string {
 
 function checkMessage(
   msg: { from?: string; to?: string; cc?: string; bcc?: string; labels?: string[] },
-  config: GmailPrivacyConfig,
-): { gated: true; reason: "private_label" | "address_deny_listed"; labelHash?: string } | { gated: false } {
+  config: EmailPrivacyConfig,
+): { gated: true; reason: "private_folder" | "address_deny_listed"; labelHash?: string } | { gated: false } {
   if (msg.labels) {
-    const lower = new Set(config.privateLabels.map((l) => l.toLowerCase()));
+    const lower = new Set(config.privateFolders.map((l) => l.toLowerCase()));
     for (const label of msg.labels) {
       if (lower.has(label.toLowerCase())) {
-        return { gated: true, reason: "private_label", labelHash: hashLabel(label) };
+        return { gated: true, reason: "private_folder", labelHash: hashLabel(label) };
       }
     }
   }
@@ -82,16 +82,15 @@ function checkMessage(
   return { gated: false };
 }
 
-export function gmailFilter(
+export function emailFilter(
   _toolArgs: unknown,
   toolResult: unknown,
-  config: GmailPrivacyConfig | undefined,
+  config: EmailPrivacyConfig | undefined,
 ): Decision {
-  const result = toolResult as GmailToolResult;
+  const result = toolResult as EmailToolResult;
   if (result.error) return { persist: true };
   if (!config) return { persist: true };
 
-  // Single message (gmail_get_message)
   if (result.body !== undefined || result.id) {
     const check = checkMessage(result, config);
     if (check.gated) {
@@ -111,7 +110,6 @@ export function gmailFilter(
     return { persist: true };
   }
 
-  // Thread/search results (gmail_search) — conservative: any matching message gates all
   if (result.messages) {
     for (const msg of result.messages) {
       const check = checkMessage(msg, config);

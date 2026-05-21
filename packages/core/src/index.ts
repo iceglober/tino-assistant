@@ -10,12 +10,18 @@ import { migrateEnvToCapabilities } from "./capabilities/migration.js";
 import { initCapabilityRegistry } from "./capabilities/registry.js";
 import { createCryptoAdapter } from "./crypto/factory.js";
 import { migrateCredentialsToUserPartitions } from "./crypto/migration.js";
+import { createEncryptedHistoryStore } from "./drive/adapters/encrypted-history-store.js";
+import { createAppDataPreferencesStore } from "./drive/adapters/preferences-store.js";
+import { createAppDataPrivacyConfigStore } from "./drive/adapters/privacy-config-store.js";
+import { createKeyManager } from "./drive/key-manager.js";
+import { createAppDataClientResolver } from "./drive/resolve-client.js";
 import { loadEnv } from "./env.js";
 import { createLogger } from "./logging/logger.js";
 import { migrateToUserModel } from "./identity/migration.js";
 import { createIdentityResolver } from "./identity/resolver.js";
 import { SYSTEM_USER_ID } from "./identity/types.js";
 import { createPersistence } from "./persistence/factory.js";
+import { createGoogleCredentialResolver } from "./privacy/adapters/credentials.js";
 import { startScheduler } from "./scheduler/index.js";
 import { startServer } from "./server/index.js";
 import { createSlackApp, type DmHandler } from "./slack/app.js";
@@ -45,9 +51,38 @@ const {
 // The shape is identical, so callers don't branch on adapter.
 
 // Create privacy config store (encrypted per-user config) and wire the real filter
-const privacyConfigStore = createPrivacyConfigStore({ configStore, crypto: cryptoAdapter });
+const serverPrivacyConfigStore = createPrivacyConfigStore({ configStore, crypto: cryptoAdapter });
+
+// Wire appDataFolder-backed stores for per-user private storage.
+// When Google credentials are available, privacy config and preferences live in
+// each user's Drive appDataFolder; conversation history stays server-side but
+// encrypted with a per-user key from appDataFolder. Falls back to server-side
+// storage when Google is unavailable.
+const googleCreds = createGoogleCredentialResolver({ userCapabilities, configStore });
+const appDataResolver = createAppDataClientResolver({ resolveCreds: googleCreds, logger });
+const appDataKeyManager = createKeyManager();
+
+const privacyConfigStore = createAppDataPrivacyConfigStore({
+  resolveClient: appDataResolver,
+  fallback: serverPrivacyConfigStore,
+  logger,
+});
+
+const wrappedPreferences = createAppDataPreferencesStore({
+  resolveClient: appDataResolver,
+  fallback: preferencesStore,
+  logger,
+});
+
+const wrappedHistory = createEncryptedHistoryStore({
+  inner: history,
+  keyManager: appDataKeyManager,
+  resolveClient: appDataResolver,
+  logger,
+});
+
 const privacyFilter = new SourceRespectingPrivacyFilter((userId) => privacyConfigStore.get(userId));
-const historyAppender = new HistoryAppender(history, privacyFilter);
+const historyAppender = new HistoryAppender(wrappedHistory, privacyFilter);
 
 // Run one-time migration from env vars to config store (no-op if already done)
 await migrateEnvToCapabilities(env, configStore, logger);
@@ -127,7 +162,7 @@ const registry = await initCapabilityRegistry({
   logger,
   allowedUserId,
   dbPath: env.DB_PATH,
-  preferencesStore,
+  preferencesStore: wrappedPreferences,
   taskStore,
   userCapabilities,
   onNewWork: async (summary: string) => {
@@ -247,7 +282,7 @@ async function reconnectSlack(): Promise<{ ok: boolean; error?: string }> {
 
     return runAgent({
       model,
-      history,
+      history: wrappedHistory,
       historyAppender,
       logger,
       tools,
@@ -264,7 +299,7 @@ async function reconnectSlack(): Promise<{ ok: boolean; error?: string }> {
       env: slackEnv,
       onDm: handler,
       logger,
-      history,
+      history: wrappedHistory,
       identityResolver,
       users,
       configStore,
@@ -365,6 +400,7 @@ const shutdown = async (signal: string): Promise<void> => {
 };
 
 // Config console — always starts, regardless of Slack status
+const mockPrivacy = env.PERSISTENCE_ADAPTER === "sqlite";
 const consoleServer = await startServer({
   config: configStore,
   logger,
@@ -379,6 +415,9 @@ const consoleServer = await startServer({
   identities,
   users,
   privacyConfigStore,
+  userCapabilities,
+  model,
+  mockPrivacy,
 });
 
 if (hasSlack) {

@@ -4,13 +4,18 @@ import type { Session } from "../lib/api.js";
 
 export function RequireRole({
   session,
+  loading,
   requiredRole,
   children,
 }: {
   session: Session | null;
+  loading?: boolean;
   requiredRole: "admin" | "member";
   children: ReactNode;
 }): JSX.Element {
+  if (loading) {
+    return <div className="page" style={{ textAlign: "center", paddingTop: 80 }}>loading…</div>;
+  }
   if (!session?.user) {
     return <Navigate to="/login" replace />;
   }

@@ -1,6 +1,6 @@
 import { type JSX, type ReactNode, useState } from "react";
 import { useToast } from "../hooks/useToast.js";
-import { putCapability, reloadCapabilities } from "../lib/api.js";
+import { putCapability, putUserCapability, reloadCapabilities } from "../lib/api.js";
 import { SaveButton, useSaveState } from "./SaveButton.js";
 
 /**
@@ -27,6 +27,10 @@ export interface CapabilityShape {
   fields?: CapField[];
   /** Whether the capability's tools are currently registered (from /api/health). */
   connected?: boolean;
+  /** When set, show an OAuth connect button instead of manual fields. */
+  oauthUrl?: string;
+  /** User ID for per-user capability saves. */
+  userId?: string;
 }
 
 const CAP_META: Record<string, { icon: string; name: string; desc: string }> = {
@@ -35,8 +39,8 @@ const CAP_META: Record<string, { icon: string; name: string; desc: string }> = {
   gmail: { icon: "✉️", name: "Gmail", desc: "search and read email" },
   linear: { icon: "📐", name: "Linear", desc: "issues and projects" },
   cloudwatch: { icon: "☁️", name: "CloudWatch", desc: "AWS logs and metrics" },
-  slack: { icon: "💬", name: "Slack", desc: "search channels and DMs" },
-  "slack-personal": { icon: "🔒", name: "Slack (personal)", desc: "read your DMs with a user token" },
+  slack: { icon: "💬", name: "Slack", desc: "public channels and content" },
+  "slack-personal": { icon: "🔒", name: "Slack (personal)", desc: "DMs, search, and private messages" },
 };
 
 /**
@@ -88,14 +92,20 @@ export function CapabilityCard({
     })),
   });
 
+  const isUserCap = cap.scope === "private" && !!cap.userId;
+
+  const saveFn = async (payload: unknown): Promise<void> => {
+    if (isUserCap) {
+      await putUserCapability(cap.userId!, cap.id, payload);
+    } else {
+      await putCapability(cap.id, payload);
+    }
+  };
+
   const onToggle = async (next: boolean): Promise<void> => {
     setEnabled(next);
     try {
-      await putCapability(cap.id, buildPayload(next));
-      // Wave 3.2 — apply the toggle without a restart. Surface failures
-      // softly (the server still has the new config; only the live tools
-      // didn't swap), but don't roll back the UI state — the next reload
-      // attempt will pick it up.
+      await saveFn(buildPayload(next));
       const reload = await reloadCapabilities();
       if (!reload.ok) toast.show(`Saved, but reload failed: ${reload.error ?? "unknown"}`, "err");
       if (onChanged) await onChanged();
@@ -107,13 +117,12 @@ export function CapabilityCard({
 
   const onSave = async (): Promise<void> => {
     const ok = await run(async () => {
-      await putCapability(cap.id, buildPayload());
+      await saveFn(buildPayload());
     });
     if (!ok) {
       toast.show("Could not save", "err");
       return;
     }
-    // Wave 3.2 — apply the new credentials/settings without a restart.
     const reload = await reloadCapabilities();
     if (!reload.ok) toast.show(`Saved, but reload failed: ${reload.error ?? "unknown"}`, "err");
     if (onChanged) await onChanged();
@@ -185,20 +194,43 @@ export function CapabilityCard({
       <div className="cap-detail-wrap">
         <div className="cap-detail-inner">
           <div className="cap-detail">
-            <div className="detail-section">
-              <div className="toggle-wrap">
-                <label className="toggle" aria-label={`Enable ${meta.name}`}>
-                  <input type="checkbox" checked={enabled} onChange={(e) => void onToggle(e.target.checked)} />
-                  <div className="toggle-track" />
-                  <div className="toggle-thumb" />
-                </label>
-                <span className="fw-label">enabled</span>
-              </div>
-            </div>
-            {fields}
-            <div className="btn-row">
-              <SaveButton state={state} idleLabel="save" size="setup" onClick={onSave} />
-            </div>
+            {cap.oauthUrl ? (
+              cap.enabled ? (
+                <div className="detail-section" style={{ textAlign: "center", padding: "12px 0" }}>
+                  <span style={{ color: "var(--ok)", fontSize: 13 }}>● connected via Google OAuth</span>
+                </div>
+              ) : (
+                <div className="detail-section" style={{ textAlign: "center", padding: "12px 0" }}>
+                  <a
+                    href={cap.oauthUrl}
+                    className="btn btn-setup"
+                    style={{ display: "inline-block", textDecoration: "none" }}
+                  >
+                    connect google account
+                  </a>
+                  <div style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 8 }}>
+                    grants read-only access to Gmail and Calendar
+                  </div>
+                </div>
+              )
+            ) : (
+              <>
+                <div className="detail-section">
+                  <div className="toggle-wrap">
+                    <label className="toggle" aria-label={`Enable ${meta.name}`}>
+                      <input type="checkbox" checked={enabled} onChange={(e) => void onToggle(e.target.checked)} />
+                      <div className="toggle-track" />
+                      <div className="toggle-thumb" />
+                    </label>
+                    <span className="fw-label">enabled</span>
+                  </div>
+                </div>
+                {fields}
+                <div className="btn-row">
+                  <SaveButton state={state} idleLabel="save" size="setup" onClick={onSave} />
+                </div>
+              </>
+            )}
           </div>
         </div>
       </div>

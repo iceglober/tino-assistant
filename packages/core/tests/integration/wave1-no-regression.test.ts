@@ -113,7 +113,6 @@ describe("Wave 1 - Capability Scope Split (no-regression)", () => {
     expect(wave1Tools.gmail_search).toBeDefined();
     expect(wave1Tools.gmail_get_message).toBeDefined();
     expect(wave1Tools.slack_search_messages).toBeDefined();
-    expect(wave1Tools.slack_read_thread).toBeDefined();
     expect(wave1Tools.slack_list_dms).toBeDefined();
     expect(wave1Tools.slack_read_dm).toBeDefined();
 

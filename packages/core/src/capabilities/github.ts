@@ -25,24 +25,16 @@ export const githubCapability: SharedCapability = {
 
   fieldSchema: [
     {
-      key: "token",
-      label: "Personal Access Token",
-      target: "credentials.token",
+      key: "clientId",
+      label: "OAuth App Client ID",
+      target: "credentials.clientId",
+      placeholder: "Iv1.abc123...",
+    },
+    {
+      key: "clientSecret",
+      label: "OAuth App Client Secret",
+      target: "credentials.clientSecret",
       secret: true,
-      placeholder: "ghp_...",
-    },
-    {
-      key: "defaultRepo",
-      label: "Default Repo",
-      target: "settings.defaultRepo",
-      placeholder: "owner/repo",
-    },
-    {
-      key: "repos",
-      label: "Repo Allowlist",
-      target: "settings.repos",
-      kind: "string[]",
-      placeholder: "owner/repo, owner/other (comma or newline separated)",
     },
   ],
 

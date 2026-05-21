@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import type { LanguageModel } from "ai";
 import { type ServerType, serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { type Context, Hono } from "hono";
@@ -9,7 +10,13 @@ import type { IdentityStore, UserStore } from "../identity/store.js";
 import type { ConfigStore } from "../persistence/config.js";
 import type { SessionSecondaryStorage } from "../persistence/factory.js";
 import type { AppLogger } from "../slack/app.js";
+import { createGoogleCredentialResolver, createSlackCredentialResolver } from "../privacy/adapters/credentials.js";
+import { createGoogleCalendarAdapter, createGoogleEmailAdapter } from "../privacy/adapters/google.js";
+import { createMockCalendarAdapter, createMockEmailAdapter, createMockMessagingAdapter } from "../privacy/adapters/mock.js";
+import { createSlackMessagingAdapter } from "../privacy/adapters/slack.js";
+import type { PrivacyConfigStore } from "../privacy/config-store.js";
 import { type AuthVariables, buildAuthMiddleware, createAuth } from "./middleware/auth.js";
+import { privacyGate } from "./middleware/privacy-gate.js";
 import { createAdminRoutes } from "./routes/admin.js";
 import { createBedrockRoutes } from "./routes/bedrock.js";
 import { createCapabilityRoutes } from "./routes/capabilities.js";
@@ -22,35 +29,25 @@ import { createOrgConfigRoutes } from "./routes/org-config.js";
 import { createReloadRoutes } from "./routes/reload.js";
 import { createUsersRoutes } from "./routes/users.js";
 import { createUserCapabilityRoutes } from "./routes/user-capabilities.js";
-import { createOnboardingRoutes } from "./routes/onboarding.js";
-import { onboardingGate } from "./middleware/onboarding-gate.js";
-import type { PrivacyConfigStore } from "../privacy/config-store.js";
+import { createGoogleOAuthRoutes } from "./routes/google-oauth.js";
+import { createPrivacyRoutes } from "./routes/privacy.js";
 
 /**
  * Tino console HTTP server — Hono app on top of `@hono/node-server`.
- *
- * Replaces the previous raw `node:http` server in `console/server.ts`.
  *
  * Routing:
  *   /api/health              → public, ALB-friendly liveness
  *   /api/auth/*              → better-auth handler (public; auth lives here)
  *   /api/config*             → protected (auth-gated) config CRUD
  *   /api/capabilities*       → protected capability config
- *   /api/user-capabilities/* → protected per-user capability config (wave 2)
+ *   /api/user-capabilities/* → protected per-user capability config
  *   /api/compliance          → protected HIPAA snapshot
  *   /api/users/:id           → protected user deprovisioning
- *   /api/reload/*            → protected hot-reload (wave 3)
- *   /api/admin/*             → protected admin ops (restart — wave 3.4)
+ *   /api/reload/*            → protected hot-reload
+ *   /api/admin/*             → protected admin ops (restart)
+ *   /api/privacy/*           → protected privacy config
  *   /assets/*                → static (SPA + logo); also bypasses auth
  *   /*                       → serves the built React SPA (Vite output)
- *
- * Auth:
- *   - `GOOGLE_OAUTH_CLIENT_ID` + `GOOGLE_OAUTH_CLIENT_SECRET` set → Google OAuth via better-auth
- *   - either missing → auth disabled (local dev)
- *   - `CONSOLE_ALLOWED_DOMAIN` optionally restricts sessions to a specific email domain
- *
- * Production binds to `0.0.0.0` (ALB-reachable) when `CONSOLE_BASE_URL` is set;
- * dev binds to `127.0.0.1`.
  */
 export interface StartServerOptions {
   config: ConfigStore;
@@ -59,43 +56,20 @@ export interface StartServerOptions {
   registry?: CapabilityRegistry;
   port?: number;
   auditLogger?: AuditLogger;
-  /**
-   * Wave 3.1 — invoked by `POST /api/reload/slack`. Reads the latest Slack
-   * tokens from the config store and reconnects the Slack app in place.
-   */
   reconnectSlack?: () => Promise<{ ok: boolean; error?: string }>;
-  /**
-   * Wave 3.2 — invoked by `POST /api/reload/capabilities`. Re-runs the
-   * capability registry against the live config store and atomically swaps
-   * the toolset.
-   */
   reloadCapabilities?: () => Promise<{ ok: boolean; error?: string }>;
-  /**
-   * Wave 3.4 — invoked by `POST /api/admin/restart`. Should run the same
-   * teardown as the SIGTERM handler before `process.exit`. The route sends
-   * its 202 response BEFORE invoking this callback (deferred ~100ms) so the
-   * client sees the ack.
-   */
   shutdown?: (signal: string) => Promise<void> | void;
-  /**
-   * Wave 3 — DynamoDB-backed session store for better-auth's secondaryStorage.
-   * When provided, sessions survive ECS restarts. Omit for local dev (SQLite).
-   */
   sessionStore?: SessionSecondaryStorage;
-  /**
-   * Wave 3 — identity + user stores for auth middleware tino-UUID resolution.
-   * The middleware resolves the better-auth session email to a tino-UUID via
-   * the identity store, then loads role/status from the user store.
-   */
   identities?: IdentityStore;
   users?: UserStore;
   privacyConfigStore?: PrivacyConfigStore;
+  userCapabilities?: import("../persistence/user-capabilities.js").UserCapabilityStore;
+  model?: LanguageModel;
+  mockPrivacy?: boolean;
 }
 
 export interface StartedServer {
-  /** Underlying Node HTTP server — `.close()` shuts it down. */
   server: ServerType;
-  /** Convenience close that mirrors the old `consoleServer.close()` callsite. */
   close: () => void;
 }
 
@@ -113,6 +87,9 @@ export async function startServer(opts: StartServerOptions): Promise<StartedServ
     identities,
     users,
     privacyConfigStore,
+    userCapabilities,
+    model,
+    mockPrivacy,
   } = opts;
   const port = opts.port ?? 3001;
   const startTime = Date.now();
@@ -122,6 +99,7 @@ export async function startServer(opts: StartServerOptions): Promise<StartedServ
   const googleClientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
   const allowedDomain = process.env.CONSOLE_ALLOWED_DOMAIN;
   const baseUrl = process.env.CONSOLE_BASE_URL ?? `http://localhost:${port}`;
+  const isLocalDev = baseUrl.startsWith("http://localhost");
   const authEnabled = !!(googleClientId && googleClientSecret);
 
   let auth: Awaited<ReturnType<typeof createAuth>> | null = null;
@@ -138,8 +116,22 @@ export async function startServer(opts: StartServerOptions): Promise<StartedServ
         dbPath: "/tmp/tino-auth.db",
         logger,
         sessionStore,
+        emailPassword: isLocalDev,
       });
       logger.info({ baseUrl, allowedDomain, authEnabled: true }, "console auth: Google OAuth enabled");
+    } catch (err) {
+      logger.error({ err: (err as Error).message }, "console auth: failed to initialize — running without auth");
+    }
+  } else if (isLocalDev) {
+    try {
+      auth = await createAuth({
+        allowedDomain,
+        baseUrl,
+        dbPath: "/tmp/tino-auth.db",
+        logger,
+        emailPassword: true,
+      });
+      logger.info({ baseUrl }, "console auth: email/password enabled (localhost)");
     } catch (err) {
       logger.error({ err: (err as Error).message }, "console auth: failed to initialize — running without auth");
     }
@@ -150,34 +142,32 @@ export async function startServer(opts: StartServerOptions): Promise<StartedServ
   // ── Build the Hono app ────────────────────────────────────────────────────
   const app = new Hono<{ Variables: AuthVariables }>();
 
-  // Auth-gate everything (the middleware itself permits `/api/auth/*`,
-  // `/api/health`, and `/assets/*` to bypass).
-  app.use("*", buildAuthMiddleware({ auth, allowedDomain, logger, identities, users, configStore: config }));
+  app.use("*", buildAuthMiddleware({ auth, allowedDomain, logger, identities, users, configStore: config, localDev: isLocalDev }));
 
-  // Onboarding gate — blocks console access until privacy setup completes (wave 3.5)
   if (privacyConfigStore) {
-    app.use("*", onboardingGate({ privacyConfigStore }));
+    app.use("*", privacyGate({ privacyConfigStore }));
   }
 
   // ── /api/auth/* — better-auth handler ─────────────────────────────────────
-  // better-auth ships a fetch-style handler at `auth.handler`. Hono's `c.req.raw`
-  // is a `Request` and `c.body` accepts a `Response`, so this is a one-line wire-up.
   if (auth) {
     app.all("/api/auth/*", async (c: Context) => {
       const res = await auth.handler(c.req.raw);
       return res;
     });
-  } else {
-    // Auth disabled: return a stub so the React app's `/api/auth/get-session`
-    // probe gets a deterministic null instead of a 404 that looks like an error.
-    app.get("/api/auth/get-session", (c) => c.json(null));
   }
 
-  // ── Public + protected API routes ─────────────────────────────────────────
+  // ── /api/me ───────────────────────────────────────────────────────────────
+  app.get("/api/me", (c) => {
+    const user = c.get("user");
+    if (!user) return c.json(null);
+    return c.json(user);
+  });
+
+  // ── API routes ────────────────────────────────────────────────────────────
   app.route("/api/health", createHealthRoutes({ startTime, tools, registry }));
   app.route("/api/config", createConfigRoutes({ config, logger, auditLogger }));
   app.route("/api/capabilities", createCapabilityRoutes({ config, logger }));
-  app.route("/api/user-capabilities", createUserCapabilityRoutes({ config, logger, auditLogger }));
+  app.route("/api/user-capabilities", createUserCapabilityRoutes({ config, logger, auditLogger, userCapabilities }));
   app.route("/api/compliance", createComplianceRoutes({ config, auditLogger }));
   app.route("/api/users", createUsersRoutes({ config, logger, auditLogger }));
   if (identities && users) {
@@ -192,24 +182,49 @@ export async function startServer(opts: StartServerOptions): Promise<StartedServ
     app.route("/api/admin", createAdminRoutes({ logger, auditLogger, shutdown }));
   }
   app.route("/api/bedrock", createBedrockRoutes({ logger }));
+  app.route("/api/oauth/google", createGoogleOAuthRoutes({
+    config,
+    userCapabilities,
+    logger,
+    auditLogger,
+    baseUrl,
+  }));
+
   if (privacyConfigStore) {
-    app.route("/api/onboarding", createOnboardingRoutes({ privacyConfigStore, logger }));
+    let email, calendar, messaging;
+
+    if (mockPrivacy) {
+      logger.info("privacy adapters: using mock data");
+      email = createMockEmailAdapter();
+      calendar = createMockCalendarAdapter();
+      messaging = createMockMessagingAdapter();
+    } else {
+      const googleCreds = createGoogleCredentialResolver({ userCapabilities, configStore: config });
+      const slackCreds = createSlackCredentialResolver({ userCapabilities, configStore: config });
+      email = createGoogleEmailAdapter({ resolveCreds: googleCreds, logger });
+      calendar = createGoogleCalendarAdapter({ resolveCreds: googleCreds, logger });
+      messaging = createSlackMessagingAdapter({ resolveCreds: slackCreds, logger });
+    }
+
+    app.route("/api/privacy", createPrivacyRoutes({
+      privacyConfigStore,
+      logger,
+      userCapabilities,
+      configStore: config,
+      email,
+      calendar,
+      messaging,
+      model,
+      mockMode: mockPrivacy,
+    }));
   }
 
-  // ── Logo asset (preserve the old multi-path lookup) ───────────────────────
-  // The Dockerfile pins `WORKDIR /app` and copies `assets/` into the image,
-  // so `/app/assets/tino-logo.png` is the canonical container path. Try that
-  // first; fall back to the `import.meta.url`-relative paths for local dev
-  // and the cwd-relative path for `tsx`-from-repo-root style runs.
+  // ── Logo asset ────────────────────────────────────────────────────────────
   app.get("/assets/tino-logo.png", (c) => {
     const candidates = [
-      // Production (Docker): WORKDIR /app + COPY assets ./assets — gap #13.
       "/app/assets/tino-logo.png",
-      // Local dev (built): dist/server/index.js → ../../assets/tino-logo.png
       new URL("../../assets/tino-logo.png", import.meta.url),
-      // Workspace root from package: packages/core/src/server/index.ts
       new URL("../../../../assets/tino-logo.png", import.meta.url),
-      // Last-resort cwd lookup.
       new URL(`file://${process.cwd()}/assets/tino-logo.png`),
     ];
     for (const logoPath of candidates) {
@@ -223,10 +238,7 @@ export async function startServer(opts: StartServerOptions): Promise<StartedServ
     return c.text("Logo not found", 404);
   });
 
-  // ── Static React SPA (built by Vite to dist/console) ──────────────────────
-  // Resolve once at startup so the path is deterministic regardless of cwd.
-  // `import.meta.url` points at dist/server/index.js in production; the SPA
-  // build sits at dist/console/ — three levels up + console.
+  // ── Static React SPA ─────────────────────────────────────────────────────
   const consoleDir = resolveConsoleDir();
   const indexHtmlPath = path.join(consoleDir, "index.html");
   let indexHtml: string | null = null;
@@ -236,8 +248,6 @@ export async function startServer(opts: StartServerOptions): Promise<StartedServ
     logger.warn({ indexHtmlPath }, "console SPA index.html not found — run `vite build` to produce it");
   }
 
-  // Static-file serving for SPA assets (JS, CSS, images Vite emits).
-  // serveStatic resolves paths relative to process.cwd, so we pass the absolute path.
   app.use(
     "/*",
     serveStatic({
@@ -245,7 +255,6 @@ export async function startServer(opts: StartServerOptions): Promise<StartedServ
     }),
   );
 
-  // SPA fallback: any non-API GET that didn't hit a file falls back to index.html.
   app.get("*", (c) => {
     if (c.req.path.startsWith("/api/")) {
       return c.text("Not found", 404);
@@ -257,8 +266,6 @@ export async function startServer(opts: StartServerOptions): Promise<StartedServ
   });
 
   // ── Bind ──────────────────────────────────────────────────────────────────
-  // Production: bind 0.0.0.0 so the ALB can reach the container.
-  // Dev: bind 127.0.0.1.
   const hostname = process.env.CONSOLE_BASE_URL ? "0.0.0.0" : "127.0.0.1";
   const server = serve({ fetch: app.fetch, port, hostname }, () => {
     logger.info({ port, host: hostname }, "config console listening");
@@ -270,22 +277,8 @@ export async function startServer(opts: StartServerOptions): Promise<StartedServ
   };
 }
 
-/**
- * Resolve the directory containing the built React SPA (`dist/console/`).
- *
- * In production (`node dist/server/index.js`), `import.meta.url` resolves to
- * `dist/server/index.js` and the SPA lives at `../console/`.
- *
- * In `tsx` dev (`tsx src/server/index.ts`), `import.meta.url` resolves to
- * `src/server/index.ts`. Vite's dev server is the source of truth in that mode;
- * we still return a path here, but `index.html` will simply not exist and the
- * fallback handler reports a friendly error.
- */
 function resolveConsoleDir(): string {
-  // .../dist/server/index.js → .../dist/console/
-  // .../src/server/index.ts  → .../src/console-app/  (only used as a probe)
   const here = new URL(".", import.meta.url).pathname;
-  // Distinguish dist vs src by path segment.
   if (here.includes(`${path.sep}dist${path.sep}`) || here.includes("/dist/")) {
     return path.resolve(here, "../console");
   }

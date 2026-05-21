@@ -1,9 +1,10 @@
 /**
  * Slack personal (xoxp-) capability module — private, per-user credentials.
  *
- * Builds slack_search_messages, slack_read_thread, slack_list_dms, slack_read_dm
- * tools when the user has configured their personal user token (xoxp-).
- * Returns null if credentials are missing/disabled.
+ * Builds slack_search_messages, slack_list_dms, slack_read_dm tools when the
+ * user has configured their personal user token (xoxp-). Search requires a
+ * user token (bot tokens can't call search.messages). DM reading is inherently
+ * personal — reads the token owner's conversations.
  *
  * findWork: stub (not yet implemented — enabled=false by default).
  */
@@ -14,7 +15,6 @@ import type { AppLogger } from "../slack/app.js";
 import { createUserCache } from "../slack/userCache.js";
 import { slackListDmsTool, slackReadDmTool } from "../tools/slack/dms.js";
 import { slackSearchMessagesTool } from "../tools/slack/search.js";
-import { slackReadThreadTool } from "../tools/slack/thread.js";
 import type { CapabilityConfig, PrivateCapability } from "./types.js";
 
 export const slackPersonalCapability: PrivateCapability = {
@@ -61,7 +61,6 @@ export const slackPersonalCapability: PrivateCapability = {
 
     const tools: ToolSet = {
       slack_search_messages: slackSearchMessagesTool(userClient, userCache),
-      slack_read_thread: slackReadThreadTool(userClient, userCache),
       slack_list_dms: slackListDmsTool(userClient, userCache),
       slack_read_dm: slackReadDmTool(userClient, userCache),
     };

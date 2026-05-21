@@ -74,6 +74,7 @@ export function buildSystemPrompt(opts: {
     active.has("gmail") ||
     hasPrefs ||
     active.has("slack") ||
+    active.has("slack-personal") ||
     active.has("linear");
 
   // ── Always-on prefix ──────────────────────────────────────────────────────
@@ -144,8 +145,14 @@ Tone and style:
 
     if (active.has("slack")) {
       prompt += `
+- slack_list_channels(limit?): list public Slack channels the bot is a member of. Returns channel ID, name, topic, and member count.
+- slack_read_channel(channel, limit?): read recent messages from a public Slack channel.
+- slack_read_channel_thread(channel, threadTs, limit?): read a thread in a public Slack channel (all replies to a message).`;
+    }
+
+    if (active.has("slack-personal")) {
+      prompt += `
 - slack_search_messages(query, count?): keyword search across all Slack channels and DMs. Uses Slack search syntax: \`from:@user\`, \`in:#channel\`, \`is:dm\`, \`on:YYYY-MM-DD\`, \`during:today\`. CAUTION: \`after:\` is exclusive (after:2026-05-12 = May 13+). Use \`on:\` or \`during:today\` for today.
-- slack_read_thread(channel, threadTs, limit?): read all replies in a Slack thread.
 - slack_list_dms(limit?, sinceIso?): list recent DM conversations (1:1 and group, including Slack Connect). Returns channel IDs and participant names. Pass sinceIso to find conversations with activity since a specific time (e.g., start of today).
 - slack_read_dm(channel, limit?): read recent messages from a specific DM channel.`;
     }
@@ -162,14 +169,24 @@ Tone and style:
   }
 
   // ── Tool selection decision trees ─────────────────────────────────────────
-  if (active.has("slack")) {
-    prompt += `\n\nSlack tool selection — use this decision tree:
+  if (active.has("slack") || active.has("slack-personal")) {
+    prompt += `\n\nSlack tool selection — use this decision tree:`;
+    if (active.has("slack")) {
+      prompt += `
+- "what's happening in #channel" / "catch me up on #general" → slack_list_channels to find the channel ID, then slack_read_channel to read recent messages.
+- "catch me up on [thread/discussion]" → slack_read_channel to find the thread, then slack_read_channel_thread to read the full thread.`;
+    }
+    if (active.has("slack-personal")) {
+      prompt += `
 - "who did I DM today" / "show me my DMs" / "what DMs did I get" → slack_list_dms(sinceIso=<start of today>) to find conversations with today's activity, then slack_read_dm for each. Do NOT use slack_search_messages for this — search misses many DMs.
 - "what did [person] say to me" → slack_list_dms to find their channel ID, then slack_read_dm to read the conversation.
 - "who is [person]?" → slack_search_messages(from:@person) or slack_list_dms to find conversations with them. User names are resolved automatically in all Slack tool results.
-- "find messages about [topic]" / "what did the team discuss about X" → slack_search_messages (keyword search is the right tool here).
-- "catch me up on [thread/discussion]" → slack_search_messages to find it, then slack_read_thread to read the full thread.
+- "find messages about [topic]" / "what did the team discuss about X" → slack_search_messages (keyword search is the right tool here).`;
+    }
+    if (active.has("slack") && active.has("slack-personal")) {
+      prompt += `
 - "what happened in slack today" → make MULTIPLE calls: slack_search_messages(\`during:today\`, count=20) for channels, PLUS slack_list_dms(sinceIso=<start of today>) then slack_read_dm for recent DMs. Search alone misses DM content.`;
+    }
   }
 
   if (active.has("linear")) {

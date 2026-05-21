@@ -14,25 +14,24 @@ describe("buildCapabilityView", () => {
     const view = buildCapabilityView(githubCapability, null, undefined);
     expect(view.id).toBe("github");
     expect(view.enabled).toBe(false);
-    expect(view.fields.map((f) => f.key).sort()).toEqual(["defaultRepo", "repos", "token"]);
+    expect(view.fields.map((f) => f.key).sort()).toEqual(["clientId", "clientSecret"]);
     for (const f of view.fields) expect(f.value).toBe("");
   });
 
   it("hydrates field values from credentials and settings", () => {
     const stored: CapabilityConfig = {
       enabled: true,
-      credentials: { token: "ghp_abc" },
-      settings: { defaultRepo: "kn-eng/kn-eng", repos: ["kn-eng/kn-eng", "kn-eng/other"] },
+      credentials: { clientId: "Iv1.abc123", clientSecret: "secret_xyz" },
+      settings: {},
     };
     const view = buildCapabilityView(githubCapability, stored, 1234);
     expect(view.enabled).toBe(true);
     expect(view.updatedAt).toBe(1234);
-    const tokenField = view.fields.find((f) => f.key === "token")!;
-    expect(tokenField.value).toBe("ghp_abc");
-    expect(tokenField.secret).toBe(true);
-    const reposField = view.fields.find((f) => f.key === "repos")!;
-    // string[] kind is rendered as comma-separated for the input
-    expect(reposField.value).toBe("kn-eng/kn-eng, kn-eng/other");
+    const idField = view.fields.find((f) => f.key === "clientId")!;
+    expect(idField.value).toBe("Iv1.abc123");
+    const secretField = view.fields.find((f) => f.key === "clientSecret")!;
+    expect(secretField.value).toBe("secret_xyz");
+    expect(secretField.secret).toBe(true);
   });
 });
 
@@ -41,25 +40,23 @@ describe("buildConfigFromPayload", () => {
     const payload = {
       enabled: true,
       fields: [
-        { key: "token", value: "ghp_xyz" },
-        { key: "defaultRepo", value: "foo/bar" },
-        { key: "repos", value: "foo/bar, foo/baz\nfoo/qux" },
+        { key: "clientId", value: "Iv1.abc123" },
+        { key: "clientSecret", value: "secret_xyz" },
       ],
     };
     const next = buildConfigFromPayload(githubCapability, payload, null);
     expect(next.enabled).toBe(true);
-    expect(next.credentials.token).toBe("ghp_xyz");
-    expect(next.settings.defaultRepo).toBe("foo/bar");
-    expect(next.settings.repos).toEqual(["foo/bar", "foo/baz", "foo/qux"]);
+    expect(next.credentials.clientId).toBe("Iv1.abc123");
+    expect(next.credentials.clientSecret).toBe("secret_xyz");
   });
 
   it("drops empty values rather than writing empty strings", () => {
     const next = buildConfigFromPayload(
       githubCapability,
-      { enabled: false, fields: [{ key: "token", value: "" }] },
+      { enabled: false, fields: [{ key: "clientId", value: "" }] },
       null,
     );
-    expect(next.credentials).not.toHaveProperty("token");
+    expect(next.credentials).not.toHaveProperty("clientId");
   });
 
   it("preserves unknown keys (e.g. findWork, awsProfile) from the existing blob", () => {
@@ -85,13 +82,13 @@ describe("buildConfigFromPayload", () => {
       githubCapability,
       {
         enabled: true,
-        credentials: { token: "ghp_legacy" },
-        settings: { defaultRepo: "a/b" },
+        credentials: { clientId: "Iv1.legacy", clientSecret: "sec_legacy" },
+        settings: {},
       },
       null,
     );
-    expect(next.credentials.token).toBe("ghp_legacy");
-    expect(next.settings.defaultRepo).toBe("a/b");
+    expect(next.credentials.clientId).toBe("Iv1.legacy");
+    expect(next.credentials.clientSecret).toBe("sec_legacy");
   });
 });
 

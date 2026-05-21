@@ -4,6 +4,7 @@ import { ALL_CAPABILITIES } from "../../capabilities/all.js";
 import { buildCapabilityView, buildConfigFromPayload, findCapability } from "../../capabilities/schema.js";
 import type { CapabilityConfig } from "../../capabilities/types.js";
 import type { ConfigStore } from "../../persistence/config.js";
+import type { UserCapabilityStore } from "../../persistence/user-capabilities.js";
 import type { AppLogger } from "../../slack/app.js";
 import type { AuthVariables } from "../middleware/auth.js";
 
@@ -22,9 +23,10 @@ export function createUserCapabilityRoutes(opts: {
   config: ConfigStore;
   logger: AppLogger;
   auditLogger?: AuditLogger;
+  userCapabilities?: UserCapabilityStore;
 }): Hono<{ Variables: AuthVariables }> {
   const app = new Hono<{ Variables: AuthVariables }>();
-  const { config, logger, auditLogger } = opts;
+  const { config, logger, auditLogger, userCapabilities } = opts;
 
   /**
    * GET /api/user-capabilities/:userId
@@ -43,30 +45,46 @@ export function createUserCapabilityRoutes(opts: {
       return c.json({ error: "Forbidden: cannot access other user's capabilities" }, 403);
     }
 
-    // Load all per-user capability entries for this user
-    const entries = await config.list();
+    // Load per-user capability entries from both stores.
+    // UserCapabilityStore (encrypted, wave 2) takes precedence over ConfigStore.
     const stored = new Map<string, { config: CapabilityConfig | null; updatedAt: number }>();
 
+    // Check UserCapabilityStore first (encrypted per-user credentials)
+    if (userCapabilities) {
+      const ucList = await userCapabilities.list(userId);
+      for (const { capabilityId, enabled } of ucList) {
+        try {
+          const cfg = await userCapabilities.get(userId, capabilityId);
+          if (cfg) stored.set(capabilityId, { config: cfg, updatedAt: Date.now() });
+        } catch {
+          stored.set(capabilityId, { config: { enabled, credentials: {}, settings: {} }, updatedAt: Date.now() });
+        }
+      }
+    }
+
+    // Fall back to ConfigStore for capabilities not found in UserCapabilityStore
+    const entries = await config.list();
     for (const e of entries) {
       const prefix = `user.${userId}.capability.`;
       if (!e.key.startsWith(prefix)) continue;
       const id = e.key.slice(prefix.length);
+      if (stored.has(id)) continue;
       let parsed: CapabilityConfig | null = null;
       try {
         parsed = JSON.parse(e.value) as CapabilityConfig;
-      } catch {
-        // Malformed JSON: surface an empty config so the card still renders.
-      }
+      } catch { /* malformed JSON */ }
       stored.set(id, { config: parsed, updatedAt: e.updatedAt });
     }
 
-    // Return one entry per known capability module (in declaration order) that is stored
-    // for this user. For wave-1 (per-user only), we only return capabilities that have
-    // been explicitly configured by this user.
-    const views = ALL_CAPABILITIES.filter((cap) => stored.has(cap.id)).map((cap) => {
-      const s = stored.get(cap.id);
-      return buildCapabilityView(cap, s?.config ?? null, s?.updatedAt);
-    });
+    // Return one entry per private capability module (in declaration order).
+    // Shows all available private capabilities so users can see what's connectable,
+    // with stored config merged in for already-configured ones.
+    const views = ALL_CAPABILITIES
+      .filter((cap) => cap.scope === "private")
+      .map((cap) => {
+        const s = stored.get(cap.id);
+        return buildCapabilityView(cap, s?.config ?? null, s?.updatedAt);
+      });
 
     return c.json(views);
   });
@@ -152,6 +170,9 @@ export function createUserCapabilityRoutes(opts: {
 
     const key = `user.${userId}.capability.${capabilityId}`;
     await config.delete(key);
+    if (userCapabilities) {
+      await userCapabilities.delete(userId, capabilityId);
+    }
 
     // Audit
     if (auditLogger) {

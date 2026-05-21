@@ -159,7 +159,29 @@ export async function getSession(): Promise<Session | null> {
     const r = await fetch("/api/auth/get-session", { credentials: "include" });
     if (!r.ok) return null;
     const data = (await r.json()) as Session | null;
-    return data?.user ? data : null;
+    if (!data?.user) return null;
+
+    const me = await getMe();
+    if (me) {
+      data.user.id = me.id;
+      data.user.role = me.role;
+    }
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+export async function getMe(): Promise<{
+  id: string;
+  email: string;
+  role: "admin" | "member";
+  status: string;
+} | null> {
+  try {
+    const r = await fetch("/api/me", { credentials: "include" });
+    if (!r.ok) return null;
+    return (await r.json()) as { id: string; email: string; role: "admin" | "member"; status: string };
   } catch {
     return null;
   }
@@ -304,4 +326,172 @@ export async function restartTino(): Promise<ReloadResult> {
     if (err instanceof UnauthorizedError) throw err;
     return { ok: false, error: (err as Error).message };
   }
+}
+
+// ── Privacy ────────────────────────────────────────────────────────────────
+
+export interface PrivacyStatus {
+  connectedCapabilities: string[];
+  hasPrivacyConfig: boolean;
+  existingConfig: PrivacyConfig | null;
+}
+
+export interface PrivacyConfig {
+  version: 2;
+  email?: { privateFolders: string[]; denyListedAddresses: string[] };
+  messaging?: { denyListedConversationIds: string[]; denyListedUserIds: string[] };
+  calendar?: { defaultVisibility: string; gateAllByDefault: boolean };
+  lastReviewedAt: number;
+}
+
+export interface PrivacyLabel {
+  name: string;
+  itemCount: number;
+  preChecked: boolean;
+  examples?: string[];
+}
+
+export interface PrivacyContact {
+  address: string;
+  displayName?: string;
+  itemCount: number;
+  preChecked: boolean;
+  examples?: string[];
+}
+
+export interface PrivacyConversation {
+  id: string;
+  participantId?: string;
+  participantName?: string;
+  itemCount: number;
+  preChecked: boolean;
+  examples?: string[];
+}
+
+export async function getPrivacyStatus(): Promise<PrivacyStatus> {
+  const r = await fetch("/api/privacy/status", { credentials: "include" });
+  if (!r.ok) throw new Error(`privacy status failed: ${r.status}`);
+  return (await r.json()) as PrivacyStatus;
+}
+
+export async function getPrivacyLabels(): Promise<{ labels: PrivacyLabel[]; message?: string }> {
+  const r = await fetch("/api/privacy/email/labels", { credentials: "include" });
+  if (!r.ok) return { labels: [], message: "failed to load" };
+  return (await r.json()) as { labels: PrivacyLabel[]; message?: string };
+}
+
+export async function getPrivacyContacts(): Promise<{ contacts: PrivacyContact[]; message?: string }> {
+  const r = await fetch("/api/privacy/email/contacts", { credentials: "include" });
+  if (!r.ok) return { contacts: [], message: "failed to load" };
+  return (await r.json()) as { contacts: PrivacyContact[]; message?: string };
+}
+
+export async function getPrivacyDMs(): Promise<{ conversations: PrivacyConversation[]; message?: string }> {
+  const r = await fetch("/api/privacy/messaging/dms", { credentials: "include" });
+  if (!r.ok) return { conversations: [], message: "failed to load" };
+  return (await r.json()) as { conversations: PrivacyConversation[]; message?: string };
+}
+
+export async function getPrivacyCalendarVisibility(): Promise<{
+  defaultVisibility: string;
+  calendars: Array<{ id: string; name: string }>;
+  message?: string;
+}> {
+  const r = await fetch("/api/privacy/calendar/visibility", { credentials: "include" });
+  if (!r.ok) return { defaultVisibility: "public", calendars: [], message: "failed to load" };
+  return (await r.json()) as { defaultVisibility: string; calendars: Array<{ id: string; name: string }>; message?: string };
+}
+
+export async function savePrivacySection(section: string, config: Record<string, unknown>): Promise<{ ok: boolean }> {
+  const r = await fetch(`/api/privacy/complete/${encodeURIComponent(section)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(config),
+    credentials: "include",
+  });
+  if (!r.ok) throw new Error(`save failed: ${r.status}`);
+  return (await r.json()) as { ok: boolean };
+}
+
+// ── Privacy scan ──────────────────────────────────────────────────────────────
+
+export interface ScanSuggestion {
+  id: string;
+  sensitive: boolean;
+  reason: string;
+  confidence: "high" | "medium" | "low";
+}
+
+export interface ScanResult {
+  email?: {
+    labels: ScanSuggestion[];
+    contacts: ScanSuggestion[];
+  };
+  messaging?: {
+    conversations: ScanSuggestion[];
+  };
+  scannedAt: number;
+}
+
+export interface ScanProgress {
+  phase: "email-labels" | "email-contacts" | "messaging" | "done";
+  pct: number;
+  message: string;
+}
+
+export function startPrivacyScan(
+  onProgress: (p: ScanProgress) => void,
+  onResult: (r: ScanResult) => void,
+  onError: (e: Error) => void,
+): AbortController {
+  const controller = new AbortController();
+
+  fetch("/api/privacy/scan", {
+    method: "POST",
+    credentials: "include",
+    signal: controller.signal,
+  })
+    .then(async (res) => {
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || `scan failed: ${res.status}`);
+      }
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error("no response body");
+
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        let currentEvent = "";
+        for (const line of lines) {
+          if (line.startsWith("event: ")) {
+            currentEvent = line.slice(7).trim();
+          } else if (line.startsWith("data: ") && currentEvent) {
+            const data = line.slice(6);
+            try {
+              const parsed = JSON.parse(data);
+              if (currentEvent === "progress") onProgress(parsed as ScanProgress);
+              else if (currentEvent === "result") onResult(parsed as ScanResult);
+              else if (currentEvent === "error") onError(new Error((parsed as { error: string }).error));
+            } catch { /* skip malformed frames */ }
+            currentEvent = "";
+          } else if (line === "") {
+            currentEvent = "";
+          }
+        }
+      }
+    })
+    .catch((err) => {
+      if ((err as Error).name !== "AbortError") onError(err as Error);
+    });
+
+  return controller;
 }

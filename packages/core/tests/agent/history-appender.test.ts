@@ -110,10 +110,9 @@ describe("HistoryAppender", () => {
 
 describe("SourceRespectingPrivacyFilter — wave 3.5", () => {
   const calendarPrivacyConfig: PrivacyConfig = {
-    version: 1,
+    version: 2,
     calendar: { defaultVisibility: "public", gateAllByDefault: false },
     lastReviewedAt: Date.now(),
-    lastRepromptAt: null,
   };
 
   function mockHistory(): HistoryStore {
@@ -151,12 +150,11 @@ describe("SourceRespectingPrivacyFilter — wave 3.5", () => {
     expect(part.output.reason).toBe("private_event");
   });
 
-  it("non-private gmail thread persists with body", async () => {
+  it("non-private email thread persists with body", async () => {
     const config: PrivacyConfig = {
-      version: 1,
-      gmail: { privateLabels: ["Private"], denyListedAddresses: [], threadingMode: "conservative" },
+      version: 2,
+      email: { privateFolders: ["Private"], denyListedAddresses: [] },
       lastReviewedAt: Date.now(),
-      lastRepromptAt: null,
     };
     const filter = new SourceRespectingPrivacyFilter(async () => config);
     const messages = [
@@ -215,10 +213,9 @@ describe("SourceRespectingPrivacyFilter — wave 3.5", () => {
 
   it("placeholder reason matches filter decision", async () => {
     const config: PrivacyConfig = {
-      version: 1,
-      slack: { denyListedConversationIds: ["D_THERAPIST"], denyListedUserIds: [], multiPartyMode: "conservative" },
+      version: 2,
+      messaging: { denyListedConversationIds: ["D_THERAPIST"], denyListedUserIds: [] },
       lastReviewedAt: Date.now(),
-      lastRepromptAt: null,
     };
     const filter = new SourceRespectingPrivacyFilter(async () => config);
     const messages = [
@@ -246,10 +243,9 @@ describe("SourceRespectingPrivacyFilter — wave 3.5", () => {
 
   it("feature flag off restores wave-2 default-allow behavior", async () => {
     const config: PrivacyConfig = {
-      version: 1,
+      version: 2,
       calendar: { defaultVisibility: "public", gateAllByDefault: false },
       lastReviewedAt: Date.now(),
-      lastRepromptAt: null,
     };
     const filter = new SourceRespectingPrivacyFilter(async () => config, false);
     const messages = [

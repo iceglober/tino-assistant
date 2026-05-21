@@ -19,5 +19,8 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.15"
+  },
+  "overrides": {
+    "typescript": "^6.0.3"
   }
 }

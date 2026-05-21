@@ -1,21 +1,20 @@
-import { calendarFilter } from "./calendar.js";
-import { gmailFilter } from "./gmail.js";
-import { slackFilter } from "./slack.js";
+import { calendarFilter } from "./calendar-filter.js";
+import { emailFilter } from "./email-filter.js";
+import { messagingFilter } from "./messaging-filter.js";
 import type { CapabilityFilter, Decision, PrivacyConfig } from "./types.js";
 
 const PRIVATE_CAPABILITIES: Record<string, CapabilityFilter> = {
   calendar: calendarFilter as CapabilityFilter,
-  gmail: gmailFilter as CapabilityFilter,
-  "slack-personal": slackFilter as CapabilityFilter,
+  email: emailFilter as CapabilityFilter,
+  messaging: messagingFilter as CapabilityFilter,
 };
 
 export const TOOL_TO_CAPABILITY: Record<string, string> = {
   calendar_list_events: "calendar",
-  gmail_search: "gmail",
-  gmail_get_message: "gmail",
-  slack_list_dms: "slack-personal",
-  slack_read_dm: "slack-personal",
-  slack_read_thread: "slack-personal",
+  gmail_search: "email",
+  gmail_get_message: "email",
+  slack_list_dms: "messaging",
+  slack_read_dm: "messaging",
 };
 
 export function evaluate(opts: {
@@ -34,10 +33,10 @@ export function evaluate(opts: {
   const capConfig = opts.config
     ? capId === "calendar"
       ? opts.config.calendar
-      : capId === "gmail"
-        ? opts.config.gmail
-        : capId === "slack-personal"
-          ? opts.config.slack
+      : capId === "email"
+        ? opts.config.email
+        : capId === "messaging"
+          ? opts.config.messaging
           : undefined
     : undefined;
 

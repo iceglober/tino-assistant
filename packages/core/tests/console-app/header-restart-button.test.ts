@@ -33,7 +33,7 @@ import { Header } from "../../src/console-app/components/Header.js";
 import type { Session } from "../../src/console-app/lib/api.js";
 
 const SESSION: Session = {
-  user: { id: "U001", email: "admin@example.com", name: "Admin" },
+  user: { id: "U001", email: "admin@example.com", name: "Admin", role: "admin" },
 };
 
 describe("<Header /> — wave 3.4 restart button", () => {

@@ -19,6 +19,7 @@ const PREFIXES: Record<string, string[]> = {
   gmail: ["gmail_"],
   calendar: ["calendar_"],
   slack: ["slack_"],
+  "slack-personal": ["slack_search", "slack_list_dms", "slack_read_dm"],
   cloudwatch: ["cloudwatch_"],
 };
 

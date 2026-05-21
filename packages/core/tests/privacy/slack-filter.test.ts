@@ -1,16 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { slackFilter } from "../../src/privacy/slack.js";
-import type { SlackPrivacyConfig } from "../../src/privacy/types.js";
+import { messagingFilter } from "../../src/privacy/messaging-filter.js";
+import type { MessagingPrivacyConfig } from "../../src/privacy/types.js";
 
-const baseConfig: SlackPrivacyConfig = {
+const baseConfig: MessagingPrivacyConfig = {
   denyListedConversationIds: ["D_THERAPIST"],
   denyListedUserIds: ["U_THERAPIST"],
-  multiPartyMode: "conservative",
 };
 
-describe("slack privacy filter", () => {
+describe("messaging privacy filter", () => {
   it("deny-listed conversation id gates", () => {
-    const result = slackFilter(
+    const result = messagingFilter(
       { channel: "D_THERAPIST" },
       { messages: [{ user: "U_OTHER", ts: "1716100000.000" }] },
       baseConfig,
@@ -23,7 +22,7 @@ describe("slack privacy filter", () => {
   });
 
   it("deny-listed user in 1:1 DM gates", () => {
-    const result = slackFilter(
+    const result = messagingFilter(
       { channel: "D_SOME_CHANNEL" },
       { messages: [{ user: "U_THERAPIST", ts: "1716100000.000" }] },
       baseConfig,
@@ -32,7 +31,7 @@ describe("slack privacy filter", () => {
   });
 
   it("deny-listed user in MPIM gates whole MPIM", () => {
-    const result = slackFilter(
+    const result = messagingFilter(
       { channel: "G_GROUP" },
       {
         messages: [
@@ -47,7 +46,7 @@ describe("slack privacy filter", () => {
   });
 
   it("non-deny-listed conversation persists", () => {
-    const result = slackFilter(
+    const result = messagingFilter(
       { channel: "D_FRIEND" },
       { messages: [{ user: "U_FRIEND", ts: "1716100000.000" }] },
       baseConfig,
@@ -55,8 +54,8 @@ describe("slack privacy filter", () => {
     expect(result.persist).toBe(true);
   });
 
-  it("deny-listed user in slack_list_dms result gates", () => {
-    const result = slackFilter(
+  it("deny-listed user in list result gates", () => {
+    const result = messagingFilter(
       {},
       {
         conversations: [
@@ -70,7 +69,7 @@ describe("slack privacy filter", () => {
   });
 
   it("no config means persist", () => {
-    const result = slackFilter(
+    const result = messagingFilter(
       { channel: "D_THERAPIST" },
       { messages: [{ user: "U_THERAPIST", ts: "1716100000.000" }] },
       undefined,

@@ -2,101 +2,94 @@ import { type JSX, useEffect, useState } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { InsecureBanner } from "./components/InsecureBanner.js";
 import { ToastProvider } from "./hooks/useToast.js";
-import { getConfig, type Session, UnauthorizedError } from "./lib/api.js";
-import { Audit } from "./pages/Audit.js";
-import { Console, fetchInitialConsoleValues } from "./pages/Console.js";
+import { useAuth } from "./hooks/useAuth.js";
+import type { Session } from "./lib/api.js";
+import { getConfig, getPrivacyStatus } from "./lib/api.js";
+import { Admin } from "./pages/Admin.js";
+import { Dashboard } from "./pages/Dashboard.js";
 import { Login } from "./pages/Login.js";
-import { MyActivity } from "./pages/MyActivity.js";
+import { Onboarding } from "./pages/Onboarding.js";
 import { Setup } from "./pages/Setup.js";
-import { Users } from "./pages/Users.js";
 
-type AppState =
-  | { kind: "loading" }
-  | { kind: "login" }
-  | { kind: "setup"; step: 1 | 2 }
-  | { kind: "console"; values: Awaited<ReturnType<typeof fetchInitialConsoleValues>> };
+type Phase = "loading" | "setup" | "onboarding" | "ready";
 
-/**
- * Top-level routing logic.
- *
- * Mirror: the inline `init()` at `html.ts:2075-2103` + the auth check at
- * `console/server.ts:382-451`.
- *
- * Decision tree:
- *   1. Try GET /api/config.
- *      - 401 → no session → render <Login>.
- *      - 200 → check what's configured.
- *   2. If slack.botToken + slack.appToken aren't set → step 1 of <Setup>.
- *   3. If bedrock.modelId + slack.adminUserId aren't set → step 2 of <Setup>.
- *   4. Otherwise → <Console> with current values pre-filled.
- *
- * The session check is best-effort — if it fails, we still try the config
- * fetch and let the 401 path handle redirection. This matches the legacy
- * behaviour where the inline JS just reloaded on 401.
- */
+async function determinePhase(session: Session): Promise<Phase> {
+  if (session.user.role === "admin") {
+    try {
+      const entries = await getConfig();
+      const get = (k: string): string => {
+        const e = entries.find((x) => x.key === k);
+        if (!e) return "";
+        try { return String(JSON.parse(e.value)); } catch { return e.value; }
+      };
+      const hasSlack = !!(get("slack.botToken") && get("slack.appToken"));
+      const hasModel = !!get("bedrock.modelId");
+      if (!hasSlack || !hasModel) return "setup";
+    } catch {
+      return "setup";
+    }
+  }
+
+  try {
+    const status = await getPrivacyStatus();
+    if (!status.hasPrivacyConfig && status.connectedCapabilities.length > 0) {
+      return "onboarding";
+    }
+  } catch { /* no privacy store — skip onboarding gate */ }
+
+  return "ready";
+}
+
 function AppRouter(): JSX.Element {
-  const [state, setState] = useState<AppState>({ kind: "loading" });
+  const { session, loading, signOut } = useAuth();
+  const [phase, setPhase] = useState<Phase>("loading");
+  const [checkKey, setCheckKey] = useState(0);
 
   useEffect(() => {
-    void (async () => {
-      try {
-        // Probe config — also serves as the auth check. If we're unauthorized,
-        // getConfig throws UnauthorizedError.
-        const entries = await getConfig();
-        const cfg = Object.fromEntries(
-          entries.map((e) => {
-            let val: unknown = e.value;
-            try {
-              val = JSON.parse(e.value);
-            } catch {
-              /* leave raw */
-            }
-            return [e.key, val];
-          }),
-        ) as Record<string, unknown>;
+    if (loading) return;
+    if (!session) { setPhase("ready"); return; }
 
-        const hasSlack = !!(cfg["slack.botToken"] && cfg["slack.appToken"]);
-        const hasBasics = !!(cfg["bedrock.modelId"] && cfg["slack.adminUserId"]);
+    setPhase("loading");
+    void determinePhase(session).then(setPhase);
+  }, [loading, session, checkKey]);
 
-        if (!hasSlack) {
-          setState({ kind: "setup", step: 1 });
-          return;
-        }
-        if (!hasBasics) {
-          setState({ kind: "setup", step: 2 });
-          return;
-        }
-
-        const values = await fetchInitialConsoleValues();
-        setState({ kind: "console", values });
-      } catch (err) {
-        if (err instanceof UnauthorizedError) {
-          setState({ kind: "login" });
-        } else {
-          // Couldn't reach the API — best fallback is the welcome screen so
-          // the user at least sees something useful (matches legacy behaviour).
-          setState({ kind: "setup", step: 1 });
-        }
-      }
-    })();
-  }, []);
-
-  if (state.kind === "loading") {
+  if (loading || phase === "loading") {
     return (
-      <div className="page" style={{ color: "var(--text-dim)" }}>
-        loading…
+      <div className="page" style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "60vh" }}>
+        <p className="empty">loading…</p>
       </div>
     );
   }
-  if (state.kind === "login") return <Login />;
-  if (state.kind === "setup") return <Setup initialStep={state.step} />;
+
+  if (!session) return <Login />;
+
+  if (phase === "setup") {
+    return <Setup session={session} onComplete={() => setCheckKey((k) => k + 1)} />;
+  }
+  if (phase === "onboarding") {
+    return <Onboarding session={session} onComplete={() => setPhase("ready")} />;
+  }
+
   return (
-    <Console
-      initialSlackBot={state.values.slackBot}
-      initialSlackApp={state.values.slackApp}
-      initialModelId={state.values.modelId}
-      initialAdminId={state.values.adminId}
-    />
+    <Routes>
+      <Route path="/admin" element={<Admin />} />
+      <Route path="/login" element={<Navigate to="/" replace />} />
+      {/* Legacy redirects */}
+      <Route path="/setup" element={<Navigate to="/" replace />} />
+      <Route path="/users" element={<Navigate to="/admin" replace />} />
+      <Route path="/onboarding" element={<Navigate to="/" replace />} />
+      <Route path="/privacy" element={<Navigate to="/" replace />} />
+      <Route path="/my-capabilities" element={<Navigate to="/" replace />} />
+      <Route path="/me/activity" element={<Navigate to="/" replace />} />
+      <Route path="/audit" element={<Navigate to="/" replace />} />
+      <Route path="*" element={
+        <Dashboard
+          session={session}
+          signOut={signOut}
+          onRecheck={() => setCheckKey((k) => k + 1)}
+        />
+      } />
+    </Routes>
   );
 }
 
@@ -105,20 +98,10 @@ export function App(): JSX.Element {
     <ToastProvider>
       <InsecureBanner />
       <BrowserRouter>
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route path="/my-capabilities" element={<Navigate to="/" replace />} />
-          <Route path="/me/activity" element={<MyActivity />} />
-          <Route path="/users" element={<Users />} />
-          <Route path="/audit" element={<Audit />} />
-          <Route path="*" element={<AppRouter />} />
-        </Routes>
+        <AppRouter />
       </BrowserRouter>
     </ToastProvider>
   );
 }
 
-// Helper used only to keep the linter happy in this top-level file —
-// React's strict mode unused import warnings are silenced by referencing
-// the type from the module.
 export type { Session };

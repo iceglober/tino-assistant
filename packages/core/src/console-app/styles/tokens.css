@@ -446,6 +446,21 @@ body {
 .header-signout:hover {
   text-decoration: underline;
 }
+.header-nav-btn {
+  background: transparent;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 0.786rem;
+  padding: 0;
+}
+.header-nav-btn:hover {
+  text-decoration: underline;
+}
+.header-nav-btn.active {
+  color: var(--text-prim);
+  font-weight: 600;
+}
 
 /* ── Tab bar ────────────────────────────────────────────────────────── */
 .tab-bar {
@@ -873,6 +888,54 @@ body {
   padding: 0;
 }
 
+/* ── Checklist (privacy onboarding) ─────────────────────────────────── */
+.checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 8px;
+}
+.check-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 120ms var(--ease-out);
+}
+.check-item:hover {
+  background: transparent;
+}
+.check-item input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.check-item-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.check-item-label {
+  font-size: 0.857rem;
+  color: var(--text-prim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.check-item-sub {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ── Login page ─────────────────────────────────────────────────────── */
 .login-page {
   display: flex;
@@ -916,6 +979,42 @@ body {
 .login-btn:hover {
   background: #d4a57a;
 }
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+.login-input {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-deep);
+  color: var(--text);
+  font-size: 0.929rem;
+  font-family: inherit;
+  box-sizing: border-box;
+}
+.login-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.login-hint {
+  color: var(--text-sec);
+  font-size: 0.857rem;
+  margin-top: 16px;
+}
+.login-link {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: inherit;
+  font-family: inherit;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+}
 .login-error {
   color: var(--err);
   font-size: 0.857rem;
@@ -929,4 +1028,329 @@ body {
 }
 .cap-card.state-disabled .cap-card-name {
   color: var(--text-sec);
+}
+
+/* ── Privacy banner (dashboard CTA) ────────────────────────────────── */
+.privacy-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  background: rgba(200, 149, 106, 0.08);
+  border: 1px solid rgba(200, 149, 106, 0.25);
+  border-radius: var(--radius);
+  padding: 16px 20px;
+  margin-bottom: 28px;
+}
+
+/* ── Privacy intro (first-time setup) ──────────────────────────────── */
+.privacy-intro {
+  background: var(--bg-raised);
+  border: 1px solid var(--border-sub);
+  border-radius: var(--radius);
+  padding: 20px 24px;
+  margin-bottom: 28px;
+  line-height: 1.6;
+  color: var(--text-sec);
+  font-size: 0.929rem;
+}
+.privacy-intro strong {
+  color: var(--text-prim);
+}
+
+/* ── Bulk actions (select all / deselect all) ──────────────────────── */
+.bulk-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 8px 0;
+  font-size: 0.786rem;
+  color: var(--text-dim);
+}
+.bulk-actions button {
+  background: transparent;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 0.786rem;
+  padding: 0;
+}
+.bulk-actions button:hover {
+  text-decoration: underline;
+}
+
+/* ── Show more (expand long lists) ─────────────────────────────────── */
+.show-more-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-sec);
+  cursor: pointer;
+  font-size: 0.786rem;
+  padding: 6px 14px;
+  border-radius: var(--radius-sm);
+  margin-top: 8px;
+  transition: background 100ms var(--ease-out), border-color 100ms var(--ease-out);
+}
+.show-more-btn:hover {
+  background: var(--bg-raised);
+  border-color: var(--border);
+  color: var(--text-prim);
+}
+
+/* ── Scan button ───────────────────────────────────────────────────── */
+.scan-btn {
+  background: var(--accent);
+  color: var(--bg);
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 6px 16px;
+  font-size: 0.857rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 100ms var(--ease-out);
+  white-space: nowrap;
+}
+.scan-btn:hover { opacity: 0.85; }
+.scan-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Scan progress bar ─────────────────────────────────────────────── */
+.scan-progress {
+  margin: 12px 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.scan-progress-bar {
+  flex: 1;
+  height: 6px;
+  background: var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+  max-width: 320px;
+}
+.scan-progress-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 3px;
+  transition: width 300ms var(--ease-out);
+}
+.scan-progress-label {
+  font-size: 0.786rem;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+/* ── Scan reason text on check items ───────────────────────────────── */
+.check-item-reason {
+  display: block;
+  font-size: 0.714rem;
+  color: var(--text-dim);
+  line-height: 1.3;
+  margin-top: 1px;
+}
+
+/* ── Check item examples ──────────────────────────────────────────── */
+.check-item-wrap {
+  border-radius: var(--radius-sm);
+}
+.check-item-wrap:hover {
+  background: var(--bg-inset);
+}
+.examples-toggle {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 0.714rem;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: color 100ms, border-color 100ms;
+}
+.examples-toggle:hover {
+  color: var(--text-sec);
+  border-color: var(--text-dim);
+}
+.check-item-examples {
+  list-style: none;
+  padding: 0 0 8px 42px;
+  margin: 0;
+  font-size: 0.786rem;
+  color: var(--text-dim);
+  line-height: 1.6;
+}
+.check-item-examples li {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.check-item-examples li::before {
+  content: "› ";
+  color: var(--border);
+}
+
+/* ── Confidence dots ───────────────────────────────────────────────── */
+.confidence-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+.confidence-high {
+  background: var(--accent);
+}
+.confidence-medium {
+  background: transparent;
+  border: 1px solid var(--accent);
+}
+
+/* ── Setup banner (inline admin first-time config) ───────────────── */
+.setup-banner {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px 24px;
+  margin-bottom: 28px;
+}
+.setup-banner-header {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-prim);
+  margin-bottom: 6px;
+}
+.setup-banner-desc {
+  font-size: 0.857rem;
+  color: var(--text-sec);
+  margin-bottom: 16px;
+  line-height: 1.5;
+}
+.setup-banner-check {
+  font-size: 0.857rem;
+  color: var(--ok);
+  font-weight: 500;
+  margin-bottom: 8px;
+}
+.setup-banner-fields {
+  max-width: 480px;
+}
+
+/* ── Admin section labels ────────────────────────────────────────── */
+.admin-section-label {
+  font-size: 0.786rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  margin-bottom: 12px;
+  margin-top: 28px;
+}
+.admin-section-label:first-child {
+  margin-top: 0;
+}
+
+/* ── Admin danger zone ───────────────────────────────────────────── */
+.admin-danger-zone {
+  margin-top: 28px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-sub);
+}
+
+/* ── Back link ───────────────────────────────────────────────────── */
+.back-link {
+  background: transparent;
+  border: none;
+  color: var(--accent);
+  font-size: 0.857rem;
+  cursor: pointer;
+  padding: 0;
+  margin-bottom: 16px;
+  display: inline-block;
+}
+.back-link:hover {
+  text-decoration: underline;
+}
+
+/* ── Privacy saved CTA ───────────────────────────────────────────── */
+.privacy-saved-cta {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 28px;
+  padding: 16px 20px;
+  background: rgba(106, 171, 122, 0.08);
+  border: 1px solid rgba(106, 171, 122, 0.25);
+  border-radius: var(--radius);
+  font-size: 0.929rem;
+  color: var(--ok);
+}
+
+/* ── Onboarding page ────────────────────────────────────────────── */
+.onboarding-page {
+  min-height: 100dvh;
+  display: flex;
+  justify-content: center;
+  padding: clamp(16px, 4vw, 48px);
+}
+.onboarding-container {
+  max-width: 640px;
+  width: 100%;
+}
+.onboarding-logo {
+  width: 48px;
+  height: 48px;
+  border-radius: 10px;
+  margin-bottom: 28px;
+}
+.onboarding-explainer {
+  background: var(--bg-raised);
+  border: 1px solid var(--border-sub);
+  border-radius: var(--radius);
+  padding: 16px 20px;
+  margin-bottom: 28px;
+  font-size: 0.929rem;
+  color: var(--text-sec);
+  line-height: 1.6;
+}
+.onboarding-explainer p {
+  margin-bottom: 8px;
+}
+.onboarding-explainer p:last-child {
+  margin-bottom: 0;
+}
+.onboarding-explainer strong {
+  color: var(--text-prim);
+}
+.onboarding-section {
+  margin-bottom: 28px;
+  padding-bottom: 28px;
+  border-bottom: 1px solid var(--border-sub);
+}
+.onboarding-section:last-of-type {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+.onboarding-save {
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border-sub);
+}
+.onboarding-scan {
+  text-align: center;
+  padding-top: 10vh;
+}
+
+/* ── Add capability card ────────────────────────────────────────── */
+.add-cap-card {
+  border-style: dashed;
+  border-color: var(--border);
+}
+.add-cap-card:hover {
+  border-color: var(--accent);
+  background: rgba(200, 149, 106, 0.04);
 }

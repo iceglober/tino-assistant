@@ -8,7 +8,7 @@
  */
 
 /** External identity providers we support. */
-export type IdentityProvider = "slack" | "google";
+export type IdentityProvider = "slack" | "google" | "email";
 
 /**
  * The canonical per-user record. Keyed by `id` (a UUID, generated at

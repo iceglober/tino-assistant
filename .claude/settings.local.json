@@ -17,7 +17,8 @@
       "Bash(git commit *)",
       "Bash(bun install *)",
       "Bash(bun run *)",
-      "Bash(bunx tsc *)"
+      "Bash(bunx tsc *)",
+      "Bash(bun --bun ./node_modules/vitest/dist/cli.js run tests/slack/resolve-dm-sender.test.ts tests/slack/allowlist.test.ts)"
     ]
   }
 }

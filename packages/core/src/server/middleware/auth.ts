@@ -23,19 +23,17 @@ import type { AppLogger } from "../../slack/app.js";
  * without it session token signatures change and all sessions invalidate.
  */
 export async function createAuth(opts: {
-  googleClientId: string;
-  googleClientSecret: string;
+  googleClientId?: string;
+  googleClientSecret?: string;
   allowedDomain?: string;
   baseUrl: string;
   dbPath?: string;
   logger?: AppLogger;
   sessionStore?: SessionSecondaryStorage;
+  emailPassword?: boolean;
 }): Promise<Auth> {
   const envSecret = process.env.BETTER_AUTH_SECRET;
   if (!envSecret) {
-    // Without a stable secret, every process restart silently invalidates
-    // ALL outstanding sessions. Use a per-process random fallback so dev
-    // works, but warn loudly so production deployments fix it.
     opts.logger?.warn(
       { fix: "set BETTER_AUTH_SECRET env var (Pulumi: SecretsManager)" },
       "BETTER_AUTH_SECRET not set — sessions will be invalidated on every restart",
@@ -43,22 +41,26 @@ export async function createAuth(opts: {
   }
   const secret = envSecret ?? crypto.randomUUID();
 
+  const socialProviders: Record<string, { clientId: string; clientSecret: string }> = {};
+  if (opts.googleClientId && opts.googleClientSecret) {
+    socialProviders.google = {
+      clientId: opts.googleClientId,
+      clientSecret: opts.googleClientSecret,
+    };
+  }
+
   const authConfig: Parameters<typeof betterAuth>[0] = {
     baseURL: opts.baseUrl,
     secret,
     database: new Database(opts.dbPath ?? "./tino-auth.db"),
-    socialProviders: {
-      google: {
-        clientId: opts.googleClientId,
-        clientSecret: opts.googleClientSecret,
-      },
-    },
+    socialProviders: Object.keys(socialProviders).length > 0 ? socialProviders : undefined,
+    emailAndPassword: opts.emailPassword ? { enabled: true } : undefined,
     session: { expiresIn: 60 * 60 * 24 },
     user: {
       additionalFields: {
         role: { type: "string", defaultValue: "member" },
         status: { type: "string", defaultValue: "active" },
-        slackUserId: { type: "string", required: false },
+        slackUserId: { type: "string", required: false, defaultValue: null },
       },
     },
   };
@@ -115,8 +117,9 @@ export function buildAuthMiddleware(opts: {
   identities?: IdentityStore;
   users?: UserStore;
   configStore?: ConfigStore;
+  localDev?: boolean;
 }): MiddlewareHandler<{ Variables: AuthVariables }> {
-  const { auth, allowedDomain, logger, identities, users, configStore } = opts;
+  const { auth, allowedDomain, logger, identities, users, configStore, localDev } = opts;
 
   return async (c, next) => {
     const url = c.req.path;
@@ -141,14 +144,15 @@ export function buildAuthMiddleware(opts: {
       return;
     }
 
-    if (allowedDomain && !session.user.email?.endsWith(`@${allowedDomain}`)) {
+    if (allowedDomain && !localDev && !session.user.email?.endsWith(`@${allowedDomain}`)) {
       return c.json({ error: "forbidden", message: `Only @${allowedDomain} accounts allowed` }, 403);
     }
 
     const email = session.user.email?.toLowerCase();
 
     if (identities && users && email) {
-      const tinoUserId = await identities.resolve("google", email);
+      let tinoUserId = await identities.resolve("google", email);
+      if (!tinoUserId) tinoUserId = await identities.resolve("email", email);
 
       if (tinoUserId) {
         const tinoUser = await users.get(tinoUserId);
@@ -171,9 +175,8 @@ export function buildAuthMiddleware(opts: {
         return;
       }
 
-      // No tino identity for this email — check org-domain auto-provisioning.
-      // Resolve the effective mode and domain: explicit config takes precedence,
-      // but when allowedDomain is set it implies org-domain trust.
+      // No tino identity — check auto-provisioning.
+      // Localhost auto-provisions all users. Production uses org-domain matching.
       let mode = "allowlist";
       let orgDomain: string | undefined;
 
@@ -187,10 +190,15 @@ export function buildAuthMiddleware(opts: {
         orgDomain = allowedDomain;
       }
 
-      if (mode === "org-domain" && orgDomain && email.endsWith(`@${orgDomain}`)) {
+      const shouldAutoProvision =
+        localDev ||
+        (mode === "org-domain" && orgDomain && email.endsWith(`@${orgDomain}`));
+
+      if (shouldAutoProvision) {
         const existingUsers = await users.list();
         const hasAdmin = existingUsers.some((u) => u.role === "admin");
         const role = hasAdmin ? "member" : "admin";
+        const provider = localDev ? "email" : "google";
 
         const newUser = await users.create({
           id: crypto.randomUUID(),
@@ -203,12 +211,12 @@ export function buildAuthMiddleware(opts: {
           updatedAt: Date.now(),
         });
         await identities.link({
-          provider: "google",
+          provider,
           externalId: email,
           tinoUserId: newUser.id,
           linkedAt: Date.now(),
         });
-        logger.info({ tinoUserId: newUser.id, email, role }, "auto-provisioned user via org-domain (console)");
+        logger.info({ tinoUserId: newUser.id, email, role, provider }, "auto-provisioned user (console)");
         c.set("user", {
           id: newUser.id,
           email: newUser.email,

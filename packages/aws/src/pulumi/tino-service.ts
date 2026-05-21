@@ -28,6 +28,13 @@ export interface TinoServiceArgs {
   googleOAuthClientSecret: pulumi.Input<string>;
 
   /**
+   * Stable secret for signing session cookies. Must persist across deploys
+   * or all sessions are invalidated on every restart. If not provided,
+   * auto-generated and stored in SSM Parameter Store.
+   */
+  betterAuthSecret?: pulumi.Input<string>;
+
+  /**
    * Allowed email domain for console access (e.g., "kayn.ai").
    * Only Google accounts from this domain can sign in.
    * If not provided, any Google account can sign in (not recommended for production).
@@ -1054,8 +1061,9 @@ export class TinoService extends pulumi.ComponentResource {
             pulumi.output(args.googleOAuthClientId),
             pulumi.output(args.googleOAuthClientSecret),
             builtImage.ref,
+            pulumi.output(args.betterAuthSecret ?? ""),
           ])
-          .apply(([logName, consoleBaseUrl, googleClientId, googleClientSecret, imageRef]) =>
+          .apply(([logName, consoleBaseUrl, googleClientId, googleClientSecret, imageRef, authSecret]) =>
             JSON.stringify([
               {
                 name: "tino",
@@ -1085,6 +1093,7 @@ export class TinoService extends pulumi.ComponentResource {
                   { name: "CONSOLE_ALLOWED_DOMAIN", value: args.allowedDomain ?? "" },
                   { name: "CONSOLE_BASE_URL", value: consoleBaseUrl },
                   { name: "AUDIT_RETENTION_DAYS", value: String(args.auditRetentionDays ?? 90) },
+                  ...(authSecret ? [{ name: "BETTER_AUTH_SECRET", value: authSecret }] : []),
                 ],
                 // No secrets block — credentials come from the DynamoDB config store
                 logConfiguration: {

@@ -1,7 +1,7 @@
 import { TOOL_TO_CAPABILITY } from "../privacy/filter.js";
 import type { AppLogger } from "../slack/app.js";
 
-const PRIVATE_CAPABILITY_IDS = new Set(["gmail", "slack-personal", "calendar"]);
+const PRIVATE_CAPABILITY_IDS = new Set(["email", "messaging", "calendar"]);
 
 export function isPrivateCapabilityTool(toolName: string): boolean {
   return toolName in TOOL_TO_CAPABILITY;

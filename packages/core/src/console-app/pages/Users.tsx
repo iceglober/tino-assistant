@@ -5,16 +5,16 @@ import { RequireRole } from "../components/RequireRole.js";
 import { useAuth } from "../hooks/useAuth.js";
 import { useHealth } from "../hooks/useHealth.js";
 import { useToast } from "../hooks/useToast.js";
-import { addOrgUser, getOrgUsers, type OrgUser, patchOrgUser } from "../lib/api.js";
+import { getOrgUsers, type OrgUser, patchOrgUser } from "../lib/api.js";
 
 export function Users(): JSX.Element {
-  const { session, signOut } = useAuth();
+  const { session, loading, signOut } = useAuth();
   const { health } = useHealth();
   const toast = useToast();
   const status: "ok" | "degraded" | "unreachable" | "checking" = !health ? "checking" : health.ok ? "ok" : "degraded";
 
   return (
-    <RequireRole session={session} requiredRole="admin">
+    <RequireRole session={session} loading={loading} requiredRole="admin">
       <div className="page">
         <Header status={status} session={session} onSignOut={() => void signOut()} />
         <div className="section-label">users</div>
@@ -28,7 +28,6 @@ export function Users(): JSX.Element {
 function UsersTable({ currentUserId, toast }: { currentUserId: string; toast: ReturnType<typeof useToast> }): JSX.Element {
   const [users, setUsers] = useState<OrgUser[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showAdd, setShowAdd] = useState(false);
 
   const load = async (): Promise<void> => {
     try {
@@ -108,59 +107,9 @@ function UsersTable({ currentUserId, toast }: { currentUserId: string; toast: Re
           ))}
         </tbody>
       </table>
-      <div style={{ marginTop: 16 }}>
-        <button type="button" className="header-signout" onClick={() => setShowAdd(!showAdd)}>
-          {showAdd ? "cancel" : "add user"}
-        </button>
-      </div>
-      {showAdd ? <AddUserForm onAdded={() => { setShowAdd(false); void load(); }} toast={toast} /> : null}
+      <p style={{ marginTop: 16, fontSize: 12, color: "var(--text-dim)" }}>
+        users are provisioned automatically when they sign in with a Google account on the allowed domain.
+      </p>
     </>
-  );
-}
-
-function AddUserForm({ onAdded, toast }: { onAdded: () => void; toast: ReturnType<typeof useToast> }): JSX.Element {
-  const [email, setEmail] = useState("");
-  const [slackUserId, setSlackUserId] = useState("");
-  const [role, setRole] = useState<"admin" | "member">("member");
-
-  const onSubmit = async (): Promise<void> => {
-    if (!email) { toast.show("email is required", "err"); return; }
-    try {
-      await addOrgUser({ email, slackUserId: slackUserId || undefined, role });
-      toast.show(`${email} added`, "ok");
-      onAdded();
-    } catch (err) {
-      toast.show((err as Error).message, "err");
-    }
-  };
-
-  return (
-    <div style={{ marginTop: 12, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-      <input
-        type="email"
-        placeholder="email"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-        style={{ padding: "6px 8px", fontSize: 13, borderRadius: 4, border: "1px solid var(--border)", background: "var(--bg)", color: "var(--text)" }}
-      />
-      <input
-        type="text"
-        placeholder="slack user id (optional)"
-        value={slackUserId}
-        onChange={(e) => setSlackUserId(e.target.value)}
-        style={{ padding: "6px 8px", fontSize: 13, borderRadius: 4, border: "1px solid var(--border)", background: "var(--bg)", color: "var(--text)" }}
-      />
-      <select
-        value={role}
-        onChange={(e) => setRole(e.target.value as "admin" | "member")}
-        style={{ padding: "6px 8px", fontSize: 13, borderRadius: 4, border: "1px solid var(--border)", background: "var(--bg)", color: "var(--text)" }}
-      >
-        <option value="member">member</option>
-        <option value="admin">admin</option>
-      </select>
-      <button type="button" className="header-signout" onClick={() => void onSubmit()}>
-        add
-      </button>
-    </div>
   );
 }

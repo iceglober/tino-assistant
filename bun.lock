@@ -96,6 +96,9 @@
       },
     },
   },
+  "overrides": {
+    "typescript": "^6.0.3",
+  },
   "packages": {
     "@ai-sdk/amazon-bedrock": ["@ai-sdk/amazon-bedrock@4.0.105", "", { "dependencies": { "@ai-sdk/anthropic": "3.0.77", "@ai-sdk/provider": "3.0.10", "@ai-sdk/provider-utils": "4.0.27", "@smithy/eventstream-codec": "4.3.1", "@smithy/util-utf8": "4.3.1", "aws4fetch": "1.0.20" }, "peerDependencies": { "zod": "4.4.3" } }, "sha512-mNnJeRTIYRL2I2MS9ElRJTFMSeHqbx5EMCVsIlEKKTI4+2O+Zu0K7Rtp16HRXtxMepJF1Y756rAmUm/JvuXOGg=="],
 

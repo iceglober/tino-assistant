@@ -15,11 +15,10 @@ function makeAuditLogger() {
 }
 
 describe("retroactive scrub", () => {
-  it("adding a label scrubs prior matching threads to placeholders", async () => {
+  it("adding a folder scrubs prior matching threads to placeholders", async () => {
     const history = createHistoryStore({ cap: 100 });
     const userId = "user-1";
 
-    // Seed history with a gmail tool result containing a "Private" label
     await history.append(userId, [
       {
         role: "assistant",
@@ -41,16 +40,15 @@ describe("retroactive scrub", () => {
     ] as any);
 
     const config: PrivacyConfig = {
-      version: 1,
-      gmail: { privateLabels: ["Private"], denyListedAddresses: [], threadingMode: "conservative" },
+      version: 2,
+      email: { privateFolders: ["Private"], denyListedAddresses: [] },
       lastReviewedAt: Date.now(),
-      lastRepromptAt: null,
     };
 
     const audit = makeAuditLogger();
     const result = await runScrub({
       userId,
-      addedRules: { gmail: { addedLabels: ["Private"], removedLabels: [], addedAddresses: [], removedAddresses: [] } },
+      addedRules: { email: { addedFolders: ["Private"], removedFolders: [], addedAddresses: [], removedAddresses: [] } },
       history,
       config,
       auditLogger: audit,
@@ -62,14 +60,13 @@ describe("retroactive scrub", () => {
     const after = await history.get(userId);
     const toolMsg = after.find((m) => m.role === "tool") as any;
     expect(toolMsg.content[0].output.type).toBe("redacted");
-    expect(toolMsg.content[0].output.reason).toBe("private_label");
+    expect(toolMsg.content[0].output.reason).toBe("private_folder");
   });
 
   it("removing from deny-list does not unscrub previously-gated rows", async () => {
     const history = createHistoryStore({ cap: 100 });
     const userId = "user-1";
 
-    // Seed with an already-scrubbed placeholder
     await history.append(userId, [
       {
         role: "assistant",
@@ -82,18 +79,16 @@ describe("retroactive scrub", () => {
             type: "tool-result",
             toolCallId: "tc1",
             toolName: "gmail_search",
-            output: { type: "redacted", reason: "private_label", metadata: { threadId: "t1" } },
+            output: { type: "redacted", reason: "private_folder", metadata: { threadId: "t1" } },
           },
         ],
       },
     ] as any);
 
-    // Config with the label REMOVED (empty privateLabels)
     const config: PrivacyConfig = {
-      version: 1,
-      gmail: { privateLabels: [], denyListedAddresses: [], threadingMode: "conservative" },
+      version: 2,
+      email: { privateFolders: [], denyListedAddresses: [] },
       lastReviewedAt: Date.now(),
-      lastRepromptAt: null,
     };
 
     const result = await runScrub({
@@ -106,7 +101,6 @@ describe("retroactive scrub", () => {
 
     expect(result.rowsScrubbed).toBe(0);
 
-    // Placeholder should still be there
     const after = await history.get(userId);
     const toolMsg = after.find((m) => m.role === "tool") as any;
     expect(toolMsg.content[0].output.type).toBe("redacted");
@@ -135,13 +129,12 @@ describe("retroactive scrub", () => {
     ] as any);
 
     const config: PrivacyConfig = {
-      version: 1,
-      slack: { denyListedConversationIds: ["D_THERAPIST"], denyListedUserIds: [], multiPartyMode: "conservative" },
+      version: 2,
+      messaging: { denyListedConversationIds: ["D_THERAPIST"], denyListedUserIds: [] },
       lastReviewedAt: Date.now(),
-      lastRepromptAt: null,
     };
 
-    const delta = { slack: { addedConversationIds: ["D_THERAPIST"], removedConversationIds: [], addedUserIds: [], removedUserIds: [] } };
+    const delta = { messaging: { addedConversationIds: ["D_THERAPIST"], removedConversationIds: [], addedUserIds: [], removedUserIds: [] } };
 
     const r1 = await runScrub({ userId, addedRules: delta, history, config, logger: stubLogger });
     expect(r1.rowsScrubbed).toBe(1);
@@ -173,10 +166,9 @@ describe("retroactive scrub", () => {
     ] as any);
 
     const config: PrivacyConfig = {
-      version: 1,
+      version: 2,
       calendar: { defaultVisibility: "public", gateAllByDefault: false },
       lastReviewedAt: Date.now(),
-      lastRepromptAt: null,
     };
 
     const audit = makeAuditLogger();

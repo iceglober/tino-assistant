@@ -1,4 +1,5 @@
 import { type JSX, useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { CapabilityCard, type CapabilityShape } from "../components/CapabilityCard.js";
 import { ComplianceSection } from "../components/ComplianceSection.js";
 import { ConfigTable } from "../components/ConfigTable.js";
@@ -13,13 +14,13 @@ import {
   deleteUserCapability,
   getCapabilities,
   getConfig,
+  getPrivacyStatus,
   getUserCapabilities,
   putConfig,
+  reloadCapabilities,
   reloadSlack,
 } from "../lib/api.js";
 import { isCapabilityConnected } from "../lib/capabilityTools.js";
-
-type Tab = "integrations" | "connections";
 
 export function Console({
   initialSlackBot = "",
@@ -35,16 +36,18 @@ export function Console({
   const { session, signOut } = useAuth();
   const { health } = useHealth();
   const toast = useToast();
+  const navigate = useNavigate();
   const isAdmin = session?.user.role === "admin";
   const userId = session?.user.id;
+
+  const [hasPrivacyConfig, setHasPrivacyConfig] = useState(true);
+  const [hasConnectedCaps, setHasConnectedCaps] = useState(false);
 
   const status: "ok" | "degraded" | "unreachable" | "checking" = !health
     ? "checking"
     : health.ok
       ? "ok"
       : "degraded";
-
-  const [tab, setTab] = useState<Tab>(isAdmin ? "integrations" : "connections");
 
   // ── All capabilities (admin) ────────────────────────────────────────
   const [allCaps, setAllCaps] = useState<CapabilityShape[]>([]);
@@ -79,11 +82,38 @@ export function Console({
   useEffect(() => {
     void loadCaps();
     void loadUserCaps();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- fire once on mount
+    void getPrivacyStatus().then((s) => {
+      setHasPrivacyConfig(s.hasPrivacyConfig);
+      setHasConnectedCaps(s.connectedCapabilities.length > 0);
+    }).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin, userId]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const oauth = params.get("oauth");
+    if (!oauth) return;
+    window.history.replaceState({}, "", window.location.pathname);
+    if (oauth === "success") {
+      toast.show("Google account connected", "ok");
+      void reloadCapabilities().then(async () => {
+        await loadUserCaps();
+        navigate("/privacy");
+      });
+    } else if (oauth === "denied") {
+      toast.show("Google OAuth consent was denied", "err");
+    } else if (oauth === "no_refresh_token") {
+      toast.show("Google did not return a refresh token — revoke access at myaccount.google.com/permissions and try again", "err");
+    } else if (oauth === "expired" || oauth === "mismatch") {
+      toast.show("OAuth session expired — try again", "err");
+    } else if (oauth === "error") {
+      toast.show("Google OAuth failed — check server logs", "err");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const sharedCaps = allCaps.filter((c) => c.scope === "shared");
-  const privateCaps = allCaps.filter((c) => c.scope === "private");
 
   const onDeleteUserCap = async (capId: string): Promise<void> => {
     if (!userId) return;
@@ -94,6 +124,7 @@ export function Console({
     try {
       await deleteUserCapability(userId, capId);
       toast.show("Capability removed", "ok");
+      await reloadCapabilities();
       await loadUserCaps();
     } catch (err) {
       toast.show(`Could not delete: ${(err as Error).message}`, "err");
@@ -162,30 +193,70 @@ export function Console({
     <div className="page">
       <Header status={status} session={session} onSignOut={() => void signOut()} />
 
-      {/* Tab bar */}
-      <div className="tab-bar">
-        {isAdmin ? (
-          <button
-            type="button"
-            className={`tab-btn${tab === "integrations" ? " active" : ""}`}
-            onClick={() => setTab("integrations")}
-          >
-            integrations
+      {/* Privacy CTA */}
+      {hasConnectedCaps && !hasPrivacyConfig && (
+        <div className="privacy-banner">
+          <div>
+            <strong>privacy setup needed</strong>
+            <span style={{ marginLeft: 8, color: "var(--text-dim)" }}>
+              configure what tino stores before it starts persisting your data.
+            </span>
+          </div>
+          <button className="btn btn-primary-lg" type="button" onClick={() => navigate("/privacy")}>
+            configure privacy
           </button>
-        ) : null}
-        <button
-          type="button"
-          className={`tab-btn${tab === "connections" ? " active" : ""}`}
-          onClick={() => setTab("connections")}
-        >
-          my connections
-        </button>
+        </div>
+      )}
+
+      {/* My Connections */}
+      <div className="section-label">my connections</div>
+      <p className="section-hint">
+        Each user connects their own accounts. Your credentials are encrypted and only used for your requests.
+      </p>
+      <div className="cap-grid">
+        {userCapsError ? (
+          <p className="empty">error loading capabilities: {userCapsError}</p>
+        ) : userCaps.length === 0 ? (
+          <p className="empty">loading capabilities…</p>
+        ) : (
+          userCaps.map((cap) => {
+            const isGoogleCap = cap.id === "gmail" || cap.id === "calendar";
+            return (
+              <div key={cap.id} style={{ position: "relative" }}>
+                <CapabilityCard
+                  cap={{
+                    ...cap,
+                    connected: cap.enabled ? true : undefined,
+                    oauthUrl: isGoogleCap ? "/api/oauth/google/authorize" : undefined,
+                    userId,
+                  }}
+                  onChanged={loadUserCaps}
+                />
+                {cap.enabled ? (
+                  <button
+                    type="button"
+                    className="cap-delete-btn"
+                    onClick={() => void onDeleteUserCap(cap.id)}
+                    style={{
+                      position: "absolute", top: 16, right: 16,
+                      background: "var(--err)", color: "white", border: "none",
+                      borderRadius: 4, padding: "6px 12px", fontSize: 12,
+                      fontWeight: 500, cursor: "pointer", opacity: 0.8,
+                    }}
+                  >
+                    disconnect
+                  </button>
+                ) : null}
+              </div>
+            );
+          })
+        )}
       </div>
 
-      {/* ── Integrations tab (admin) ─────────────────────────────────── */}
-      {tab === "integrations" && isAdmin ? (
+      {/* Shared Integrations (admin) */}
+      {isAdmin && (
         <>
-          <div className="section-label">shared capabilities</div>
+          <div className="section-label" style={{ marginTop: 32 }}>shared capabilities</div>
           <p className="section-hint">
             Available to all users. Admin configures once.
           </p>
@@ -318,73 +389,7 @@ export function Console({
           <ConfigTable />
           <ComplianceSection />
         </>
-      ) : null}
-
-      {/* ── My Connections tab ───────────────────────────────────────── */}
-      {tab === "connections" ? (
-        <>
-          <div className="section-label">personal capabilities</div>
-          <p className="section-hint">
-            Each user connects their own accounts. Your credentials are encrypted and only used for your requests.
-          </p>
-          <div className="cap-grid">
-            {isAdmin && privateCaps.length > 0 ? (
-              privateCaps.map((cap) => {
-                const userCap = userCaps.find((uc) => uc.id === cap.id);
-                const merged: CapabilityShape = {
-                  ...cap,
-                  enabled: userCap?.enabled ?? cap.enabled,
-                  fields: userCap?.fields ?? cap.fields,
-                  connected: health ? isCapabilityConnected(cap.id, health.tools) : undefined,
-                };
-                return (
-                  <div key={cap.id} style={{ position: "relative" }}>
-                    <CapabilityCard cap={merged} onChanged={() => { void loadCaps(); void loadUserCaps(); }} />
-                    {userCap ? (
-                      <button
-                        type="button"
-                        className="cap-delete-btn"
-                        onClick={() => void onDeleteUserCap(cap.id)}
-                        style={{
-                          position: "absolute", top: 16, right: 16,
-                          background: "var(--err)", color: "white", border: "none",
-                          borderRadius: 4, padding: "6px 12px", fontSize: 12,
-                          fontWeight: 500, cursor: "pointer", opacity: 0.8,
-                        }}
-                      >
-                        disconnect
-                      </button>
-                    ) : null}
-                  </div>
-                );
-              })
-            ) : userCapsError ? (
-              <p className="empty">error loading capabilities: {userCapsError}</p>
-            ) : userCaps.length === 0 && !isAdmin ? (
-              <p className="empty">no personal capabilities configured yet</p>
-            ) : !isAdmin ? (
-              userCaps.map((cap) => (
-                <div key={cap.id} style={{ position: "relative" }}>
-                  <CapabilityCard cap={cap} onChanged={loadUserCaps} />
-                  <button
-                    type="button"
-                    className="cap-delete-btn"
-                    onClick={() => void onDeleteUserCap(cap.id)}
-                    style={{
-                      position: "absolute", top: 16, right: 16,
-                      background: "var(--err)", color: "white", border: "none",
-                      borderRadius: 4, padding: "6px 12px", fontSize: 12,
-                      fontWeight: 500, cursor: "pointer", opacity: 0.8,
-                    }}
-                  >
-                    disconnect
-                  </button>
-                </div>
-              ))
-            ) : null}
-          </div>
-        </>
-      ) : null}
+      )}
 
       <HealthFooter health={health} />
     </div>

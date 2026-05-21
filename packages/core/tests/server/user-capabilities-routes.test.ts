@@ -49,20 +49,15 @@ function mountUserCapabilities(
 describe("GET /api/user-capabilities/:userId", () => {
   it("returns user's private capabilities", async () => {
     const config = makeConfigStore({
-      "user.U001.capability.github": {
+      "user.U001.capability.gmail": {
         enabled: true,
-        credentials: { token: "ghp_user1" },
+        credentials: { clientId: "cid", clientSecret: "sec", refreshToken: "rt" },
         settings: {},
       },
-      "user.U001.capability.linear": {
-        enabled: false,
-        credentials: {},
-        settings: {},
-      },
-      // Different user's capability should not appear
-      "user.U002.capability.github": {
+      // Different user's capability should not appear as enabled
+      "user.U002.capability.gmail": {
         enabled: true,
-        credentials: { token: "ghp_user2" },
+        credentials: { clientId: "cid2" },
         settings: {},
       },
     });
@@ -70,17 +65,21 @@ describe("GET /api/user-capabilities/:userId", () => {
 
     const res = await app.request("/api/user-capabilities/U001?userId=U001");
     expect(res.status).toBe(200);
-    const body = (await res.json()) as Array<{ id: string }>;
-    expect(body).toHaveLength(2);
-    expect(body.map((c) => c.id)).toEqual(["github", "linear"]);
+    const body = (await res.json()) as Array<{ id: string; enabled: boolean }>;
+    // Returns all declared private capabilities (gmail, calendar, slack-personal)
+    expect(body).toHaveLength(3);
+    expect(body.map((c) => c.id)).toEqual(["calendar", "gmail", "slack-personal"]);
+    // Only the one with stored config is enabled
+    expect(body.find((c) => c.id === "gmail")?.enabled).toBe(true);
+    expect(body.find((c) => c.id === "calendar")?.enabled).toBe(false);
   });
 
-  it("returns empty list when user has no personal capabilities", async () => {
+  it("returns all private capability views even when user has none configured", async () => {
     const config = makeConfigStore({
       // Only global capabilities exist
       "capability.github": {
         enabled: true,
-        credentials: { token: "ghp_global" },
+        credentials: { clientId: "Iv1.test" },
         settings: {},
       },
     });
@@ -88,8 +87,10 @@ describe("GET /api/user-capabilities/:userId", () => {
 
     const res = await app.request("/api/user-capabilities/U001?userId=U001");
     expect(res.status).toBe(200);
-    const body = (await res.json()) as Array<{ id: string }>;
-    expect(body).toHaveLength(0);
+    const body = (await res.json()) as Array<{ id: string; enabled: boolean }>;
+    // All private capabilities returned (unconfigured)
+    expect(body).toHaveLength(3);
+    for (const cap of body) expect(cap.enabled).toBe(false);
   });
 
   it("rejects cross-user access with 403", async () => {
@@ -120,9 +121,9 @@ describe("GET /api/user-capabilities/:userId", () => {
 
   it("decodes URL-encoded user ids", async () => {
     const config = makeConfigStore({
-      "user.user@example.com.capability.github": {
+      "user.user@example.com.capability.gmail": {
         enabled: true,
-        credentials: { token: "ghp_test" },
+        credentials: { clientId: "cid" },
         settings: {},
       },
     });
@@ -133,8 +134,10 @@ describe("GET /api/user-capabilities/:userId", () => {
       `/api/user-capabilities/${encoded}?userId=${encoded}`,
     );
     expect(res.status).toBe(200);
-    const body = (await res.json()) as Array<{ id: string }>;
-    expect(body).toHaveLength(1);
+    const body = (await res.json()) as Array<{ id: string; enabled: boolean }>;
+    // All 3 private capabilities returned; gmail is enabled from stored config
+    expect(body).toHaveLength(3);
+    expect(body.find((c) => c.id === "gmail")?.enabled).toBe(true);
   });
 });
 
@@ -171,22 +174,22 @@ describe("PUT /api/user-capabilities/:userId/:capabilityId", () => {
 
   it("preserves existing fields when updating", async () => {
     const config = makeConfigStore({
-      "user.U001.capability.github": {
+      "user.U001.capability.gmail": {
         enabled: true,
-        credentials: { token: "old_token", apiKey: "stay_put" },
-        settings: { org: "tino-ai" },
+        credentials: { clientId: "old_id", clientSecret: "old_sec", refreshToken: "rt_keep" },
+        settings: {},
       },
     });
     const app = mountUserCapabilities({ config, logger: noopLogger() });
 
-    // Update only the token field
+    // Update only the clientId field
     const payload = {
       enabled: true,
-      fields: [{ key: "token", value: "new_token" }],
+      fields: [{ key: "clientId", value: "new_id" }],
     };
 
     const res = await app.request(
-      "/api/user-capabilities/U001/github?userId=U001",
+      "/api/user-capabilities/U001/gmail?userId=U001",
       {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -196,14 +199,13 @@ describe("PUT /api/user-capabilities/:userId/:capabilityId", () => {
 
     expect(res.status).toBe(200);
 
-    const saved = await config.get("user.U001.capability.github");
+    const saved = await config.get("user.U001.capability.gmail");
     const parsed = JSON.parse(saved as string) as {
       credentials: Record<string, string>;
       settings: Record<string, string>;
     };
-    expect(parsed.credentials.token).toBe("new_token");
-    expect(parsed.credentials.apiKey).toBe("stay_put");
-    expect(parsed.settings.org).toBe("tino-ai");
+    expect(parsed.credentials.clientId).toBe("new_id");
+    expect(parsed.credentials.refreshToken).toBe("rt_keep");
   });
 
   it("audit-logs successful saves", async () => {

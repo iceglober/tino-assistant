@@ -35,7 +35,8 @@ export function useAuth(): UseAuthResult {
 
   const signOut = async (): Promise<void> => {
     await apiSignOut();
-    window.location.href = "/";
+    setSession(null);
+    window.location.href = "/login";
   };
 
   return { session, loading, signOut };
