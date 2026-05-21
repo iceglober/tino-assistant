@@ -1366,6 +1366,12 @@ body {
   color: var(--text-sec);
   letter-spacing: -0.01em;
 }
+.splash-step {
+  font-size: 0.786rem;
+  color: var(--text-dim);
+  margin-top: 4px;
+  transition: opacity 200ms var(--ease-out);
+}
 @keyframes splash-pulse {
   0%, 100% { opacity: 0.5; }
   50% { opacity: 1; }

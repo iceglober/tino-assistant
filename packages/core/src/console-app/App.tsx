@@ -13,8 +13,20 @@ import { Setup } from "./pages/Setup.js";
 
 type Phase = "loading" | "setup" | "onboarding" | "ready";
 
-async function determinePhase(session: Session): Promise<Phase> {
+type LoadingStep = "auth" | "config" | "preferences";
+
+const STEP_LABELS: Record<LoadingStep, string> = {
+  auth: "Signing in…",
+  config: "Checking configuration…",
+  preferences: "Loading preferences…",
+};
+
+async function determinePhase(
+  session: Session,
+  onStep: (step: LoadingStep) => void,
+): Promise<Phase> {
   if (session.user.role === "admin") {
+    onStep("config");
     try {
       const entries = await getConfig();
       const get = (k: string): string => {
@@ -30,6 +42,7 @@ async function determinePhase(session: Session): Promise<Phase> {
     }
   }
 
+  onStep("preferences");
   try {
     const status = await getPrivacyStatus();
     if (!status.hasPrivacyConfig && status.connectedCapabilities.length > 0) {
@@ -43,6 +56,7 @@ async function determinePhase(session: Session): Promise<Phase> {
 function AppRouter(): JSX.Element {
   const { session, loading, signOut } = useAuth();
   const [phase, setPhase] = useState<Phase>("loading");
+  const [loadingStep, setLoadingStep] = useState<LoadingStep>("auth");
   const [checkKey, setCheckKey] = useState(0);
 
   useEffect(() => {
@@ -50,7 +64,8 @@ function AppRouter(): JSX.Element {
     if (!session) { setPhase("ready"); return; }
 
     setPhase("loading");
-    void determinePhase(session).then(setPhase);
+    setLoadingStep("auth");
+    void determinePhase(session, setLoadingStep).then(setPhase);
   }, [loading, session, checkKey]);
 
   if (loading || phase === "loading") {
@@ -58,6 +73,7 @@ function AppRouter(): JSX.Element {
       <div className="splash">
         <img src="/assets/tino-logo.png" alt="tino" className="splash-logo" />
         <div className="splash-wordmark">tino</div>
+        <div className="splash-step">{STEP_LABELS[loadingStep]}</div>
       </div>
     );
   }
