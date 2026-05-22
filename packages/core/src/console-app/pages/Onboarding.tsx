@@ -224,7 +224,11 @@ export function Onboarding({
           </div>
         ) : (
           <>
-            <h1 className="setup-heading">here's what tino found</h1>
+            <h1 className="setup-heading">
+              {labels.length === 0 && contacts.length === 0 && conversations.length === 0
+                ? "privacy settings"
+                : "here's what tino found"}
+            </h1>
 
             <div className="onboarding-explainer">
               <p>
@@ -235,6 +239,11 @@ export function Onboarding({
                 items you mark as <strong>private</strong> are never stored. tino reads them
                 in the moment to help you, then forgets immediately.
               </p>
+              {labels.length === 0 && contacts.length === 0 && conversations.length === 0 && (
+                <p style={{ marginTop: 8, color: "var(--text-dim)" }}>
+                  no email or messaging data was found — you can configure privacy later from each capability's settings.
+                </p>
+              )}
             </div>
 
             {hasEmail && labels.length > 0 && (

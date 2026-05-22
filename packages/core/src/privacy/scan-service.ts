@@ -31,6 +31,15 @@ export interface ScanServiceDeps {
   onProgress?: (p: ScanProgress) => void;
 }
 
+function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
+  ]);
+}
+
+const FETCH_TIMEOUT_MS = 10_000;
+
 export async function runPrivacyScan(userId: string, deps: ScanServiceDeps): Promise<ScanResult> {
   const { model, email, messaging, logger, onProgress } = deps;
   const result: ScanResult = { scannedAt: Date.now() };
@@ -39,10 +48,14 @@ export async function runPrivacyScan(userId: string, deps: ScanServiceDeps): Pro
     onProgress?.({ phase: "email-labels", pct: 0, message: "Fetching email data..." });
 
     const [labels, contacts, samples] = await Promise.all([
-      email.getLabels(userId),
-      email.getContacts(userId, { sinceDays: 180 }),
-      email.getSampleSubjects(userId, { maxPerLabel: 5 }),
+      withTimeout(email.getLabels(userId), FETCH_TIMEOUT_MS, []),
+      withTimeout(email.getContacts(userId, { sinceDays: 180 }), FETCH_TIMEOUT_MS, []),
+      withTimeout(email.getSampleSubjects(userId, { maxPerLabel: 5 }), FETCH_TIMEOUT_MS, []),
     ]);
+
+    if (labels.length === 0 && contacts.length === 0) {
+      logger.info({ userId }, "privacy scan: no email data returned (timeout or empty)");
+    }
 
     const sampleMap = new Map(samples.map((s) => [s.label, s.subjects]));
 
@@ -67,7 +80,7 @@ export async function runPrivacyScan(userId: string, deps: ScanServiceDeps): Pro
   if (messaging) {
     onProgress?.({ phase: "messaging", pct: 70, message: "Analyzing conversations..." });
 
-    const dms = await messaging.getDMs(userId);
+    const dms = await withTimeout(messaging.getDMs(userId), FETCH_TIMEOUT_MS, []);
     const dmItems = dms.map((d) => {
       const name = d.participantName ? `, participant="${d.participantName}"` : "";
       return `id="${d.id}"${name}, ${d.itemCount} messages`;
