@@ -34,7 +34,7 @@ export function Onboarding({
   const toast = useToast();
 
   const [connected, setConnected] = useState<string[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [statusLoaded, setStatusLoaded] = useState(false);
 
   const [labels, setLabels] = useState<CheckableLabel[]>([]);
   const [contacts, setContacts] = useState<CheckableContact[]>([]);
@@ -105,32 +105,31 @@ export function Onboarding({
       try {
         const s = await getPrivacyStatus();
         setConnected(s.connectedCapabilities);
-
-        const [lb, ct, dm] = await Promise.all([
-          getPrivacyLabels().catch(() => ({ labels: [] as PrivacyLabel[] })),
-          getPrivacyContacts().catch(() => ({ contacts: [] as PrivacyContact[] })),
-          getPrivacyDMs().catch(() => ({ conversations: [] as PrivacyConversation[] })),
-        ]);
-
-        setLabels(lb.labels.map((l) => ({ ...l, selected: l.preChecked })));
-        setContacts(ct.contacts.map((c) => ({ ...c, selected: c.preChecked })));
-        setConversations(dm.conversations.map((d) => ({ ...d, selected: d.preChecked })));
       } catch (err) {
         toast.show(`Failed to load: ${(err as Error).message}`, "err");
       } finally {
-        setLoading(false);
+        setStatusLoaded(true);
       }
     })();
+
+    void getPrivacyLabels()
+      .then((lb) => setLabels(lb.labels.map((l) => ({ ...l, selected: l.preChecked }))))
+      .catch(() => {});
+    void getPrivacyContacts()
+      .then((ct) => setContacts(ct.contacts.map((c) => ({ ...c, selected: c.preChecked }))))
+      .catch(() => {});
+    void getPrivacyDMs()
+      .then((dm) => setConversations(dm.conversations.map((d) => ({ ...d, selected: d.preChecked }))))
+      .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const autoScanned = useRef(false);
   useEffect(() => {
-    if (!loading && connected.length > 0 && !autoScanned.current) {
-      autoScanned.current = true;
-      triggerScan();
-    }
-  }, [loading, connected, triggerScan]);
+    if (!statusLoaded || connected.length === 0 || autoScanned.current) return;
+    autoScanned.current = true;
+    triggerScan();
+  }, [statusLoaded, connected, triggerScan]);
 
   const hasEmail = connected.includes("gmail") || connected.includes("calendar");
   const hasMessaging = connected.includes("slack-personal");
@@ -192,7 +191,7 @@ export function Onboarding({
     }
   };
 
-  if (loading) {
+  if (!statusLoaded) {
     return (
       <div className="onboarding-page">
         <div className="onboarding-container">
