@@ -127,7 +127,7 @@ export function Dashboard({
 
       <div className="cap-grid">
         {!capsLoaded ? (
-          <p className="empty">loading…</p>
+          <p className="empty">loading capabilities…</p>
         ) : enabledCaps.length === 0 ? (
           <p className="empty" style={{ color: "var(--text-dim)" }}>
             no capabilities connected yet.
@@ -218,7 +218,7 @@ function DashboardCard({
       <div className="cap-detail-wrap">
         <div className="cap-detail-inner">
           <div className="cap-detail">
-            <CapabilityPrivacy capId={cap.id} userId={userId} />
+            {open && <CapabilityPrivacy capId={cap.id} userId={userId} />}
             <div style={{ borderTop: "1px solid var(--border-sub)", paddingTop: 12, marginTop: 12 }}>
               <button
                 type="button"
