@@ -40,19 +40,23 @@ export function Capabilities(): JSX.Element {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
     const oauth = params.get("oauth");
-    if (!oauth) return;
+    const slackOauth = params.get("slack_oauth");
+    if (!oauth && !slackOauth) return;
     window.history.replaceState({}, "", window.location.pathname);
     if (oauth === "success") {
       toast.show("Google account connected", "ok");
       void reloadCapabilities().then(() => loadCaps());
-    } else if (oauth === "denied") {
-      toast.show("Google OAuth consent was denied", "err");
+    } else if (slackOauth === "success") {
+      toast.show("Slack account connected", "ok");
+      void reloadCapabilities().then(() => loadCaps());
+    } else if (oauth === "denied" || slackOauth === "denied") {
+      toast.show("OAuth consent was denied", "err");
     } else if (oauth === "no_refresh_token") {
       toast.show("Google did not return a refresh token — revoke access at myaccount.google.com/permissions and try again", "err");
-    } else if (oauth === "expired" || oauth === "mismatch") {
+    } else if (oauth === "expired" || oauth === "mismatch" || slackOauth === "expired" || slackOauth === "mismatch") {
       toast.show("OAuth session expired — try again", "err");
-    } else if (oauth === "error") {
-      toast.show("Google OAuth failed — check server logs", "err");
+    } else if (oauth === "error" || slackOauth === "error") {
+      toast.show("OAuth failed — check server logs", "err");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

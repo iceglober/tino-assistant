@@ -5,7 +5,7 @@ import { Layout } from "./components/Layout.js";
 import { ToastProvider } from "./hooks/useToast.js";
 import { useAuth } from "./hooks/useAuth.js";
 import type { Session } from "./lib/api.js";
-import { getConfig, getDiscoveryResult } from "./lib/api.js";
+import { getConfig, getDiscoveryResult, getMe } from "./lib/api.js";
 import { Capabilities } from "./pages/Capabilities.js";
 import { Dashboard } from "./pages/Dashboard.js";
 import { Login } from "./pages/Login.js";
@@ -47,6 +47,8 @@ async function determinePhase(
   }
 
   onStep("preferences");
+  const me = await getMe();
+  if (me && session.user.role === "admin" && !me.slackUserId) return "onboarding";
   try {
     const result = await getDiscoveryResult();
     if (!result) return "onboarding";

@@ -25,18 +25,15 @@ export function Onboarding({
   const abortRef = useRef<AbortController | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const advanceToSlackConnect = useCallback(async () => {
+  const advanceToDiscovery = useCallback(async () => {
     try {
-      const status = await getSlackOAuthStatus();
-      if (status.configured && !status.connected) {
-        setPhase("slack-connect");
+      const existing = await getDiscoveryResult();
+      if (existing) {
+        setResult(existing);
+        setPhase("done");
         return;
       }
-    } catch { /* Slack OAuth not available — skip */ }
-    setPhase("connect");
-  }, []);
-
-  const advanceToDiscovery = useCallback(async () => {
+    } catch { /* no cached discovery */ }
     try {
       const status = await getPrivacyStatus();
       const hasGoogle = status.connectedCapabilities.some(
@@ -61,6 +58,17 @@ export function Onboarding({
     } catch { /* no Google creds — show connect */ }
     setPhase("connect");
   }, [toast]);
+
+  const advanceToSlackConnect = useCallback(async () => {
+    try {
+      const status = await getSlackOAuthStatus();
+      if (status.configured && !status.connected) {
+        setPhase("slack-connect");
+        return;
+      }
+    } catch { /* Slack OAuth not available — skip */ }
+    await advanceToDiscovery();
+  }, [advanceToDiscovery]);
 
   const runDiscoveryFlow = useCallback(() => {
     setPhase("running");
@@ -104,15 +112,6 @@ export function Onboarding({
     }
 
     void (async () => {
-      try {
-        const existing = await getDiscoveryResult();
-        if (existing) {
-          setResult(existing);
-          setPhase("done");
-          return;
-        }
-      } catch { /* no discovery result yet */ }
-
       if (!session.user.slackUserId) {
         setPhase("verify-slack");
         return;

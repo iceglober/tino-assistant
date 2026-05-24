@@ -62,7 +62,17 @@ function BasicTab({
   const [fieldValues, setFieldValues] = useState<Record<string, string>>(initialFields);
 
   const isUserCap = cap.scope === "private";
-  const isOauth = cap.id === "gmail" || cap.id === "calendar";
+  const oauthConfig = (cap.id === "gmail" || cap.id === "calendar") ? {
+    url: "/api/oauth/google/authorize",
+    label: "connect google account",
+    connectedLabel: "connected via Google OAuth",
+    description: "grants read-only access to Gmail and Calendar",
+  } : cap.id === "slack-personal" ? {
+    url: "/api/oauth/slack/authorize",
+    label: "connect Slack",
+    connectedLabel: "connected via Slack OAuth",
+    description: "grants read-only search and DM access",
+  } : null;
 
   const buildPayload = () => ({
     enabled,
@@ -142,21 +152,21 @@ function BasicTab({
 
   return (
     <div style={{ padding: "12px 0" }}>
-      {isOauth && cap.enabled ? (
+      {oauthConfig && cap.enabled ? (
         <div style={{ textAlign: "center", padding: "8px 0" }}>
-          <span style={{ color: "var(--ok)", fontSize: 13 }}>● connected via Google OAuth</span>
+          <span style={{ color: "var(--ok)", fontSize: 13 }}>● {oauthConfig.connectedLabel}</span>
         </div>
-      ) : isOauth && !cap.enabled ? (
+      ) : oauthConfig && !cap.enabled ? (
         <div style={{ textAlign: "center", padding: "8px 0" }}>
           <a
-            href="/api/oauth/google/authorize"
+            href={oauthConfig.url}
             className="btn btn-setup"
             style={{ display: "inline-block", textDecoration: "none" }}
           >
-            connect google account
+            {oauthConfig.label}
           </a>
           <div style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 8 }}>
-            grants read-only access to Gmail and Calendar
+            {oauthConfig.description}
           </div>
         </div>
       ) : (
