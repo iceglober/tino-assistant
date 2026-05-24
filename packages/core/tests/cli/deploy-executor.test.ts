@@ -43,9 +43,6 @@ const MINIMAL_CONFIG: DeployConfig = {
   region: "us-west-2",
   iac: "standalone",
   pulumiStack: "dev",
-  googleOAuthClientId: "gid",
-  googleOAuthClientSecret: "gsec",
-  allowedDomain: "example.com",
   hipaa: {
     kmsKeyAlias: "alias/tino",
     auditRetentionDays: 365,

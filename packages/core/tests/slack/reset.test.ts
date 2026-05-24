@@ -1,5 +1,7 @@
 import { describe, expect, test, vi } from "vitest";
 import type { HistoryStore } from "../../src/agent/history.js";
+import type { IdentityResolver } from "../../src/identity/resolver.js";
+import type { UserStore } from "../../src/identity/store.js";
 import { handleResetCommand } from "../../src/slack/reset.js";
 import type { DmMessageEvent } from "../../src/slack/types.js";
 
@@ -16,7 +18,36 @@ const makeHistory = (): HistoryStore => ({
   reset: vi.fn(),
 });
 
-const ownerEnv = { ALLOWED_SLACK_USER_ID: "U_OWNER" };
+const adminUser = {
+  id: "tino-uuid-admin",
+  email: "admin@acme.io",
+  role: "admin" as const,
+  status: "active" as const,
+  slackUserId: "U_OWNER",
+  createdAt: 1000,
+  updatedAt: 1000,
+};
+
+const memberUser = {
+  ...adminUser,
+  id: "tino-uuid-member",
+  role: "member" as const,
+  slackUserId: "U_OTHER",
+};
+
+const makeResolver = (tinoUserId: string | null = "tino-uuid-admin"): IdentityResolver => ({
+  resolveSlack: vi.fn().mockResolvedValue(tinoUserId),
+  resolveGoogle: vi.fn().mockResolvedValue(null),
+  provisionFromSlack: vi.fn().mockRejectedValue(new Error("unknown_user")),
+});
+
+const makeUsers = (user = adminUser): UserStore => ({
+  get: vi.fn().mockResolvedValue(user),
+  getByEmail: vi.fn().mockResolvedValue(null),
+  create: vi.fn(),
+  list: vi.fn().mockResolvedValue([]),
+  update: vi.fn(),
+});
 
 const baseMessage: Partial<DmMessageEvent> = {
   type: "message",
@@ -28,14 +59,15 @@ const baseMessage: Partial<DmMessageEvent> = {
 };
 
 describe("handleResetCommand", () => {
-  test('owner DM with "reset" → history.reset called, say called with "History cleared.", returns true', async () => {
+  test('admin DM with "reset" → history.reset called, returns true', async () => {
     const history = makeHistory();
     const say = vi.fn().mockResolvedValue(undefined);
     const logger = makeLogger();
 
     const result = await handleResetCommand({
       message: baseMessage,
-      env: ownerEnv,
+      identityResolver: makeResolver(),
+      users: makeUsers(),
       history,
       say,
       logger: logger as unknown as Parameters<typeof handleResetCommand>[0]["logger"],
@@ -43,19 +75,20 @@ describe("handleResetCommand", () => {
 
     expect(result).toBe(true);
     expect(history.reset).toHaveBeenCalledOnce();
-    expect(history.reset).toHaveBeenCalledWith("U_OWNER");
+    expect(history.reset).toHaveBeenCalledWith("tino-uuid-admin");
     expect(say).toHaveBeenCalledOnce();
     expect(say).toHaveBeenCalledWith({ text: "History cleared." });
   });
 
-  test('owner DM with "RESET" (uppercase) → same behavior (case-insensitive)', async () => {
+  test('admin DM with "RESET" (uppercase) → same behavior (case-insensitive)', async () => {
     const history = makeHistory();
     const say = vi.fn().mockResolvedValue(undefined);
     const logger = makeLogger();
 
     const result = await handleResetCommand({
       message: { ...baseMessage, text: "RESET" },
-      env: ownerEnv,
+      identityResolver: makeResolver(),
+      users: makeUsers(),
       history,
       say,
       logger: logger as unknown as Parameters<typeof handleResetCommand>[0]["logger"],
@@ -63,18 +96,18 @@ describe("handleResetCommand", () => {
 
     expect(result).toBe(true);
     expect(history.reset).toHaveBeenCalledOnce();
-    expect(history.reset).toHaveBeenCalledWith("U_OWNER");
     expect(say).toHaveBeenCalledWith({ text: "History cleared." });
   });
 
-  test('owner DM with "  reset  " (whitespace) → same behavior (trimmed)', async () => {
+  test('admin DM with "  reset  " (whitespace) → same behavior (trimmed)', async () => {
     const history = makeHistory();
     const say = vi.fn().mockResolvedValue(undefined);
     const logger = makeLogger();
 
     const result = await handleResetCommand({
       message: { ...baseMessage, text: "  reset  " },
-      env: ownerEnv,
+      identityResolver: makeResolver(),
+      users: makeUsers(),
       history,
       say,
       logger: logger as unknown as Parameters<typeof handleResetCommand>[0]["logger"],
@@ -85,14 +118,15 @@ describe("handleResetCommand", () => {
     expect(say).toHaveBeenCalledWith({ text: "History cleared." });
   });
 
-  test('owner DM with "reset please" → returns false, history.reset NOT called', async () => {
+  test('admin DM with "reset please" → returns false, history.reset NOT called', async () => {
     const history = makeHistory();
     const say = vi.fn().mockResolvedValue(undefined);
     const logger = makeLogger();
 
     const result = await handleResetCommand({
       message: { ...baseMessage, text: "reset please" },
-      env: ownerEnv,
+      identityResolver: makeResolver(),
+      users: makeUsers(),
       history,
       say,
       logger: logger as unknown as Parameters<typeof handleResetCommand>[0]["logger"],
@@ -103,14 +137,15 @@ describe("handleResetCommand", () => {
     expect(say).not.toHaveBeenCalled();
   });
 
-  test('non-owner DM with "reset" → returns false, history.reset NOT called', async () => {
+  test('member DM with "reset" → returns false (non-admin)', async () => {
     const history = makeHistory();
     const say = vi.fn().mockResolvedValue(undefined);
     const logger = makeLogger();
 
     const result = await handleResetCommand({
       message: { ...baseMessage, user: "U_OTHER" },
-      env: ownerEnv,
+      identityResolver: makeResolver("tino-uuid-member"),
+      users: makeUsers(memberUser),
       history,
       say,
       logger: logger as unknown as Parameters<typeof handleResetCommand>[0]["logger"],
@@ -121,14 +156,34 @@ describe("handleResetCommand", () => {
     expect(say).not.toHaveBeenCalled();
   });
 
-  test('owner in channel with "reset" → returns false (channel_type !== "im")', async () => {
+  test('unknown user DM with "reset" → returns false', async () => {
+    const history = makeHistory();
+    const say = vi.fn().mockResolvedValue(undefined);
+    const logger = makeLogger();
+
+    const result = await handleResetCommand({
+      message: { ...baseMessage, user: "U_UNKNOWN" },
+      identityResolver: makeResolver(null),
+      users: makeUsers(),
+      history,
+      say,
+      logger: logger as unknown as Parameters<typeof handleResetCommand>[0]["logger"],
+    });
+
+    expect(result).toBe(false);
+    expect(history.reset).not.toHaveBeenCalled();
+    expect(say).not.toHaveBeenCalled();
+  });
+
+  test('admin in channel with "reset" → returns false (channel_type !== "im")', async () => {
     const history = makeHistory();
     const say = vi.fn().mockResolvedValue(undefined);
     const logger = makeLogger();
 
     const result = await handleResetCommand({
       message: { ...baseMessage, channel_type: "channel" },
-      env: ownerEnv,
+      identityResolver: makeResolver(),
+      users: makeUsers(),
       history,
       say,
       logger: logger as unknown as Parameters<typeof handleResetCommand>[0]["logger"],

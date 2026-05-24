@@ -5,7 +5,7 @@ export interface SchedulerDeps {
   taskStore: TaskStore;
   logger: AppLogger;
   runTask: (task: Task) => Promise<string>; // returns the agent's response text
-  postResult: (text: string) => Promise<void>; // posts to the owner's DM
+  postResult: (userId: string, text: string) => Promise<void>;
   intervalMs?: number; // default 15_000 (15s — responsive enough for short reminders)
 }
 
@@ -39,12 +39,12 @@ export function startScheduler(deps: SchedulerDeps): () => void {
       try {
         const result = await runTask(task);
         await taskStore.updateStatus(task.id, "completed", result);
-        await postResult(`📋 *Scheduled task completed:*\n\n_${task.description}_\n\n${result}`);
+        await postResult(task.userId, `📋 *Scheduled task completed:*\n\n_${task.description}_\n\n${result}`);
         logger.info({ taskId: task.id }, "scheduled task completed");
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         await taskStore.updateStatus(task.id, "failed", msg);
-        await postResult(`⚠️ *Scheduled task failed:*\n\n_${task.description}_\n\nError: ${msg}`);
+        await postResult(task.userId, `⚠️ *Scheduled task failed:*\n\n_${task.description}_\n\nError: ${msg}`);
         logger.error({ taskId: task.id, err: msg }, "scheduled task failed");
       }
     }

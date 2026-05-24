@@ -3,7 +3,7 @@ import type { HistoryStore } from "../agent/history.js";
 import type { AuditLogger } from "../audit/logger.js";
 import type { ConfigStore } from "../persistence/config.js";
 import type { IdentityResolver } from "../identity/resolver.js";
-import type { UserStore } from "../identity/store.js";
+import type { IdentityStore, UserStore } from "../identity/store.js";
 import type { Env } from "../env.js";
 import { toSlackMrkdwn } from "./mrkdwn.js";
 import { handleResetCommand } from "./reset.js";
@@ -27,11 +27,12 @@ export async function handleDmMessage(params: {
   logger: AppLogger;
   identityResolver: IdentityResolver;
   users: UserStore;
+  identities: IdentityStore;
   configStore: ConfigStore;
   auditLogger?: AuditLogger;
   seenUsers?: Set<string>;
 }): Promise<void> {
-  const { message: m, onDm, say, logger, identityResolver, users, configStore, auditLogger, seenUsers } = params;
+  const { message: m, onDm, say, logger, identityResolver, users, identities, configStore, auditLogger, seenUsers } = params;
 
   if (m.subtype !== undefined) {
     logger.debug({ subtype: m.subtype }, "ignored message with subtype");
@@ -56,6 +57,7 @@ export async function handleDmMessage(params: {
   const tinoUserId = await resolveDmSender(m.user, {
     identityResolver,
     users,
+    identities,
     configStore,
     say,
     auditLogger,
@@ -96,12 +98,13 @@ export interface CreateSlackAppOpts {
   history: HistoryStore;
   identityResolver: IdentityResolver;
   users: UserStore;
+  identities: IdentityStore;
   configStore: ConfigStore;
   auditLogger?: AuditLogger;
 }
 
 export function createSlackApp(opts: CreateSlackAppOpts): App {
-  const { env, onDm, logger, history, identityResolver, users, configStore, auditLogger } = opts;
+  const { env, onDm, logger, history, identityResolver, users, identities, configStore, auditLogger } = opts;
 
   const app = new App({
     token: env.SLACK_BOT_TOKEN,
@@ -117,7 +120,8 @@ export function createSlackApp(opts: CreateSlackAppOpts): App {
   app.message(async ({ message, say }) => {
     const isReset = await handleResetCommand({
       message: message as Partial<DmMessageEvent>,
-      env,
+      identityResolver,
+      users,
       history,
       say,
       logger,
@@ -147,6 +151,7 @@ export function createSlackApp(opts: CreateSlackAppOpts): App {
       logger,
       identityResolver,
       users,
+      identities,
       configStore,
       auditLogger,
       seenUsers,

@@ -1,5 +1,6 @@
 import { google } from "googleapis";
 import type { AppLogger } from "../../slack/app.js";
+import type { CalendarEvent, CalendarPort as DiscoveryCalendarPort } from "../../discovery/calendar-port.js";
 import type { CalendarVisibility, PrivacyContact, PrivacyLabel } from "../types.js";
 import type { CalendarPort, ContactSample, EmailPort, EmailSample } from "../ports.js";
 import type { GoogleCreds } from "./credentials.js";
@@ -159,7 +160,7 @@ export function createGoogleEmailAdapter(deps: {
 export function createGoogleCalendarAdapter(deps: {
   resolveCreds: (userId: string) => Promise<GoogleCreds | null>;
   logger: AppLogger;
-}): CalendarPort {
+}): CalendarPort & DiscoveryCalendarPort {
   const { resolveCreds, logger } = deps;
 
   return {
@@ -182,6 +183,52 @@ export function createGoogleCalendarAdapter(deps: {
       } catch (err) {
         logger.warn({ userId, err: (err as Error).message }, "privacy: failed to fetch calendar visibility");
         return { defaultVisibility: "public", calendars: [] };
+      }
+    },
+
+    async getEvents(userId: string, opts?: { sinceDays?: number }): Promise<CalendarEvent[]> {
+      const creds = await resolveCreds(userId);
+      if (!creds) return [];
+
+      const sinceDays = opts?.sinceDays ?? 180;
+      const timeMin = new Date();
+      timeMin.setDate(timeMin.getDate() - sinceDays);
+
+      try {
+        const cal = google.calendar({ version: "v3", auth: makeOAuth2(creds) });
+        const events: CalendarEvent[] = [];
+        let pageToken: string | undefined;
+
+        do {
+          const res = await cal.events.list({
+            calendarId: "primary",
+            timeMin: timeMin.toISOString(),
+            maxResults: 250,
+            singleEvents: false,
+            pageToken,
+          });
+
+          for (const item of res.data.items ?? []) {
+            const startRaw = item.start?.dateTime ?? item.start?.date;
+            if (!startRaw) continue;
+            events.push({
+              title: item.summary ?? "(no title)",
+              attendees: (item.attendees ?? [])
+                .map((a) => a.email ?? "")
+                .filter(Boolean)
+                .slice(0, 20),
+              startTime: new Date(startRaw).getTime(),
+              recurrence: item.recurrence?.[0],
+            });
+          }
+
+          pageToken = res.data.nextPageToken ?? undefined;
+        } while (pageToken);
+
+        return events;
+      } catch (err) {
+        logger.warn({ userId, err: (err as Error).message }, "discovery: failed to fetch calendar events");
+        return [];
       }
     },
   };

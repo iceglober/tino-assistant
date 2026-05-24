@@ -36,18 +36,20 @@ export function createGoogleOAuthRoutes(opts: {
 
   const pendingStates = new Map<string, { userId: string; expiresAt: number }>();
 
-  function getOAuth2Client(): InstanceType<typeof google.auth.OAuth2> | null {
-    const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
-    const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
+  async function getOAuth2Client(): Promise<InstanceType<typeof google.auth.OAuth2> | null> {
+    let clientId = await config.getTyped<string>("google.oauth.clientId", "");
+    let clientSecret = await config.getTyped<string>("google.oauth.clientSecret", "");
+    if (!clientId) clientId = process.env.GOOGLE_OAUTH_CLIENT_ID ?? "";
+    if (!clientSecret) clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET ?? "";
     if (!clientId || !clientSecret) return null;
     return new google.auth.OAuth2(clientId, clientSecret, `${baseUrl}/api/oauth/google/callback`);
   }
 
-  app.get("/authorize", (c) => {
+  app.get("/authorize", async (c) => {
     const user = c.get("user");
     if (!user) return c.json({ error: "unauthorized" }, 401);
 
-    const oauth2 = getOAuth2Client();
+    const oauth2 = await getOAuth2Client();
     if (!oauth2) {
       return c.json({ error: "Google OAuth not configured on this server" }, 500);
     }
@@ -60,6 +62,7 @@ export function createGoogleOAuthRoutes(opts: {
       prompt: "consent",
       scope: GOOGLE_SCOPES,
       state,
+      include_granted_scopes: true,
     });
 
     logger.info({ redirectUri: `${baseUrl}/api/oauth/google/callback`, generatedUrl: url }, "Google OAuth authorize redirect");
@@ -92,7 +95,7 @@ export function createGoogleOAuthRoutes(opts: {
       return c.redirect("/?oauth=mismatch");
     }
 
-    const oauth2 = getOAuth2Client();
+    const oauth2 = await getOAuth2Client();
     if (!oauth2) {
       return c.redirect("/?oauth=error");
     }
@@ -104,8 +107,10 @@ export function createGoogleOAuthRoutes(opts: {
         return c.redirect("/?oauth=no_refresh_token");
       }
 
-      const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID!;
-      const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET!;
+      let clientId = await config.getTyped<string>("google.oauth.clientId", "");
+      let clientSecret = await config.getTyped<string>("google.oauth.clientSecret", "");
+      if (!clientId) clientId = process.env.GOOGLE_OAUTH_CLIENT_ID ?? "";
+      if (!clientSecret) clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET ?? "";
 
       const capConfig = {
         enabled: true,

@@ -57,7 +57,7 @@ function buildFullApp(opts: { users: UserStore; identities: IdentityStore; auth:
   const logger = noopLogger();
 
   app.use("*", buildAuthMiddleware({
-    auth: opts.auth,
+    authRef: { current: opts.auth },
     logger,
     identities: opts.identities,
     users: opts.users,

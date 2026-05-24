@@ -12,6 +12,7 @@ export function createHealthRoutes(opts: {
   startTime: number;
   tools: Record<string, unknown>;
   registry: CapabilityRegistry | undefined;
+  isAuthConfigured?: () => boolean;
 }): Hono {
   const app = new Hono();
 
@@ -19,6 +20,7 @@ export function createHealthRoutes(opts: {
     const capState = opts.registry?.getState() ?? {};
     return c.json({
       ok: true,
+      authConfigured: opts.isAuthConfigured?.() ?? false,
       tools: Object.keys(opts.tools),
       uptime: (Date.now() - opts.startTime) / 1000,
       capabilities: Object.entries(capState).map(([id, s]) => ({

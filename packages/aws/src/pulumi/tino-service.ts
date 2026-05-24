@@ -16,32 +16,6 @@ export interface TinoServiceArgs {
   subnets?: pulumi.Input<string>[] | pulumi.Input<pulumi.Input<string>[]>;
 
   /**
-   * Google OAuth client ID for console authentication.
-   * Required — the console is protected by Google Sign-In.
-   * Get this from the GCP console (OAuth 2.0 Client ID, Web application type).
-   */
-  googleOAuthClientId: pulumi.Input<string>;
-
-  /**
-   * Google OAuth client secret.
-   */
-  googleOAuthClientSecret: pulumi.Input<string>;
-
-  /**
-   * Stable secret for signing session cookies. Must persist across deploys
-   * or all sessions are invalidated on every restart. If not provided,
-   * auto-generated and stored in SSM Parameter Store.
-   */
-  betterAuthSecret?: pulumi.Input<string>;
-
-  /**
-   * Allowed email domain for console access (e.g., "kayn.ai").
-   * Only Google accounts from this domain can sign in.
-   * If not provided, any Google account can sign in (not recommended for production).
-   */
-  allowedDomain?: string;
-
-  /**
    * Custom domain for the console (e.g., "tino.kayn.ai").
    * If provided: creates an ACM certificate and expects a Route53 hosted zone
    * for the domain. The console is accessible at https://<domain>.
@@ -156,6 +130,21 @@ export interface TinoServiceArgs {
    *   ]
    */
   cloudwatchLogGroupArns?: pulumi.Input<string>[];
+
+  /**
+   * Google OAuth client ID for console sign-in.
+   */
+  googleOAuthClientId?: pulumi.Input<string>;
+
+  /**
+   * Google OAuth client secret for console sign-in.
+   */
+  googleOAuthClientSecret?: pulumi.Input<string>;
+
+  /**
+   * Restrict console sign-in to this email domain (e.g., "kayn.ai").
+   */
+  allowedDomain?: string;
 
   /**
    * Enable ECS Exec (shell access to the container). Default: false.
@@ -1027,16 +1016,95 @@ export class TinoService extends pulumi.ComponentResource {
       { parent: this },
     );
 
+    // ── EFS for persistent auth DB ─────────────────────────────────────
+    // better-auth uses SQLite. Without persistent storage the auth DB is
+    // wiped on every deploy, forcing all users to re-authenticate.
+    // EFS gives us a durable filesystem that survives task replacement.
+    const efsSg = new aws.ec2.SecurityGroup(
+      `${name}-efs-sg`,
+      {
+        vpcId,
+        description: "tino EFS mount targets",
+        ingress: [
+          {
+            protocol: "tcp",
+            fromPort: 2049,
+            toPort: 2049,
+            securityGroups: [sg.id],
+            description: "NFS from ECS tasks",
+          },
+        ],
+        tags,
+      },
+      { parent: this },
+    );
+
+    const efs = new aws.efs.FileSystem(
+      `${name}-efs`,
+      {
+        encrypted: true,
+        performanceMode: "generalPurpose",
+        throughputMode: "bursting",
+        tags: { ...tags, Name: `${prefix}-auth` },
+      },
+      { parent: this },
+    );
+
+    pulumi.output(subnetIds).apply((ids) => {
+      ids.forEach((subnetId, i) => {
+        new aws.efs.MountTarget(
+          `${name}-efs-mt-${i}`,
+          {
+            fileSystemId: efs.id,
+            subnetId,
+            securityGroups: [efsSg.id],
+          },
+          { parent: this },
+        );
+      });
+    });
+
+    const efsAp = new aws.efs.AccessPoint(
+      `${name}-efs-ap`,
+      {
+        fileSystemId: efs.id,
+        posixUser: { uid: 1000, gid: 1000 },
+        rootDirectory: {
+          path: "/auth",
+          creationInfo: { ownerUid: 1000, ownerGid: 1000, permissions: "0755" },
+        },
+        tags,
+      },
+      { parent: this },
+    );
+
+    new aws.iam.RolePolicy(
+      `${name}-efs-policy`,
+      {
+        role: taskRole.name,
+        policy: efs.arn.apply((efsArn) =>
+          JSON.stringify({
+            Version: "2012-10-17",
+            Statement: [
+              {
+                Effect: "Allow",
+                Action: [
+                  "elasticfilesystem:ClientMount",
+                  "elasticfilesystem:ClientWrite",
+                ],
+                Resource: [efsArn],
+              },
+            ],
+          }),
+        ),
+      },
+      { parent: this },
+    );
+
     // ── ECS task definition ──────────────────────────────────────────────
-    // All runtime config (credentials, model ID, Slack tokens) is read from
-    // the DynamoDB config store at startup. No secrets in the task definition.
-    //
     // readonlyRootFilesystem: true — container cannot write to its root FS.
-    // /tmp is mounted as an ephemeral volume for Node.js scratch space.
-    //
-    // NOTE: @tino/core's console server must bind to 0.0.0.0:3001 when
-    // CONSOLE_BASE_URL is set (production). This change is in @tino/core,
-    // not in this component.
+    // /tmp is ephemeral scratch space; /auth is EFS-backed persistent storage
+    // for the better-auth SQLite database.
     const taskDef = new aws.ecs.TaskDefinition(
       `${name}-task`,
       {
@@ -1047,24 +1115,45 @@ export class TinoService extends pulumi.ComponentResource {
         memory: args.memory ?? "512",
         executionRoleArn: taskExecutionRole.arn,
         taskRoleArn: taskRole.arn,
-        // Ephemeral volume for /tmp (required when readonlyRootFilesystem is true).
         volumes: [
           {
             name: "tmp",
-            // Fargate ephemeral storage — no host path needed.
+          },
+          {
+            name: "auth",
+            efsVolumeConfiguration: {
+              fileSystemId: efs.id,
+              transitEncryption: "ENABLED",
+              authorizationConfig: {
+                accessPointId: efsAp.id,
+                iam: "ENABLED",
+              },
+            },
           },
         ],
         containerDefinitions: pulumi
           .all([
             logGroup.name,
             this.consoleUrl,
-            pulumi.output(args.googleOAuthClientId),
-            pulumi.output(args.googleOAuthClientSecret),
             builtImage.ref,
-            pulumi.output(args.betterAuthSecret ?? ""),
+            pulumi.output(args.googleOAuthClientId ?? ""),
+            pulumi.output(args.googleOAuthClientSecret ?? ""),
           ])
-          .apply(([logName, consoleBaseUrl, googleClientId, googleClientSecret, imageRef, authSecret]) =>
-            JSON.stringify([
+          .apply(([logName, consoleBaseUrl, imageRef, oauthClientId, oauthClientSecret]) => {
+            const env: { name: string; value: string }[] = [
+              { name: "NODE_ENV", value: "production" },
+              { name: "PERSISTENCE_ADAPTER", value: "dynamodb" },
+              { name: "DYNAMODB_TABLE_NAME", value: `${prefix}` },
+              { name: "LOG_LEVEL", value: "info" },
+              { name: "CONSOLE_BASE_URL", value: consoleBaseUrl },
+              { name: "AUDIT_RETENTION_DAYS", value: String(args.auditRetentionDays ?? 90) },
+              { name: "AUTH_DB_PATH", value: "/auth/tino-auth.db" },
+            ];
+            if (oauthClientId) env.push({ name: "GOOGLE_OAUTH_CLIENT_ID", value: oauthClientId });
+            if (oauthClientSecret) env.push({ name: "GOOGLE_OAUTH_CLIENT_SECRET", value: oauthClientSecret });
+            if (args.allowedDomain) env.push({ name: "CONSOLE_ALLOWED_DOMAIN", value: args.allowedDomain });
+
+            return JSON.stringify([
               {
                 name: "tino",
                 image: imageRef,
@@ -1082,20 +1171,13 @@ export class TinoService extends pulumi.ComponentResource {
                     containerPath: "/tmp",
                     readOnly: false,
                   },
+                  {
+                    sourceVolume: "auth",
+                    containerPath: "/auth",
+                    readOnly: false,
+                  },
                 ],
-                environment: [
-                  { name: "NODE_ENV", value: "production" },
-                  { name: "PERSISTENCE_ADAPTER", value: "dynamodb" },
-                  { name: "DYNAMODB_TABLE_NAME", value: `${prefix}` },
-                  { name: "LOG_LEVEL", value: "info" },
-                  { name: "GOOGLE_OAUTH_CLIENT_ID", value: googleClientId },
-                  { name: "GOOGLE_OAUTH_CLIENT_SECRET", value: googleClientSecret },
-                  { name: "CONSOLE_ALLOWED_DOMAIN", value: args.allowedDomain ?? "" },
-                  { name: "CONSOLE_BASE_URL", value: consoleBaseUrl },
-                  { name: "AUDIT_RETENTION_DAYS", value: String(args.auditRetentionDays ?? 90) },
-                  ...(authSecret ? [{ name: "BETTER_AUTH_SECRET", value: authSecret }] : []),
-                ],
-                // No secrets block — credentials come from the DynamoDB config store
+                environment: env,
                 logConfiguration: {
                   logDriver: "awslogs",
                   options: {
@@ -1105,8 +1187,8 @@ export class TinoService extends pulumi.ComponentResource {
                   },
                 },
               },
-            ]),
-          ),
+            ]);
+          }),
         tags,
       },
       { parent: this },

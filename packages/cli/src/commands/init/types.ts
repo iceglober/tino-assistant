@@ -18,9 +18,6 @@ export interface DeployConfig {
   iac: "standalone" | "existing";
   infraPath?: string; // path to existing Pulumi project (only for 'existing')
   pulumiStack?: string; // stack name (default: 'dev')
-  googleOAuthClientId: string;
-  googleOAuthClientSecret: string;
-  allowedDomain: string;
   hipaa: {
     kmsKeyAlias: string;
     auditRetentionDays: number;

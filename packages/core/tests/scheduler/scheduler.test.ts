@@ -77,8 +77,9 @@ describe("startScheduler", () => {
     expect(runTask).toHaveBeenCalledWith(task);
     expect(store.updateStatus).toHaveBeenCalledWith(task.id, "completed", "task output text");
     expect(postResult).toHaveBeenCalledOnce();
-    expect((postResult as ReturnType<typeof vi.fn>).mock.calls[0][0]).toContain("Scheduled task completed");
-    expect((postResult as ReturnType<typeof vi.fn>).mock.calls[0][0]).toContain("task output text");
+    expect((postResult as ReturnType<typeof vi.fn>).mock.calls[0][0]).toBe("U1");
+    expect((postResult as ReturnType<typeof vi.fn>).mock.calls[0][1]).toContain("Scheduled task completed");
+    expect((postResult as ReturnType<typeof vi.fn>).mock.calls[0][1]).toContain("task output text");
 
     stop();
   });
@@ -119,8 +120,9 @@ describe("startScheduler", () => {
     expect(store.updateStatus).toHaveBeenCalledWith(task.id, "running");
     expect(store.updateStatus).toHaveBeenCalledWith(task.id, "failed", "bedrock timeout");
     expect(postResult).toHaveBeenCalledOnce();
-    expect((postResult as ReturnType<typeof vi.fn>).mock.calls[0][0]).toContain("Scheduled task failed");
-    expect((postResult as ReturnType<typeof vi.fn>).mock.calls[0][0]).toContain("bedrock timeout");
+    expect((postResult as ReturnType<typeof vi.fn>).mock.calls[0][0]).toBe("U1");
+    expect((postResult as ReturnType<typeof vi.fn>).mock.calls[0][1]).toContain("Scheduled task failed");
+    expect((postResult as ReturnType<typeof vi.fn>).mock.calls[0][1]).toContain("bedrock timeout");
 
     stop();
   });

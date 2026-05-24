@@ -1,32 +1,56 @@
-import { type JSX, useState } from "react";
+import { type JSX, useEffect, useState } from "react";
 import { RevealInput } from "../components/RevealInput.js";
 import { SaveButton, useSaveState } from "../components/SaveButton.js";
 import { useToast } from "../hooks/useToast.js";
 import type { Session } from "../lib/api.js";
-import { putConfig, reloadSlack } from "../lib/api.js";
+import { getConfig, putConfig, reloadSlack } from "../lib/api.js";
 
 export function Setup({
+  session,
   onComplete,
 }: {
-  session: Session;
+  session?: Session | null;
   onComplete: () => void;
 }): JSX.Element {
   const toast = useToast();
 
   const [step, setStep] = useState<1 | 2>(1);
+  const [loaded, setLoaded] = useState(false);
   const [slackBanner, setSlackBanner] = useState(false);
 
+  // Step 1: Slack
   const [botToken, setBotToken] = useState("");
   const [appToken, setAppToken] = useState("");
   const [botErr, setBotErr] = useState("");
   const [appErr, setAppErr] = useState("");
   const slackSave = useSaveState();
 
+  // Step 2: Agent
   const [modelId, setModelId] = useState("");
-  const [adminId, setAdminId] = useState("");
   const [modelErr, setModelErr] = useState("");
-  const [adminErr, setAdminErr] = useState("");
   const basicsSave = useSaveState();
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const entries = await getConfig();
+        const get = (k: string): string => {
+          const e = entries.find((x) => x.key === k);
+          if (!e) return "";
+          try {
+            return String(JSON.parse(e.value));
+          } catch {
+            return e.value;
+          }
+        };
+        const hasSlack = !!(get("slack.botToken") && get("slack.appToken"));
+        if (hasSlack) setStep(2);
+      } catch {
+        /* first boot — start at step 1 */
+      }
+      setLoaded(true);
+    })();
+  }, []);
 
   const validateSlackToken = (val: string, prefix: string): string => {
     if (!val.trim()) return "Token is required.";
@@ -57,14 +81,11 @@ export function Setup({
 
   const onSaveBasics = async (): Promise<void> => {
     const me = !modelId.trim() ? "Model ID is required" : "";
-    const ae = !adminId.trim() ? "User ID is required" : "";
     setModelErr(me);
-    setAdminErr(ae);
-    if (me || ae) return;
+    if (me) return;
 
     const ok = await basicsSave.run(async () => {
       await putConfig("bedrock.modelId", modelId.trim());
-      await putConfig("slack.adminUserId", adminId.trim());
     });
     if (ok) {
       const reload = await reloadSlack();
@@ -77,6 +98,18 @@ export function Setup({
     }
   };
 
+  if (!loaded) {
+    return (
+      <div className="page">
+        <div className="logo-block">
+          <img src="/assets/tino-logo.png" alt="tino" className="logo-img" />
+          <span className="logo-wordmark">tino</span>
+        </div>
+        <p className="empty">loading…</p>
+      </div>
+    );
+  }
+
   return (
     <div className="page">
       <div className="logo-block">
@@ -84,7 +117,7 @@ export function Setup({
         <span className="logo-wordmark">tino</span>
       </div>
 
-      {step === 1 ? (
+      {step === 1 && (
         <div className="setup-screen">
           <h1 className="setup-heading">connect Slack.</h1>
           <p className="setup-lead">
@@ -184,10 +217,12 @@ export function Setup({
             </ol>
           </div>
         </div>
-      ) : (
+      )}
+
+      {step === 2 && (
         <div className="setup-screen">
           <div className={`success-banner${slackBanner ? " visible" : ""}`} role="status">
-            <span className="success-banner-icon">✓</span>
+            <span className="success-banner-icon">&#10003;</span>
             <div className="success-banner-body">
               <div className="success-banner-title">Slack connected.</div>
               <div className="success-banner-sub">tino can now receive messages from your workspace.</div>
@@ -196,7 +231,7 @@ export function Setup({
 
           <h1 className="setup-heading">configure the agent.</h1>
           <p className="setup-lead">
-            which Bedrock model to use, and your Slack user ID so tino knows who the admin is.
+            which Bedrock model should tino use?
           </p>
 
           <div className="field-group">
@@ -225,35 +260,6 @@ export function Setup({
               aria-live="polite"
             >
               {modelErr}
-            </div>
-          </div>
-
-          <div className="field-group">
-            <label className="field-label" htmlFor="admin-user-id">
-              Your Slack User ID
-            </label>
-            <input
-              id="admin-user-id"
-              className="field-input"
-              type="text"
-              value={adminId}
-              onChange={(e) => setAdminId(e.target.value)}
-              placeholder="U0123456789"
-              autoComplete="off"
-              aria-describedby="admin-user-hint admin-user-error"
-              aria-invalid={adminErr ? "true" : undefined}
-              onBlur={() => setAdminErr(!adminId.trim() ? "User ID is required" : "")}
-            />
-            <div className="field-hint" id="admin-user-hint">
-              Slack → your profile → ⋯ → Copy member ID. Starts with U.
-            </div>
-            <div
-              className={`field-error${adminErr ? " visible" : ""}`}
-              id="admin-user-error"
-              role="alert"
-              aria-live="polite"
-            >
-              {adminErr}
             </div>
           </div>
 

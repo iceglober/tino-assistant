@@ -7,7 +7,7 @@ import type { DeployConfig } from "./types.js";
  * HIPAA is the only option — it's the baseline for all tino deployments.
  */
 export async function stepCompliance(config: Partial<DeployConfig>): Promise<Partial<DeployConfig>> {
-  displayStep(1, 6, "Compliance Framework");
+  displayStep(1, 5, "Compliance Framework");
 
   const framework = await select({
     message: "Which compliance frameworks must you adhere to?",

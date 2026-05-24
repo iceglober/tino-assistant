@@ -5,7 +5,14 @@ import type { MiddlewareHandler } from "hono";
 import type { IdentityStore, UserStore } from "../../identity/store.js";
 import type { ConfigStore } from "../../persistence/config.js";
 import type { SessionSecondaryStorage } from "../../persistence/factory.js";
+import type { UserCapabilityStore } from "../../persistence/user-capabilities.js";
 import type { AppLogger } from "../../slack/app.js";
+
+const GOOGLE_CAPABILITY_SCOPES = [
+  "https://www.googleapis.com/auth/gmail.readonly",
+  "https://www.googleapis.com/auth/calendar.readonly",
+  "https://www.googleapis.com/auth/drive.appdata",
+];
 
 /**
  * Build a better-auth instance.
@@ -23,6 +30,7 @@ import type { AppLogger } from "../../slack/app.js";
  * without it session token signatures change and all sessions invalidate.
  */
 export async function createAuth(opts: {
+  config?: ConfigStore;
   googleClientId?: string;
   googleClientSecret?: string;
   allowedDomain?: string;
@@ -32,20 +40,33 @@ export async function createAuth(opts: {
   sessionStore?: SessionSecondaryStorage;
   emailPassword?: boolean;
 }): Promise<Auth> {
-  const envSecret = process.env.BETTER_AUTH_SECRET;
-  if (!envSecret) {
-    opts.logger?.warn(
-      { fix: "set BETTER_AUTH_SECRET env var (Pulumi: SecretsManager)" },
-      "BETTER_AUTH_SECRET not set — sessions will be invalidated on every restart",
-    );
+  let secret = opts.config ? await opts.config.getTyped<string>("auth.secret", "") : "";
+  if (!secret) secret = process.env.BETTER_AUTH_SECRET ?? "";
+  if (!secret) {
+    secret = crypto.randomUUID();
+    if (opts.config) {
+      await opts.config.set("auth.secret", secret);
+      opts.logger?.info("auth secret auto-generated and persisted to config store");
+    } else {
+      opts.logger?.warn(
+        { fix: "set BETTER_AUTH_SECRET env var or provide a config store" },
+        "BETTER_AUTH_SECRET not set — sessions will be invalidated on every restart",
+      );
+    }
   }
-  const secret = envSecret ?? crypto.randomUUID();
 
-  const socialProviders: Record<string, { clientId: string; clientSecret: string }> = {};
-  if (opts.googleClientId && opts.googleClientSecret) {
+  const googleClientId = (opts.config ? await opts.config.getTyped<string>("google.oauth.clientId", "") : "") || opts.googleClientId;
+  const googleClientSecret = (opts.config ? await opts.config.getTyped<string>("google.oauth.clientSecret", "") : "") || opts.googleClientSecret;
+
+  // biome-ignore lint/suspicious/noExplicitAny: better-auth social provider types are loose
+  const socialProviders: Record<string, any> = {};
+  if (googleClientId && googleClientSecret) {
     socialProviders.google = {
-      clientId: opts.googleClientId,
-      clientSecret: opts.googleClientSecret,
+      clientId: googleClientId,
+      clientSecret: googleClientSecret,
+      scope: GOOGLE_CAPABILITY_SCOPES,
+      accessType: "offline",
+      prompt: "consent",
     };
   }
 
@@ -111,15 +132,51 @@ export type AuthVariables = {
  * `auth === null` (local dev — no `GOOGLE_OAUTH_CLIENT_ID`) → no-op pass-through.
  */
 export function buildAuthMiddleware(opts: {
-  auth: Auth | null;
-  allowedDomain: string | undefined;
+  authRef: { current: Auth | null };
+  allowedDomain?: string;
   logger: AppLogger;
   identities?: IdentityStore;
   users?: UserStore;
   configStore?: ConfigStore;
+  userCapabilities?: UserCapabilityStore;
+  authDbPath?: string;
   localDev?: boolean;
 }): MiddlewareHandler<{ Variables: AuthVariables }> {
-  const { auth, allowedDomain, logger, identities, users, configStore, localDev } = opts;
+  const { authRef, logger, identities, users, configStore, userCapabilities, localDev } = opts;
+
+  const synced = new Set<string>();
+
+  async function syncGoogleCredentials(tinoUserId: string, betterAuthUserId: string): Promise<void> {
+    if (!userCapabilities || synced.has(tinoUserId)) return;
+    synced.add(tinoUserId);
+
+    const existing = await userCapabilities.get(tinoUserId, "gmail");
+    if (existing?.credentials?.refreshToken) return;
+
+    try {
+      const dbPath = opts.authDbPath ?? process.env.AUTH_DB_PATH ?? "/tmp/tino-auth.db";
+      const db = new Database(dbPath, { readonly: true });
+      const row = db.query<{ refreshToken: string | null }, [string, string]>(
+        "SELECT refreshToken FROM account WHERE userId = ? AND providerId = ? LIMIT 1",
+      ).get(betterAuthUserId, "google");
+      db.close();
+
+      if (!row?.refreshToken) return;
+
+      let clientId = opts.configStore ? await opts.configStore.getTyped<string>("google.oauth.clientId", "") : "";
+      let clientSecret = opts.configStore ? await opts.configStore.getTyped<string>("google.oauth.clientSecret", "") : "";
+      if (!clientId) clientId = process.env.GOOGLE_OAUTH_CLIENT_ID ?? "";
+      if (!clientSecret) clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET ?? "";
+      if (!clientId || !clientSecret) return;
+
+      const creds = { clientId, clientSecret, refreshToken: row.refreshToken };
+      await userCapabilities.set(tinoUserId, "gmail", { enabled: true, credentials: creds, settings: {} });
+      await userCapabilities.set(tinoUserId, "calendar", { enabled: true, credentials: creds, settings: { calendarId: "primary" } });
+      logger.info({ tinoUserId }, "google capability credentials synced from SSO");
+    } catch (err) {
+      logger.warn({ tinoUserId, err: (err as Error).message }, "failed to sync google credentials from SSO");
+    }
+  }
 
   return async (c, next) => {
     const url = c.req.path;
@@ -129,6 +186,7 @@ export function buildAuthMiddleware(opts: {
       return;
     }
 
+    const auth = authRef.current;
     if (!auth) {
       await next();
       return;
@@ -144,6 +202,11 @@ export function buildAuthMiddleware(opts: {
       return;
     }
 
+    let allowedDomain = opts.allowedDomain;
+    if (configStore) {
+      const stored = await configStore.getTyped<string>("console.allowedDomain", "");
+      if (stored) allowedDomain = stored;
+    }
     if (allowedDomain && !localDev && !session.user.email?.endsWith(`@${allowedDomain}`)) {
       return c.json({ error: "forbidden", message: `Only @${allowedDomain} accounts allowed` }, 403);
     }
@@ -171,6 +234,7 @@ export function buildAuthMiddleware(opts: {
           status: tinoUser.status,
           slackUserId: tinoUser.slackUserId,
         });
+        await syncGoogleCredentials(tinoUser.id, session.user.id);
         await next();
         return;
       }
@@ -225,6 +289,7 @@ export function buildAuthMiddleware(opts: {
           status: newUser.status,
           slackUserId: newUser.slackUserId,
         });
+        await syncGoogleCredentials(newUser.id, session.user.id);
         await next();
         return;
       }

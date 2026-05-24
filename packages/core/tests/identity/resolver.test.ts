@@ -132,7 +132,7 @@ describe("provisionFromSlack", () => {
     expect(linked.find((i) => i.provider === "google")?.externalId).toBe("alice@acme.com");
   });
 
-  it("provisionFromSlack org-domain rejects when domain does not match", async () => {
+  it("provisionFromSlack org-domain rejects when domain does not match and no existing user", async () => {
     const { resolver } = setupWithSlackEmail("alice@other.com");
 
     await expect(
@@ -140,7 +140,36 @@ describe("provisionFromSlack", () => {
         mode: "org-domain",
         orgDomain: "acme.com",
       }),
-    ).rejects.toThrow("unknown_user");
+    ).rejects.toThrow("domain_mismatch");
+  });
+
+  it("provisionFromSlack links slack identity to existing user by email even when domain differs", async () => {
+    const { users, identities, resolver } = setupWithSlackEmail("alice@other.com");
+
+    const existingUser = await users.create({
+      id: "uuid-existing-cross-domain",
+      email: "alice@other.com",
+      name: "Alice",
+      role: "admin",
+      status: "active",
+      slackUserId: undefined,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    await identities.link({
+      provider: "google",
+      externalId: "alice@other.com",
+      tinoUserId: existingUser.id,
+      linkedAt: Date.now(),
+    });
+
+    const merged = await resolver.provisionFromSlack("U_ALICE_SLACK", {
+      mode: "org-domain",
+      orgDomain: "acme.com",
+    });
+
+    expect(merged.id).toBe("uuid-existing-cross-domain");
+    expect(merged.slackUserId).toBe("U_ALICE_SLACK");
   });
 
   it("provisionFromSlack merges into existing google-linked user when emails match", async () => {

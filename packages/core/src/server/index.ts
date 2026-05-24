@@ -10,6 +10,7 @@ import type { IdentityStore, UserStore } from "../identity/store.js";
 import type { ConfigStore } from "../persistence/config.js";
 import type { SessionSecondaryStorage } from "../persistence/factory.js";
 import type { AppLogger } from "../slack/app.js";
+import { createDiscoveryStore } from "../discovery/store.js";
 import { createGoogleCredentialResolver, createSlackCredentialResolver } from "../privacy/adapters/credentials.js";
 import { createGoogleCalendarAdapter, createGoogleEmailAdapter } from "../privacy/adapters/google.js";
 import { createMockCalendarAdapter, createMockEmailAdapter, createMockMessagingAdapter } from "../privacy/adapters/mock.js";
@@ -19,14 +20,17 @@ import { type AuthVariables, buildAuthMiddleware, createAuth } from "./middlewar
 import { privacyGate } from "./middleware/privacy-gate.js";
 import { createAdminRoutes } from "./routes/admin.js";
 import { createBedrockRoutes } from "./routes/bedrock.js";
+import { createDiscoveryRoutes } from "./routes/discovery.js";
 import { createCapabilityRoutes } from "./routes/capabilities.js";
 import { createComplianceRoutes } from "./routes/compliance.js";
 import { createConfigRoutes } from "./routes/config.js";
 import { createHealthRoutes } from "./routes/health.js";
+import { createActivityRoutes } from "./routes/activity.js";
 import { createAuditRoutes } from "./routes/audit.js";
 import { createInstructionRoutes } from "./routes/instructions.js";
 import { createOrgConfigRoutes } from "./routes/org-config.js";
 import { createReloadRoutes } from "./routes/reload.js";
+import { createTaskRoutes } from "./routes/tasks.js";
 import { createUsersRoutes } from "./routes/users.js";
 import { createUserCapabilityRoutes } from "./routes/user-capabilities.js";
 import { createGoogleOAuthRoutes } from "./routes/google-oauth.js";
@@ -64,6 +68,8 @@ export interface StartServerOptions {
   users?: UserStore;
   privacyConfigStore?: PrivacyConfigStore;
   userCapabilities?: import("../persistence/user-capabilities.js").UserCapabilityStore;
+  taskStore?: import("../persistence/tasks.js").TaskStore;
+  resolveAppDataClient?: (userId: string) => Promise<import("../drive/types.js").AppDataClient | null>;
   model?: LanguageModel;
   mockPrivacy?: boolean;
 }
@@ -88,6 +94,8 @@ export async function startServer(opts: StartServerOptions): Promise<StartedServ
     users,
     privacyConfigStore,
     userCapabilities,
+    taskStore,
+    resolveAppDataClient,
     model,
     mockPrivacy,
   } = opts;
@@ -95,66 +103,90 @@ export async function startServer(opts: StartServerOptions): Promise<StartedServ
   const startTime = Date.now();
 
   // ── Auth setup ────────────────────────────────────────────────────────────
-  const googleClientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
-  const googleClientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
   const allowedDomain = process.env.CONSOLE_ALLOWED_DOMAIN;
   const baseUrl = process.env.CONSOLE_BASE_URL ?? `http://localhost:${port}`;
   const isLocalDev = baseUrl.startsWith("http://localhost");
-  const authEnabled = !!(googleClientId && googleClientSecret);
 
-  let auth: Awaited<ReturnType<typeof createAuth>> | null = null;
+  const hasGoogleCreds = !!(
+    (await config.getTyped<string>("google.oauth.clientId", "")) ||
+    process.env.GOOGLE_OAUTH_CLIENT_ID
+  );
+  const canSignIn = hasGoogleCreds || isLocalDev;
 
-  if (authEnabled) {
+  let initialAuth: Awaited<ReturnType<typeof createAuth>> | null = null;
+  if (canSignIn) {
     try {
-      auth = await createAuth({
-        // biome-ignore lint/style/noNonNullAssertion: authEnabled narrows these to non-null
-        googleClientId: googleClientId!,
-        // biome-ignore lint/style/noNonNullAssertion: authEnabled narrows these to non-null
-        googleClientSecret: googleClientSecret!,
+      initialAuth = await createAuth({
+        config,
+        googleClientId: process.env.GOOGLE_OAUTH_CLIENT_ID,
+        googleClientSecret: process.env.GOOGLE_OAUTH_CLIENT_SECRET,
         allowedDomain,
         baseUrl,
-        dbPath: "/tmp/tino-auth.db",
+        dbPath: process.env.AUTH_DB_PATH ?? "/tmp/tino-auth.db",
         logger,
         sessionStore,
         emailPassword: isLocalDev,
       });
-      logger.info({ baseUrl, allowedDomain, authEnabled: true }, "console auth: Google OAuth enabled");
-    } catch (err) {
-      logger.error({ err: (err as Error).message }, "console auth: failed to initialize — running without auth");
-    }
-  } else if (isLocalDev) {
-    try {
-      auth = await createAuth({
-        allowedDomain,
-        baseUrl,
-        dbPath: "/tmp/tino-auth.db",
-        logger,
-        emailPassword: true,
-      });
-      logger.info({ baseUrl }, "console auth: email/password enabled (localhost)");
+      if (hasGoogleCreds) {
+        logger.info({ baseUrl, authEnabled: true }, "console auth: Google OAuth enabled");
+      } else {
+        logger.info({ baseUrl }, "console auth: email/password enabled (localhost)");
+      }
     } catch (err) {
       logger.error({ err: (err as Error).message }, "console auth: failed to initialize — running without auth");
     }
   } else {
-    logger.info({ authEnabled: false }, "console auth: disabled (no GOOGLE_OAUTH_CLIENT_ID)");
+    logger.info("console auth: no sign-in method configured — console accessible without auth");
+  }
+
+  const authRef = { current: initialAuth };
+
+  async function reloadAuth(): Promise<{ ok: boolean; error?: string }> {
+    try {
+      const newAuth = await createAuth({
+        config,
+        allowedDomain,
+        baseUrl,
+        dbPath: process.env.AUTH_DB_PATH ?? "/tmp/tino-auth.db",
+        logger,
+        sessionStore,
+        emailPassword: isLocalDev,
+      });
+      authRef.current = newAuth;
+      logger.info("auth reloaded from config store");
+      return { ok: true };
+    } catch (err) {
+      const msg = (err as Error).message;
+      logger.error({ err: msg }, "auth reload failed");
+      return { ok: false, error: msg };
+    }
   }
 
   // ── Build the Hono app ────────────────────────────────────────────────────
   const app = new Hono<{ Variables: AuthVariables }>();
 
-  app.use("*", buildAuthMiddleware({ auth, allowedDomain, logger, identities, users, configStore: config, localDev: isLocalDev }));
+  app.use("*", buildAuthMiddleware({
+    authRef,
+    allowedDomain,
+    logger,
+    identities,
+    users,
+    configStore: config,
+    userCapabilities,
+    authDbPath: process.env.AUTH_DB_PATH ?? "/tmp/tino-auth.db",
+    localDev: isLocalDev,
+  }));
 
   if (privacyConfigStore) {
     app.use("*", privacyGate({ privacyConfigStore }));
   }
 
   // ── /api/auth/* — better-auth handler ─────────────────────────────────────
-  if (auth) {
-    app.all("/api/auth/*", async (c: Context) => {
-      const res = await auth.handler(c.req.raw);
-      return res;
-    });
-  }
+  app.all("/api/auth/*", async (c: Context) => {
+    const auth = authRef.current;
+    if (!auth) return c.json({ error: "auth not configured" }, 503);
+    return auth.handler(c.req.raw);
+  });
 
   // ── /api/me ───────────────────────────────────────────────────────────────
   app.get("/api/me", (c) => {
@@ -164,7 +196,7 @@ export async function startServer(opts: StartServerOptions): Promise<StartedServ
   });
 
   // ── API routes ────────────────────────────────────────────────────────────
-  app.route("/api/health", createHealthRoutes({ startTime, tools, registry }));
+  app.route("/api/health", createHealthRoutes({ startTime, tools, registry, isAuthConfigured: () => !!authRef.current }));
   app.route("/api/config", createConfigRoutes({ config, logger, auditLogger }));
   app.route("/api/capabilities", createCapabilityRoutes({ config, logger }));
   app.route("/api/user-capabilities", createUserCapabilityRoutes({ config, logger, auditLogger, userCapabilities }));
@@ -175,9 +207,13 @@ export async function startServer(opts: StartServerOptions): Promise<StartedServ
   }
   if (auditLogger) {
     app.route("/api/audit", createAuditRoutes({ auditLogger, logger }));
+    app.route("/api/activity", createActivityRoutes({ auditLogger, logger }));
+  }
+  if (taskStore) {
+    app.route("/api/tasks", createTaskRoutes({ taskStore, logger }));
   }
   app.route("/api/instructions", createInstructionRoutes({ config, logger }));
-  app.route("/api/reload", createReloadRoutes({ reconnectSlack, reloadCapabilities, logger, auditLogger }));
+  app.route("/api/reload", createReloadRoutes({ reconnectSlack, reloadCapabilities, reloadAuth, isAuthConfigured: () => !!authRef.current, logger, auditLogger }));
   if (shutdown) {
     app.route("/api/admin", createAdminRoutes({ logger, auditLogger, shutdown }));
   }
@@ -214,6 +250,22 @@ export async function startServer(opts: StartServerOptions): Promise<StartedServ
       email,
       calendar,
       messaging,
+      model,
+      mockMode: mockPrivacy,
+    }));
+
+    const nullResolver = async () => null;
+    const discoveryStore = createDiscoveryStore({
+      resolveClient: resolveAppDataClient ?? nullResolver,
+      configStore: config,
+      logger,
+    });
+
+    app.route("/api/discovery", createDiscoveryRoutes({
+      discoveryStore,
+      logger,
+      email,
+      calendar,
       model,
       mockMode: mockPrivacy,
     }));

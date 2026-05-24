@@ -1,11 +1,13 @@
 import type { HistoryStore } from "../agent/history.js";
-import type { Env } from "../env.js";
+import type { IdentityResolver } from "../identity/resolver.js";
+import type { UserStore } from "../identity/store.js";
 import type { AppLogger } from "./app.js";
 import type { DmMessageEvent } from "./types.js";
 
 export interface ResetHandlerParams {
   message: Partial<DmMessageEvent>;
-  env: Pick<Env, "ALLOWED_SLACK_USER_ID">;
+  identityResolver: IdentityResolver;
+  users: UserStore;
   history: HistoryStore;
   say: (args: { text: string }) => Promise<unknown>;
   logger: AppLogger;
@@ -24,19 +26,23 @@ export interface ResetHandlerParams {
  * "reset" avoids that entirely.
  */
 export async function handleResetCommand(params: ResetHandlerParams): Promise<boolean> {
-  const { message: m, env, history, say, logger } = params;
+  const { message: m, identityResolver, users, history, say, logger } = params;
 
-  // Same guards as handleDmMessage — subtype, channel_type, user
   if (m.subtype !== undefined) return false;
   if (m.channel_type !== "im") return false;
   if (!m.user) return false;
-  if (m.user !== env.ALLOWED_SLACK_USER_ID) return false;
 
   const text = (m.text ?? "").trim().toLowerCase();
   if (text !== "reset") return false;
 
-  await history.reset(m.user);
-  logger.info({ user: m.user }, "conversation history reset");
+  const tinoUserId = await identityResolver.resolveSlack(m.user);
+  if (!tinoUserId) return false;
+
+  const user = await users.get(tinoUserId);
+  if (!user || user.role !== "admin") return false;
+
+  await history.reset(tinoUserId);
+  logger.info({ user: m.user, tinoUserId }, "conversation history reset");
   await say({ text: "History cleared." });
   return true;
 }

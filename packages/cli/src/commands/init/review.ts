@@ -57,9 +57,6 @@ function buildSafeConfig(config: DeployConfig): Record<string, unknown> {
     iac: config.iac,
     infraPath: config.infraPath,
     pulumiStack: config.pulumiStack,
-    googleOAuthClientId: config.googleOAuthClientId,
-    googleOAuthClientSecretSet: config.googleOAuthClientSecret.length > 0,
-    allowedDomain: config.allowedDomain,
     hipaa: config.hipaa,
     generatedAt: new Date().toISOString(),
   };

@@ -14,15 +14,10 @@ export function displaySummary(config: {
   compliance?: { frameworks?: string[]; baaStatus?: { aws?: string; bedrock?: string } };
   provider?: string;
   region?: string;
-  model?: { modelId?: string };
   iac?: string;
-  googleOAuthClientId?: string;
-  allowedDomain?: string;
 }): void {
   const awsBaa = config.compliance?.baaStatus?.aws ?? "unknown";
   const baaIcon = awsBaa === "verified" ? "✓" : awsBaa === "manual-confirmed" ? "✓ (manual)" : "⚠";
-
-  const oauthStatus = config.googleOAuthClientId ? `set (@${config.allowedDomain ?? "unknown"})` : "not set";
 
   console.log(
     chalk.cyan(`
@@ -32,9 +27,8 @@ export function displaySummary(config: {
   ║  Compliance:  ${padRight("HIPAA", 33)}║
   ║  Provider:    ${padRight(`${config.provider ?? "aws"} (${config.region ?? "us-east-1"})`, 33)}║
   ║  BAA:         ${padRight(`${baaIcon} AWS BAA ${awsBaa}`, 33)}║
-  ║  Model:       ${padRight("(configured via console)", 33)}║
   ║  IaC:         ${padRight(config.iac ?? "standalone", 33)}║
-  ║  Console auth:${padRight(` Google OAuth ${oauthStatus}`, 33)}║
+  ║  Config:      ${padRight("via console after deploy", 33)}║
   ║                                                 ║
   ║  This will create:                              ║
   ║    • ECS Fargate cluster + service              ║

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { resolveDmSender, type ResolveDmSenderOpts } from "../../src/slack/resolve-dm-sender.js";
 import type { IdentityResolver } from "../../src/identity/resolver.js";
-import type { UserStore } from "../../src/identity/store.js";
+import type { IdentityStore, UserStore } from "../../src/identity/store.js";
 import type { TinoUser } from "../../src/identity/types.js";
 import type { ConfigStore } from "../../src/persistence/config.js";
 
@@ -29,6 +29,11 @@ const makeOpts = (overrides: Partial<ResolveDmSenderOpts> = {}): ResolveDmSender
     list: vi.fn().mockResolvedValue([]),
     update: vi.fn(),
   } satisfies UserStore,
+  identities: {
+    resolve: vi.fn().mockResolvedValue(null),
+    link: vi.fn(),
+    listForUser: vi.fn().mockResolvedValue([]),
+  } satisfies IdentityStore,
   configStore: {
     get: vi.fn().mockResolvedValue(null),
     set: vi.fn(),

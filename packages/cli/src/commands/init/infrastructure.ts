@@ -55,10 +55,7 @@ main: index.ts
 `;
 
 const STANDALONE_INDEX_TS = `import * as aws from "@pulumi/aws";
-import * as pulumi from "@pulumi/pulumi";
 import { TinoService } from "@tino/aws";
-
-const config = new pulumi.Config("tino");
 
 const defaultVpc = aws.ec2.getVpcOutput({ default: true });
 const subnets = aws.ec2.getSubnetsOutput({
@@ -68,13 +65,13 @@ const subnets = aws.ec2.getSubnetsOutput({
 const tino = new TinoService("tino", {
   vpc: defaultVpc.id,
   subnets: subnets.ids,
-  googleOAuthClientId: config.require("googleOAuthClientId"),
-  googleOAuthClientSecret: config.requireSecret("googleOAuthClientSecret"),
-  allowedDomain: config.get("allowedDomain"),
   // To deploy with a custom HTTPS domain, set:
   //   consoleDomain: "tino.example.com",
   //   hostedZoneId: "Z0123456789ABCDEFGHIJ",
   // Both are required together; see docs/deployment.md.
+  //
+  // All other config (Google OAuth, Slack, LLM) is set through
+  // the console's setup wizard after first deploy.
 });
 
 export const consoleUrl = tino.consoleUrl;
@@ -100,15 +97,10 @@ export function createTino(opts: {
   subnets: pulumi.Input<string>[];
   cluster?: import("@pulumi/aws").ecs.Cluster;
 }) {
-  const config = new pulumi.Config("tino");
-
   return new TinoService("tino", {
     vpc: opts.vpc,
     subnets: opts.subnets,
     cluster: opts.cluster,
-    googleOAuthClientId: config.require("googleOAuthClientId"),
-    googleOAuthClientSecret: config.requireSecret("googleOAuthClientSecret"),
-    allowedDomain: config.get("allowedDomain"),
   });
 }
 `;
@@ -119,7 +111,7 @@ export function createTino(opts: {
  * Pulumi is the only IaC path — standalone project or existing project.
  */
 export async function stepInfrastructure(config: Partial<DeployConfig>): Promise<Partial<DeployConfig>> {
-  displayStep(4, 6, "Infrastructure");
+  displayStep(4, 5, "Infrastructure");
 
   const iacChoice = await select({
     message: "Infrastructure setup:",

@@ -1,3 +1,5 @@
+import type { CalendarEvent, CalendarPort as DiscoveryCalendarPort } from "../../discovery/calendar-port.js";
+import type { DiscoveryResult } from "../../discovery/types.js";
 import type { CalendarVisibility, PrivacyContact, PrivacyConversation, PrivacyLabel } from "../types.js";
 import type { CalendarPort, ContactSample, DMSample, EmailPort, EmailSample, MessagingPort } from "../ports.js";
 import type { ScanResult, ScanSuggestion } from "../scan-types.js";
@@ -135,10 +137,23 @@ export function createMockEmailAdapter(): EmailPort {
   };
 }
 
-export function createMockCalendarAdapter(): CalendarPort {
+const MOCK_EVENTS: CalendarEvent[] = [
+  { title: "Team Standup", attendees: ["alice@company.com", "bob@company.com", "carol@company.com"], startTime: Date.now() - 86400000, recurrence: "RRULE:FREQ=DAILY" },
+  { title: "Sprint Planning", attendees: ["alice@company.com", "bob@company.com", "carol@company.com", "dave@vendor.io"], startTime: Date.now() - 604800000, recurrence: "RRULE:FREQ=WEEKLY" },
+  { title: "1:1 with Alice", attendees: ["alice@company.com"], startTime: Date.now() - 172800000, recurrence: "RRULE:FREQ=WEEKLY" },
+  { title: "Design Review", attendees: ["carol@company.com", "dave@vendor.io"], startTime: Date.now() - 259200000 },
+  { title: "Quarterly Planning", attendees: ["alice@company.com", "bob@company.com", "carol@company.com", "hr@company.com", "finance@company.com"], startTime: Date.now() - 2592000000 },
+  { title: "Vendor Sync", attendees: ["dave@vendor.io"], startTime: Date.now() - 432000000, recurrence: "RRULE:FREQ=MONTHLY" },
+  { title: "Architecture Review", attendees: ["alice@company.com", "bob@company.com"], startTime: Date.now() - 345600000 },
+];
+
+export function createMockCalendarAdapter(): CalendarPort & DiscoveryCalendarPort {
   return {
     async getVisibility(): Promise<CalendarVisibility> {
       return CALENDARS;
+    },
+    async getEvents(): Promise<CalendarEvent[]> {
+      return MOCK_EVENTS;
     },
   };
 }
@@ -206,6 +221,30 @@ const MOCK_DM_SUGGESTIONS: ScanSuggestion[] = [
   { id: "D003", sensitive: false, reason: "Work colleague — standard collaboration", confidence: "high" },
   { id: "D004", sensitive: false, reason: "Ops team member — operational discussions", confidence: "high" },
 ];
+
+export function createMockDiscoveryResult(): DiscoveryResult {
+  return {
+    roleSummary: "Software engineering lead focused on backend services and infrastructure. Primary responsibilities include code review, sprint planning, and vendor management. Frequently coordinates with design and operations teams.",
+    duties: [
+      { title: "Code Review", description: "Review pull requests from team members", frequency: "daily" },
+      { title: "Sprint Planning", description: "Lead weekly sprint planning with the engineering team", frequency: "weekly" },
+      { title: "1:1 Meetings", description: "Regular check-ins with direct reports", frequency: "weekly" },
+      { title: "Vendor Management", description: "Coordinate with external vendors on API integrations", frequency: "monthly" },
+      { title: "Architecture Reviews", description: "Review and approve architectural decisions", frequency: "ad-hoc" },
+    ],
+    contactCategories: [
+      { category: "Engineering Team", contacts: ["alice@company.com", "bob@company.com", "carol@company.com"], description: "Core engineering team members" },
+      { category: "External Vendors", contacts: ["dave@vendor.io", "support@stripe.com"], description: "Third-party service providers" },
+      { category: "Internal Support", contacts: ["hr@company.com", "finance@company.com"], description: "HR and finance teams" },
+    ],
+    suggestions: [
+      { title: "Automate standup summaries", description: "Generate daily standup summaries from Slack messages", capabilityId: "slack" },
+      { title: "PR review reminders", description: "Track open PRs and send reminders for stale reviews", capabilityId: "github" },
+      { title: "Meeting prep", description: "Generate agenda items from recent email threads before recurring meetings", capabilityId: "gmail" },
+    ],
+    analyzedAt: Date.now(),
+  };
+}
 
 export function createMockScanResult(): ScanResult {
   return {

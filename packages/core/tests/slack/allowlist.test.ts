@@ -2,7 +2,7 @@ import { describe, expect, test, vi } from "vitest";
 import { handleDmMessage } from "../../src/slack/app.js";
 import type { DmMessageEvent } from "../../src/slack/types.js";
 import type { IdentityResolver } from "../../src/identity/resolver.js";
-import type { UserStore } from "../../src/identity/store.js";
+import type { IdentityStore, UserStore } from "../../src/identity/store.js";
 import type { ConfigStore } from "../../src/persistence/config.js";
 
 const makeLogger = () => ({
@@ -36,6 +36,12 @@ const makeUsers = (): UserStore => ({
   update: vi.fn(),
 });
 
+const makeIdentities = (): IdentityStore => ({
+  resolve: vi.fn().mockResolvedValue(null),
+  link: vi.fn(),
+  listForUser: vi.fn().mockResolvedValue([]),
+});
+
 const makeConfigStore = (): ConfigStore =>
   ({
     get: vi.fn().mockResolvedValue(null),
@@ -67,6 +73,7 @@ describe("handleDmMessage", () => {
       logger: logger as unknown as Parameters<typeof handleDmMessage>[0]["logger"],
       identityResolver: makeIdentityResolver(),
       users: makeUsers(),
+      identities: makeIdentities(),
       configStore: makeConfigStore(),
     });
 
@@ -90,6 +97,7 @@ describe("handleDmMessage", () => {
       logger: logger as unknown as Parameters<typeof handleDmMessage>[0]["logger"],
       identityResolver: resolver,
       users: makeUsers(),
+      identities: makeIdentities(),
       configStore: makeConfigStore(),
     });
 
@@ -109,6 +117,7 @@ describe("handleDmMessage", () => {
       logger: logger as unknown as Parameters<typeof handleDmMessage>[0]["logger"],
       identityResolver: makeIdentityResolver(),
       users: makeUsers(),
+      identities: makeIdentities(),
       configStore: makeConfigStore(),
     });
 
@@ -129,6 +138,7 @@ describe("handleDmMessage", () => {
       logger: logger as unknown as Parameters<typeof handleDmMessage>[0]["logger"],
       identityResolver: makeIdentityResolver(),
       users: makeUsers(),
+      identities: makeIdentities(),
       configStore: makeConfigStore(),
     });
 
@@ -149,6 +159,7 @@ describe("handleDmMessage", () => {
       logger: logger as unknown as Parameters<typeof handleDmMessage>[0]["logger"],
       identityResolver: makeIdentityResolver(),
       users: makeUsers(),
+      identities: makeIdentities(),
       configStore: makeConfigStore(),
     });
 

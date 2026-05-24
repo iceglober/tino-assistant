@@ -7,7 +7,7 @@ import type { DeployConfig } from "./types.js";
  * AWS is the only option — GCP/Render/Vercel are coming soon.
  */
 export async function stepProvider(config: Partial<DeployConfig>): Promise<Partial<DeployConfig>> {
-  displayStep(2, 6, "Cloud Provider");
+  displayStep(2, 5, "Cloud Provider");
 
   const provider = await select({
     message: "Which cloud provider will you deploy to?",

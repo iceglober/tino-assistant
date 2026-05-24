@@ -100,7 +100,7 @@ function buildApp(
   app.use(
     "*",
     buildAuthMiddleware({
-      auth,
+      authRef: { current: auth },
       allowedDomain: opts.allowedDomain,
       logger: noopLogger(),
       identities: opts.identities,
@@ -277,7 +277,7 @@ describe("requireAdmin middleware (wave 3 a6)", () => {
     app.use(
       "*",
       buildAuthMiddleware({
-        auth: stubAuth({ user: { id: "ba-id", email: "member@acme.io", name: "M" } }),
+        authRef: { current: stubAuth({ user: { id: "ba-id", email: "member@acme.io", name: "M" } }) },
         allowedDomain: undefined,
         logger: noopLogger(),
         identities,
@@ -301,7 +301,7 @@ describe("requireAdmin middleware (wave 3 a6)", () => {
     app.use(
       "*",
       buildAuthMiddleware({
-        auth: stubAuth({ user: { id: "ba-id", email: "admin@acme.io", name: "Admin" } }),
+        authRef: { current: stubAuth({ user: { id: "ba-id", email: "admin@acme.io", name: "Admin" } }) },
         allowedDomain: undefined,
         logger: noopLogger(),
         identities,

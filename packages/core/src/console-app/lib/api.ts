@@ -38,6 +38,7 @@ export interface CapabilityEntry {
 
 export interface HealthResponse {
   ok: boolean;
+  authConfigured?: boolean;
   tools: string[];
   uptime: number;
   capabilities: Array<{
@@ -313,6 +314,22 @@ export async function reloadCapabilities(): Promise<ReloadResult> {
 }
 
 /**
+ * Wave 4 — POST /api/reload/auth. Hot-swaps the better-auth instance with
+ * config from the DynamoDB store. Called after the setup wizard saves Google
+ * OAuth credentials. Bypasses admin check during first boot (no auth configured).
+ */
+export async function reloadAuth(): Promise<ReloadResult> {
+  try {
+    const r = await fetch("/api/reload/auth", { method: "POST", credentials: "include" });
+    if (r.status === 401) throw new UnauthorizedError();
+    return (await r.json()) as ReloadResult;
+  } catch (err) {
+    if (err instanceof UnauthorizedError) throw err;
+    return { ok: false, error: (err as Error).message };
+  }
+}
+
+/**
  * Wave 3.4 — POST /api/admin/restart. Triggers an in-process shutdown;
  * ECS automatically restarts the task. Returns 202 + `{ ok: true }`
  * before the process exits, then the server takes ~100ms to actually exit.
@@ -326,6 +343,51 @@ export async function restartTino(): Promise<ReloadResult> {
     if (err instanceof UnauthorizedError) throw err;
     return { ok: false, error: (err as Error).message };
   }
+}
+
+// ── Tasks ─────────────────────────────────────────────────────────────────
+
+export interface TaskItem {
+  id: string;
+  userId: string;
+  description: string;
+  scheduledAt: number;
+  status: "pending" | "running" | "completed" | "failed" | "cancelled";
+  result: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export async function getTasks(status?: string): Promise<TaskItem[]> {
+  const qs = status ? `?status=${encodeURIComponent(status)}` : "";
+  const r = await fetch(`/api/tasks${qs}`, { credentials: "include" });
+  const data = await unwrap<{ tasks: TaskItem[] }>(r);
+  return data.tasks;
+}
+
+export async function cancelTask(id: string): Promise<{ ok: boolean }> {
+  const r = await fetch(`/api/tasks/${encodeURIComponent(id)}/cancel`, {
+    method: "POST",
+    credentials: "include",
+  });
+  return unwrap<{ ok: boolean }>(r);
+}
+
+// ── Activity ──────────────────────────────────────────────────────────────
+
+export interface ActivityItem {
+  id: string;
+  type: string;
+  summary: string;
+  status: "success" | "error" | "denied";
+  timestamp: number;
+}
+
+export async function getRecentActivity(limit = 50): Promise<ActivityItem[]> {
+  const qs = limit !== 50 ? `?limit=${limit}` : "";
+  const r = await fetch(`/api/activity/recent${qs}`, { credentials: "include" });
+  const data = await unwrap<{ items: ActivityItem[] }>(r);
+  return data.items;
 }
 
 // ── Privacy ────────────────────────────────────────────────────────────────
@@ -411,6 +473,85 @@ export async function savePrivacySection(section: string, config: Record<string,
   });
   if (!r.ok) throw new Error(`save failed: ${r.status}`);
   return (await r.json()) as { ok: boolean };
+}
+
+// ── Discovery ─────────────────────────────────────────────────────────────────
+
+export interface DiscoveryResult {
+  roleSummary: string;
+  duties: Array<{ title: string; description: string; frequency?: string }>;
+  contactCategories: Array<{ category: string; contacts: string[]; description: string }>;
+  suggestions: Array<{ title: string; description: string; capabilityId?: string }>;
+  analyzedAt: number;
+}
+
+export interface DiscoveryProgress {
+  phase: "email" | "calendar" | "analysis" | "done";
+  pct: number;
+  message: string;
+}
+
+export async function getDiscoveryResult(): Promise<DiscoveryResult | null> {
+  const r = await fetch("/api/discovery/result", { credentials: "include" });
+  const data = await unwrap<{ result: DiscoveryResult | null }>(r);
+  return data.result;
+}
+
+export function startDiscovery(
+  onProgress: (p: DiscoveryProgress) => void,
+  onResult: (r: DiscoveryResult) => void,
+  onError: (e: Error) => void,
+): AbortController {
+  const controller = new AbortController();
+
+  fetch("/api/discovery/run", {
+    method: "POST",
+    credentials: "include",
+    signal: controller.signal,
+  })
+    .then(async (res) => {
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || `discovery failed: ${res.status}`);
+      }
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error("no response body");
+
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        let currentEvent = "";
+        for (const line of lines) {
+          if (line.startsWith("event: ")) {
+            currentEvent = line.slice(7).trim();
+          } else if (line.startsWith("data: ") && currentEvent) {
+            const data = line.slice(6);
+            try {
+              const parsed = JSON.parse(data);
+              if (currentEvent === "progress") onProgress(parsed as DiscoveryProgress);
+              else if (currentEvent === "result") onResult(parsed as DiscoveryResult);
+              else if (currentEvent === "error") onError(new Error((parsed as { error: string }).error));
+            } catch { /* skip malformed frames */ }
+            currentEvent = "";
+          } else if (line === "") {
+            currentEvent = "";
+          }
+        }
+      }
+    })
+    .catch((err) => {
+      if ((err as Error).name !== "AbortError") onError(err as Error);
+    });
+
+  return controller;
 }
 
 // ── Privacy scan ──────────────────────────────────────────────────────────────

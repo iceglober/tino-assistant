@@ -1,15 +1,18 @@
 import { type JSX, useEffect, useState } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { InsecureBanner } from "./components/InsecureBanner.js";
+import { Layout } from "./components/Layout.js";
 import { ToastProvider } from "./hooks/useToast.js";
 import { useAuth } from "./hooks/useAuth.js";
 import type { Session } from "./lib/api.js";
-import { getConfig, getPrivacyStatus } from "./lib/api.js";
-import { Admin } from "./pages/Admin.js";
+import { getConfig, getDiscoveryResult } from "./lib/api.js";
+import { Capabilities } from "./pages/Capabilities.js";
 import { Dashboard } from "./pages/Dashboard.js";
 import { Login } from "./pages/Login.js";
 import { Onboarding } from "./pages/Onboarding.js";
 import { Setup } from "./pages/Setup.js";
+import { Work } from "./pages/Work.js";
+import { Workspace } from "./pages/Workspace.js";
 
 type Phase = "loading" | "setup" | "onboarding" | "ready";
 
@@ -44,11 +47,9 @@ async function determinePhase(
 
   onStep("preferences");
   try {
-    const status = await getPrivacyStatus();
-    if (!status.hasPrivacyConfig && status.connectedCapabilities.length > 0) {
-      return "onboarding";
-    }
-  } catch { /* no privacy store — skip onboarding gate */ }
+    const result = await getDiscoveryResult();
+    if (!result) return "onboarding";
+  } catch { /* discovery not available — skip onboarding gate */ }
 
   return "ready";
 }
@@ -58,17 +59,16 @@ function AppRouter(): JSX.Element {
   const [phase, setPhase] = useState<Phase>("loading");
   const [loadingStep, setLoadingStep] = useState<LoadingStep>("auth");
   const [checkKey, setCheckKey] = useState(0);
-
   useEffect(() => {
     if (loading) return;
-    if (!session) { setPhase("ready"); return; }
+    if (!session) return;
 
     setPhase("loading");
     setLoadingStep("auth");
     void determinePhase(session, setLoadingStep).then(setPhase);
   }, [loading, session, checkKey]);
 
-  if (loading || phase === "loading") {
+  if (loading || (phase === "loading" && session)) {
     return (
       <div className="splash">
         <img src="/assets/tino-logo.png" alt="tino" className="splash-logo" />
@@ -78,7 +78,9 @@ function AppRouter(): JSX.Element {
     );
   }
 
-  if (!session) return <Login />;
+  if (!session) {
+    return <Login />;
+  }
 
   if (phase === "setup") {
     return <Setup session={session} onComplete={() => setCheckKey((k) => k + 1)} />;
@@ -89,23 +91,30 @@ function AppRouter(): JSX.Element {
 
   return (
     <Routes>
-      <Route path="/admin" element={<Admin />} />
-      <Route path="/login" element={<Navigate to="/" replace />} />
+      <Route element={<Layout session={session} signOut={signOut} />}>
+        <Route path="/" element={
+          <Dashboard
+            session={session}
+            signOut={signOut}
+            onRecheck={() => setCheckKey((k) => k + 1)}
+          />
+        } />
+        <Route path="/capabilities" element={<Capabilities />} />
+        <Route path="/work" element={<Work />} />
+        <Route path="/workspace" element={<Workspace />} />
+      </Route>
       {/* Legacy redirects */}
+      <Route path="/admin" element={<Navigate to="/workspace" replace />} />
+      <Route path="/login" element={<Navigate to="/" replace />} />
       <Route path="/setup" element={<Navigate to="/" replace />} />
-      <Route path="/users" element={<Navigate to="/admin" replace />} />
+      <Route path="/users" element={<Navigate to="/workspace" replace />} />
       <Route path="/onboarding" element={<Navigate to="/" replace />} />
-      <Route path="/privacy" element={<Navigate to="/" replace />} />
-      <Route path="/my-capabilities" element={<Navigate to="/" replace />} />
+      <Route path="/privacy" element={<Navigate to="/capabilities" replace />} />
+      <Route path="/my-capabilities" element={<Navigate to="/capabilities" replace />} />
       <Route path="/me/activity" element={<Navigate to="/" replace />} />
-      <Route path="/audit" element={<Navigate to="/" replace />} />
-      <Route path="*" element={
-        <Dashboard
-          session={session}
-          signOut={signOut}
-          onRecheck={() => setCheckKey((k) => k + 1)}
-        />
-      } />
+      <Route path="/activity" element={<Navigate to="/" replace />} />
+      <Route path="/console" element={<Navigate to="/" replace />} />
+      <Route path="/audit" element={<Navigate to="/workspace" replace />} />
     </Routes>
   );
 }

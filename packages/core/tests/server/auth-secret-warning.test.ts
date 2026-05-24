@@ -57,7 +57,7 @@ describe("createAuth — BETTER_AUTH_SECRET warning (gap #7)", () => {
 
     expect(logger.warn).toHaveBeenCalledTimes(1);
     expect(logger.warn).toHaveBeenCalledWith(
-      { fix: "set BETTER_AUTH_SECRET env var (Pulumi: SecretsManager)" },
+      { fix: "set BETTER_AUTH_SECRET env var or provide a config store" },
       "BETTER_AUTH_SECRET not set — sessions will be invalidated on every restart",
     );
   });

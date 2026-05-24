@@ -87,6 +87,15 @@ const historyAppender = new HistoryAppender(wrappedHistory, privacyFilter);
 // Run one-time migration from env vars to config store (no-op if already done)
 await migrateEnvToCapabilities(env, configStore, logger);
 
+// Seed console.allowedDomain from env var so Slack DM auto-provisioning can see it
+if (process.env.CONSOLE_ALLOWED_DOMAIN) {
+  const existing = await configStore.get("console.allowedDomain");
+  if (!existing) {
+    await configStore.set("console.allowedDomain", process.env.CONSOLE_ALLOWED_DOMAIN);
+    logger.info({ domain: process.env.CONSOLE_ALLOWED_DOMAIN }, "seeded console.allowedDomain from env");
+  }
+}
+
 // Run one-time migration to the multi-user model (wave 0)
 if (env.SLACK_BOT_TOKEN && env.ALLOWED_SLACK_USER_ID) {
   const slackClient = new WebClient(env.SLACK_BOT_TOKEN);
@@ -192,7 +201,13 @@ const registry = await initCapabilityRegistry({
       activeCapabilities,
     });
 
-    await postDm(result);
+    const allUsers = await users.list();
+    const admin = allUsers.find((u) => u.role === "admin" && u.status === "active");
+    if (admin) {
+      await postDm(admin.id, result);
+    } else {
+      logger.warn("findWork produced result but no active admin to DM");
+    }
   },
 });
 
@@ -220,7 +235,7 @@ logger.info({ toolCount: Object.keys(tools).length, estimatedTokens: toolTokenEs
 // trade-off is acceptable here (single instance, single process).
 type SlackBoltApp = import("@slack/bolt").App;
 let app: SlackBoltApp | null = null;
-let postDm: (text: string) => Promise<void> = async () => {
+let postDm: (userId: string, text: string) => Promise<void> = async () => {
   /* no-op: Slack not connected */
 };
 let stopScheduler: () => void = () => {
@@ -240,10 +255,8 @@ async function reconnectSlack(): Promise<{ ok: boolean; error?: string }> {
   // Re-read the tokens fresh — the config store is the source of truth.
   const botToken = parseConfigValue(await configStore.get("slack.botToken")) ?? env.SLACK_BOT_TOKEN;
   const appToken = parseConfigValue(await configStore.get("slack.appToken")) ?? env.SLACK_APP_TOKEN;
-  const adminId = parseConfigValue(await configStore.get("slack.adminUserId")) ?? env.ALLOWED_SLACK_USER_ID ?? "";
-
-  if (!botToken || !appToken || !adminId) {
-    return { ok: false, error: "missing slack.botToken, slack.appToken, or slack.adminUserId" };
+  if (!botToken || !appToken) {
+    return { ok: false, error: "missing slack.botToken or slack.appToken" };
   }
 
   // Tear down the existing connection if any. `app.stop()` may throw if
@@ -269,7 +282,6 @@ async function reconnectSlack(): Promise<{ ok: boolean; error?: string }> {
     ...env,
     SLACK_BOT_TOKEN: botToken,
     SLACK_APP_TOKEN: appToken,
-    ALLOWED_SLACK_USER_ID: adminId,
   };
 
   const slackClient = new WebClient(botToken);
@@ -302,6 +314,7 @@ async function reconnectSlack(): Promise<{ ok: boolean; error?: string }> {
       history: wrappedHistory,
       identityResolver,
       users,
+      identities,
       configStore,
       auditLogger,
     });
@@ -315,7 +328,7 @@ async function reconnectSlack(): Promise<{ ok: boolean; error?: string }> {
   app = nextApp;
   logger.info({ nodeVersion: process.version, pid: process.pid }, "tino slack connected");
 
-  postDm = await createProactiveDm(nextApp, adminId, logger);
+  postDm = createProactiveDm(nextApp, identities, logger);
 
   stopScheduler = startScheduler({
     taskStore,
@@ -345,7 +358,7 @@ async function reconnectSlack(): Promise<{ ok: boolean; error?: string }> {
         activeCapabilities,
       });
     },
-    postResult: (text: string) => postDm(text),
+    postResult: (userId: string, text: string) => postDm(userId, text),
   });
 
   return { ok: true };
@@ -416,6 +429,8 @@ const consoleServer = await startServer({
   users,
   privacyConfigStore,
   userCapabilities,
+  taskStore,
+  resolveAppDataClient: appDataResolver,
   model,
   mockPrivacy,
 });
