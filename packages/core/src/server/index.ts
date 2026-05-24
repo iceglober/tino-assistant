@@ -34,6 +34,7 @@ import { createTaskRoutes } from "./routes/tasks.js";
 import { createUsersRoutes } from "./routes/users.js";
 import { createUserCapabilityRoutes } from "./routes/user-capabilities.js";
 import { createGoogleOAuthRoutes } from "./routes/google-oauth.js";
+import { createSlackOAuthRoutes } from "./routes/slack-oauth.js";
 import { createPrivacyRoutes } from "./routes/privacy.js";
 
 /**
@@ -221,6 +222,15 @@ export async function startServer(opts: StartServerOptions): Promise<StartedServ
   app.route("/api/oauth/google", createGoogleOAuthRoutes({
     config,
     userCapabilities,
+    logger,
+    auditLogger,
+    baseUrl,
+  }));
+  app.route("/api/oauth/slack", createSlackOAuthRoutes({
+    config,
+    userCapabilities,
+    identities,
+    users,
     logger,
     auditLogger,
     baseUrl,

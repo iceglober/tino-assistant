@@ -38,8 +38,9 @@ async function determinePhase(
         try { return String(JSON.parse(e.value)); } catch { return e.value; }
       };
       const hasSlack = !!(get("slack.botToken") && get("slack.appToken"));
+      const hasOAuth = !!(get("slack.clientId") && get("slack.clientSecret"));
       const hasModel = !!get("bedrock.modelId");
-      if (!hasSlack || !hasModel) return "setup";
+      if (!hasSlack || !hasOAuth || !hasModel) return "setup";
     } catch {
       return "setup";
     }
