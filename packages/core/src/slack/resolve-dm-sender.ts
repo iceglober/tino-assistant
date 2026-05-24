@@ -106,6 +106,15 @@ export async function resolveDmSender(
         return sole.id;
       }
 
+      if (allUsers.length === 0) {
+        const id = crypto.randomUUID();
+        await users.create({ id, email: "", role: "admin", status: "active", slackUserId, createdAt: Date.now(), updatedAt: Date.now() });
+        await identities.link({ provider: "slack", externalId: slackUserId, tinoUserId: id, linkedAt: Date.now() });
+        logger.info({ tinoUserId: id, slackUserId }, "created first admin from slack DM (zero-user bootstrap)");
+        await auditLogger?.log({ userId: id, action: "login", status: "success", errorMessage: "zero-user bootstrap" });
+        return id;
+      }
+
       await say({
         text: "i don't recognize you and your email domain doesn't match the configured org. ask your admin to add you to tino.",
       });

@@ -126,7 +126,7 @@ describe("resolveDmSender", () => {
     );
   });
 
-  it("unknown user in org-domain mode with non-matching email is rejected", async () => {
+  it("zero-user bootstrap creates admin from slack DM", async () => {
     const opts = makeOpts();
     (opts.configStore.get as ReturnType<typeof vi.fn>).mockImplementation(async (key: string) => {
       if (key === "org.accessControl.mode") return JSON.stringify("org-domain");
@@ -136,6 +136,32 @@ describe("resolveDmSender", () => {
     (opts.identityResolver.provisionFromSlack as ReturnType<typeof vi.fn>).mockRejectedValue(
       new Error("unknown_user"),
     );
+    (opts.users.list as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    (opts.users.create as ReturnType<typeof vi.fn>).mockImplementation(async (u: TinoUser) => u);
+
+    const result = await resolveDmSender("U_FIRST", opts);
+
+    expect(result).toEqual(expect.any(String));
+    expect(opts.users.create).toHaveBeenCalledWith(
+      expect.objectContaining({ role: "admin", slackUserId: "U_FIRST", status: "active" }),
+    );
+    expect(opts.identities.link).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: "slack", externalId: "U_FIRST" }),
+    );
+  });
+
+  it("unknown user in org-domain mode with non-matching email is rejected", async () => {
+    const existingUser = makeUser({ id: "existing-admin", slackUserId: "U_EXISTING" });
+    const opts = makeOpts();
+    (opts.configStore.get as ReturnType<typeof vi.fn>).mockImplementation(async (key: string) => {
+      if (key === "org.accessControl.mode") return JSON.stringify("org-domain");
+      if (key === "org.accessControl.orgDomain") return JSON.stringify("acme.io");
+      return null;
+    });
+    (opts.identityResolver.provisionFromSlack as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("unknown_user"),
+    );
+    (opts.users.list as ReturnType<typeof vi.fn>).mockResolvedValue([existingUser]);
 
     const result = await resolveDmSender("U_OUTSIDER", opts);
 
