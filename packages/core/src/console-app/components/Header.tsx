@@ -31,7 +31,7 @@ export function Header({
           : "checking…";
 
   const isActive = (path: string) =>
-    path === "/" ? location.pathname === "/" : location.pathname.startsWith(path);
+    path === "/" ? location.pathname === "/" : location.pathname === path;
 
   return (
     <header className="header">
