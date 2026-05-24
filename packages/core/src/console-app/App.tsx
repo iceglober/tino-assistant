@@ -50,7 +50,7 @@ async function determinePhase(
   try {
     const result = await getDiscoveryResult();
     if (!result) return "onboarding";
-  } catch { /* discovery not available — skip onboarding gate */ }
+  } catch { return "onboarding"; }
 
   return "ready";
 }

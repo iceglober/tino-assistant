@@ -152,7 +152,7 @@ export async function getCompliance(): Promise<unknown> {
 }
 
 export interface Session {
-  user: { id: string; email: string; name?: string; role?: "admin" | "member" };
+  user: { id: string; email: string; name?: string; role?: "admin" | "member"; slackUserId?: string | null };
 }
 
 export async function getSession(): Promise<Session | null> {
@@ -166,6 +166,7 @@ export async function getSession(): Promise<Session | null> {
     if (me) {
       data.user.id = me.id;
       data.user.role = me.role;
+      data.user.slackUserId = me.slackUserId;
     }
     return data;
   } catch {

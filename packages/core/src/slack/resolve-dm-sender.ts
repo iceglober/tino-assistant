@@ -58,7 +58,7 @@ export async function resolveDmSender(
   // Fall back to console.allowedDomain (set via CONSOLE_ALLOWED_DOMAIN env var
   // or the config store) so org-domain mode activates automatically when an
   // allowed domain is configured — no separate access-control setup needed.
-  const consoleDomain = parseConfigJson(await configStore.get("console.allowedDomain"));
+  const consoleDomain = parseConfigJson(await configStore.get("console.allowedDomain")) || process.env.CONSOLE_ALLOWED_DOMAIN;
   const effectiveDomain = orgDomain || consoleDomain;
 
   const mode = rawMode ? (JSON.parse(rawMode) as string) : (effectiveDomain ? "org-domain" : "allowlist");
