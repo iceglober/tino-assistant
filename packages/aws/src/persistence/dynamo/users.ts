@@ -1,7 +1,7 @@
 import type { UserStore } from "@tino/core/identity/store";
 import type { TinoUser } from "@tino/core/identity/types";
 import { ORG_USER_PARTITION, orgUserPk } from "@tino/core/persistence/keys";
-import { GetItemCommand, PutItemCommand, QueryCommand, UpdateItemCommand } from "dynamodb-toolbox";
+import { GetItemCommand, PutItemCommand, ScanCommand, UpdateItemCommand } from "dynamodb-toolbox";
 import type { TinoTable } from "./client.js";
 import { createUserEntity } from "./entities.js";
 
@@ -79,33 +79,26 @@ export function createDynamoUserStore(table: TinoTable): UserStore {
     async getByEmail(email: string): Promise<TinoUser | null> {
       const target = email.toLowerCase();
       const { Items = [] } = await table
-        .build(QueryCommand)
+        .build(ScanCommand)
         .entities(entity)
-        .query({
-          partition: `${ORG_USER_PARTITION}#`, // begins-with on pk via index? no — Query needs an exact partition.
-          // DynamoDB Query requires an exact partition key, not a prefix; we
-          // can't scan all USER#<id> rows efficiently with the table's pk/sk
-          // schema alone. Fall back to a Scan-style filter via the table's
-          // entity collection: build a Scan filtered by entity then linear-
-          // search by email. Acceptable for wave-0 / OSS scale; revisit when
-          // user count gets large.
+        .options({
+          filters: { User: { attr: "pk", beginsWith: `${ORG_USER_PARTITION}#` } },
         })
         .send()
         .catch(() => ({ Items: [] }));
-      // Filtering happens client-side because DynamoDB has no
-      // case-insensitive query primitive. For OSS deployments (≤ ~100 users)
-      // this is fine; managed-multi-tenant will add a per-tenant email GSI.
       const match = (Items as Array<Parameters<typeof rowToUser>[0]>).find((it) => it.email.toLowerCase() === target);
       return match ? rowToUser(match) : null;
     },
 
     async list(): Promise<TinoUser[]> {
-      // Same caveat as getByEmail: full-scan via Query won't work with an
-      // exact partition. The wave-0 migration only ever calls `get`/`create`
-      // for a single bot-owner user, so list is best-effort here. A future
-      // wave (admin UI) adds a GSI keyed on a constant ORG#USER partition.
       try {
-        const { Items = [] } = await table.build(QueryCommand).entities(entity).query({ partition: ORG_USER_PARTITION }).send();
+        const { Items = [] } = await table
+          .build(ScanCommand)
+          .entities(entity)
+          .options({
+            filters: { User: { attr: "pk", beginsWith: `${ORG_USER_PARTITION}#` } },
+          })
+          .send();
         return (Items as Array<Parameters<typeof rowToUser>[0]>)
           .map(rowToUser)
           .sort((a, b) => a.createdAt - b.createdAt);
