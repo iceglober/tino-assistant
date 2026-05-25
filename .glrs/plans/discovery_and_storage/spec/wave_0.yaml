@@ -234,7 +234,7 @@ items:
   - id: 0g
     intent: Simplify createDiscoveryStore — remove resolveClient dep, write/read
       only through ConfigStore (DynamoDB).
-    checked: false
+    checked: true
     files:
       - path: packages/core/src/discovery/store.ts
         isNew: false
