@@ -125,7 +125,7 @@ items:
       structured prompt section per source, run generateObject with the new
       directive system prompt + DiscoveryAnalysisSchema, and return
       DiscoveryResult with analyzedAt + dataSourcesUsed.
-    checked: false
+    checked: true
     files:
       - path: packages/core/src/discovery/service.ts
         isNew: false
