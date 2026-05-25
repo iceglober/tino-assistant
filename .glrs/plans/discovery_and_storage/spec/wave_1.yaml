@@ -187,7 +187,7 @@ items:
     intent: "Wire SlackDiscoveryPort through the discovery HTTP route — accept
       optional `slack?: SlackDiscoveryPort` in DiscoveryRouteDeps and pass it to
       runDiscovery. The mock-mode SSE branch is unchanged."
-    checked: false
+    checked: true
     files:
       - path: packages/core/src/server/routes/discovery.ts
         isNew: false
