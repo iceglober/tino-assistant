@@ -34,7 +34,7 @@ items:
 
   - id: "2b"
     intent: "Load discovery result from configStore in runAgent and pass it to buildSystemPrompt"
-    checked: false
+    checked: true
     files:
       - path: packages/core/src/agent/run.ts
         isNew: false
