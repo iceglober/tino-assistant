@@ -239,7 +239,7 @@ items:
       type, responsibilities grouped by time horizon, work-pattern meeting load
       + time investment + recurring commitments, and pain points list. Defensive
       optional chaining handles old-shape results that lack the new fields.
-    checked: false
+    checked: true
     files:
       - path: packages/core/src/console-app/pages/Capabilities.tsx
         isNew: false
