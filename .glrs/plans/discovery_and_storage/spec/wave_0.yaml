@@ -290,9 +290,10 @@ items:
           client-factory.ts, crypto.ts, key-manager.ts, resolve-client.ts,
           types.ts, and adapters/encrypted-history-store.ts (only)."
     tests: []
-    verify: ls packages/core/src/drive/adapters && grep -rn 'AppDataClient'
-      packages/core/src apps --include='*.ts' | grep -v '/drive/' | grep -v
-      'createAppDataClientResolver'
+    verify: test -f packages/core/src/drive/adapters/encrypted-history-store.ts &&
+      ! ls packages/core/src/drive/adapters | grep -v '^encrypted-history-store\.ts$'
+      && ! grep -rn 'AppDataClient' packages/core/src apps --include='*.ts' |
+      grep -v '/drive/' | grep -v 'createAppDataClientResolver'
     mirror: packages/core/src/drive/key-manager.ts
     context: |
       // packages/core/src/drive/adapters/
