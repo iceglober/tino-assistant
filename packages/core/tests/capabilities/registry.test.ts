@@ -96,12 +96,18 @@ describe("initCapabilityRegistry", () => {
     expect(registry.sharedTools.linear_search_issues).toBeUndefined();
     expect(registry.sharedTools.cloudwatch_logs_query).toBeUndefined();
 
-    // Preferences tools always registered in sharedTools
-    expect(registry.sharedTools.set_preference).toBeDefined();
-    expect(registry.sharedTools.get_preferences).toBeDefined();
+    // Preferences tools are per-user (in buildPrivateTools), not shared
+    expect(registry.sharedTools.set_preference).toBeUndefined();
+    expect(registry.sharedTools.get_preferences).toBeUndefined();
+
+    // Per-user tools available via buildPrivateTools
+    const privateTools = await registry.buildPrivateTools("user123");
+    expect(privateTools.set_preference).toBeDefined();
+    expect(privateTools.get_preferences).toBeDefined();
+    expect(privateTools.update_discovery).toBeDefined();
 
     // No task tools (no taskStore provided)
-    expect(registry.sharedTools.schedule_task).toBeUndefined();
+    expect(privateTools.schedule_task).toBeUndefined();
 
     expect(registry.capabilityIds).toEqual([]);
   });
@@ -261,9 +267,12 @@ describe("initCapabilityRegistry", () => {
       taskStore,
     });
 
-    expect(registry.sharedTools.schedule_task).toBeDefined();
-    expect(registry.sharedTools.list_tasks).toBeDefined();
-    expect(registry.sharedTools.cancel_task).toBeDefined();
+    // Task tools are per-user (in buildPrivateTools), not shared
+    expect(registry.sharedTools.schedule_task).toBeUndefined();
+    const privateTools = await registry.buildPrivateTools("user123");
+    expect(privateTools.schedule_task).toBeDefined();
+    expect(privateTools.list_tasks).toBeDefined();
+    expect(privateTools.cancel_task).toBeDefined();
   });
 
   it("9. getState() returns per-capability state", async () => {
@@ -335,16 +344,18 @@ describe("initCapabilityRegistry", () => {
       preferencesStore,
     });
 
-    expect(registry.sharedTools.set_preference).toBeDefined();
-    expect(registry.sharedTools.get_preferences).toBeDefined();
+    // Preferences tools are per-user via buildPrivateTools
+    const privateTools = await registry.buildPrivateTools("user123");
+    expect(privateTools.set_preference).toBeDefined();
+    expect(privateTools.get_preferences).toBeDefined();
 
     // Exercise the tool — it should hit the injected store, not SQLite.
-    const setTool = registry.sharedTools.set_preference as {
+    const setTool = privateTools.set_preference as {
       execute: (input: { key: string; value: string }) => Promise<unknown>;
     };
     await setTool.execute({ key: "tz", value: "UTC" });
 
-    expect(preferencesStore.set).toHaveBeenCalledWith("U001", "tz", "UTC");
+    expect(preferencesStore.set).toHaveBeenCalledWith("user123", "tz", "UTC");
     expect(calls.find((c) => c.method === "set")).toBeDefined();
   });
 
@@ -433,7 +444,10 @@ describe("initCapabilityRegistry", () => {
     });
 
     const privateTools = await registry.buildPrivateTools("user123");
-    expect(privateTools).toEqual({});
+    // No private capability tools, but per-user tools (preferences, discovery) are always present
+    expect(privateTools.gmail_search).toBeUndefined();
+    expect(privateTools.set_preference).toBeDefined();
+    expect(privateTools.update_discovery).toBeDefined();
   });
 
   it("16. getActiveCapabilities returns only shared ids for SYSTEM_USER_ID", async () => {

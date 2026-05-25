@@ -168,16 +168,20 @@ describe("CapabilityRegistry.reload (wave 3.2)", () => {
       taskStore,
     });
 
-    expect(registry.sharedTools.set_preference).toBeDefined();
-    expect(registry.sharedTools.schedule_task).toBeDefined();
+    // Per-user tools are in buildPrivateTools, not sharedTools
+    let privateTools = await registry.buildPrivateTools("user123");
+    expect(privateTools.set_preference).toBeDefined();
+    expect(privateTools.schedule_task).toBeDefined();
 
     await registry.reload();
 
-    expect(registry.sharedTools.set_preference).toBeDefined();
-    expect(registry.sharedTools.get_preferences).toBeDefined();
-    expect(registry.sharedTools.schedule_task).toBeDefined();
-    expect(registry.sharedTools.list_tasks).toBeDefined();
-    expect(registry.sharedTools.cancel_task).toBeDefined();
+    // Per-user tools survive a reload
+    privateTools = await registry.buildPrivateTools("user123");
+    expect(privateTools.set_preference).toBeDefined();
+    expect(privateTools.get_preferences).toBeDefined();
+    expect(privateTools.schedule_task).toBeDefined();
+    expect(privateTools.list_tasks).toBeDefined();
+    expect(privateTools.cancel_task).toBeDefined();
   });
 
   it("5. disabling a capability → tools are removed on reload", async () => {
@@ -221,7 +225,8 @@ describe("CapabilityRegistry.reload (wave 3.2)", () => {
     expect(result.ok).toBe(true);
     // github tools still not registered.
     expect(registry.sharedTools.github_search_code).toBeUndefined();
-    // But preferences are intact — partial failure didn't blow up the rest.
-    expect(registry.sharedTools.set_preference).toBeDefined();
+    // Per-user tools are intact — partial failure didn't blow up the rest.
+    const privateTools = await registry.buildPrivateTools("user123");
+    expect(privateTools.set_preference).toBeDefined();
   });
 });

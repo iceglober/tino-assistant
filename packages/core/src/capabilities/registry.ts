@@ -18,6 +18,7 @@ import { createPreferencesStore } from "../persistence/preferences.js";
 import type { TaskStore } from "../persistence/tasks.js";
 import type { UserCapabilityStore } from "../persistence/user-capabilities.js";
 import type { AppLogger } from "../slack/app.js";
+import { updateDiscoveryTool } from "../tools/discovery.js";
 import { getPreferencesTool, setPreferenceTool } from "../tools/preferences.js";
 import { cancelTaskTool, listTasksTool, scheduleTaskTool } from "../tools/tasks.js";
 import { ALL_CAPABILITIES } from "./all.js";
@@ -159,29 +160,16 @@ export async function initCapabilityRegistry(opts: RegistryOptions): Promise<Cap
     loadedCapabilityIds,
   });
 
-  // ── Preferences tools (always available) ─────────────────────────────────
-  // Prefer the injected store (mirrors the taskStore injection pattern below).
-  // Fall back to constructing a SQLite store only when no store was injected,
-  // i.e. local-dev callers that haven't been threaded through `createPersistence`.
+  // ── Per-user tool stores ──────────────────────────────────────────────────
+  // Preferences and task tools are bound to the calling user's tino-UUID in
+  // buildPrivateTools below. We resolve the stores once here so
+  // buildPrivateTools can close over them without re-constructing each call.
+  let prefStore: PreferencesStore | null = null;
   try {
-    const prefStore = preferencesStore ?? createPreferencesStore({ dbPath: dbPath ?? "./tino.db" });
-    sharedTools.set_preference = setPreferenceTool(prefStore, allowedUserId);
-    sharedTools.get_preferences = getPreferencesTool(prefStore, allowedUserId);
+    prefStore = preferencesStore ?? createPreferencesStore({ dbPath: dbPath ?? "./tino.db" });
     logger.info("preferences tools enabled");
   } catch (err) {
     logger.warn({ err: (err as Error).message }, "preferences tools disabled");
-  }
-
-  // ── Task tools (available when taskStore is provided) ────────────────────
-  if (taskStore) {
-    try {
-      sharedTools.schedule_task = scheduleTaskTool(taskStore, allowedUserId);
-      sharedTools.list_tasks = listTasksTool(taskStore, allowedUserId);
-      sharedTools.cancel_task = cancelTaskTool(taskStore);
-      logger.info("task tools enabled");
-    } catch (err) {
-      logger.warn({ err: (err as Error).message }, "task tools disabled");
-    }
   }
 
   /**
@@ -199,6 +187,22 @@ export async function initCapabilityRegistry(opts: RegistryOptions): Promise<Cap
     }
 
     const privateTools: ToolSet = {};
+
+    // Per-user preference tools (bound to this user's tino-UUID)
+    if (prefStore) {
+      privateTools.set_preference = setPreferenceTool(prefStore, tinoUserId);
+      privateTools.get_preferences = getPreferencesTool(prefStore, tinoUserId);
+    }
+
+    // Per-user task tools
+    if (taskStore) {
+      privateTools.schedule_task = scheduleTaskTool(taskStore, tinoUserId);
+      privateTools.list_tasks = listTasksTool(taskStore, tinoUserId);
+      privateTools.cancel_task = cancelTaskTool(taskStore);
+    }
+
+    // Discovery update tool — lets the agent patch the user's discovery profile
+    privateTools.update_discovery = updateDiscoveryTool(configStore, tinoUserId);
     for (const cap of ALL_CAPABILITIES) {
       if (cap.scope !== "private") {
         continue;
@@ -351,13 +355,7 @@ export async function initCapabilityRegistry(opts: RegistryOptions): Promise<Cap
         // Snapshot which tool keys came from capabilities (not preferences/tasks)
         // so we know which ones to clear. We compute by exclusion: anything that
         // isn't a known non-capability tool is a capability tool.
-        const NON_CAPABILITY_TOOLS = new Set([
-          "set_preference",
-          "get_preferences",
-          "schedule_task",
-          "list_tasks",
-          "cancel_task",
-        ]);
+        const NON_CAPABILITY_TOOLS = new Set<string>();
         const before = Object.keys(sharedTools).filter((k) => !NON_CAPABILITY_TOOLS.has(k));
 
         // Stop existing pollers BEFORE clearing — otherwise stale callbacks

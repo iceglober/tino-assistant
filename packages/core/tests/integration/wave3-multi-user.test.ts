@@ -96,7 +96,10 @@ describe("Wave 3 multi-user toolset isolation", () => {
     const tools = await registry.buildPrivateTools(teammateUserId);
     const toolNames = Object.keys(tools);
 
-    expect(toolNames).toHaveLength(0);
+    // No private capability tools, but per-user tools (preferences, tasks, discovery) present
+    expect(toolNames).not.toContain("gmail_search");
+    expect(toolNames).toContain("set_preference");
+    expect(toolNames).toContain("update_discovery");
   });
 
   it("teammate's gmail tools never appear in bot owner's runs", async () => {

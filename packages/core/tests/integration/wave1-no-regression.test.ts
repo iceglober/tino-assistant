@@ -120,9 +120,9 @@ describe("Wave 1 - Capability Scope Split (no-regression)", () => {
     expect(registry.sharedTools.slack_search_messages).toBeUndefined();
     expect(registry.sharedTools.slack_list_dms).toBeUndefined();
 
-    // Preferences tools always available in shared
-    expect(registry.sharedTools.set_preference).toBeDefined();
-    expect(registry.sharedTools.get_preferences).toBeDefined();
+    // Preferences tools are per-user (in buildPrivateTools)
+    expect(wave1Tools.set_preference).toBeDefined();
+    expect(wave1Tools.get_preferences).toBeDefined();
   });
 
   it("getActiveCapabilities returns both shared and connected private ids for bot owner", async () => {
