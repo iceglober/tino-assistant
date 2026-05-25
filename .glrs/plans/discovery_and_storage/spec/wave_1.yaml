@@ -376,7 +376,7 @@ items:
       across all source combinations (all three / email+calendar / none),
       Customize and Onboarding render new fields, re-running discovery cleanly
       replaces old-schema JSON in the config store.
-    checked: false
+    checked: true
     files: []
     tests:
       - packages/core/tests/discovery/slack-port.test.ts
