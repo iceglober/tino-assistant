@@ -104,7 +104,7 @@ items:
 
   - id: "2d"
     intent: "Render old-schema discovery results gracefully — fall back to roleSummary alone when inferredTitle missing, render duties when responsibilities missing, skip orgRelationships when missing"
-    checked: false
+    checked: true
     files:
       - path: packages/core/src/agent/systemPrompt.ts
         isNew: false

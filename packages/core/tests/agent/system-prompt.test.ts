@@ -409,3 +409,82 @@ describe("buildSystemPrompt — User Profile (discovery) section", () => {
     expect(toolsHeaderIdx).toBeGreaterThan(profileIdx);
   });
 });
+
+// ── User Profile (discovery) — old-schema fallbacks ─────────────────────────
+
+describe("buildSystemPrompt — User Profile old-schema fallbacks", () => {
+  it("renders only roleSummary when inferredTitle/inferredDepartment/orgRelationships/responsibilities are absent", () => {
+    // Old-schema discovery: only roleSummary, no new-schema fields.
+    // Cast through unknown — old data won't satisfy DiscoveryResult's required fields.
+    const oldSchema = {
+      roleSummary: "Engineering manager for the platform team.",
+    } as unknown as DiscoveryResult;
+
+    const prompt = buildSystemPrompt({
+      activeCapabilities: [],
+      toolNames: [],
+      discovery: oldSchema,
+    });
+
+    // User Profile header and roleSummary are present
+    expect(prompt).toContain("User Profile:");
+    expect(prompt).toContain("Engineering manager for the platform team.");
+
+    // Must NOT contain a Role: line (no inferredTitle/inferredDepartment)
+    expect(prompt).not.toMatch(/Role: .+ — .+/);
+
+    // Must NOT contain the Key relationships header (orgRelationships absent)
+    expect(prompt).not.toContain("Key relationships:");
+
+    // Must NOT contain the Responsibilities header (responsibilities absent, no duties)
+    expect(prompt).not.toContain("Responsibilities:");
+  });
+
+  it("renders old-schema duties as a bulleted Responsibilities section when responsibilities is missing", () => {
+    const oldSchemaWithDuties = {
+      roleSummary: "Backend engineer.",
+      duties: ["foo", "bar"],
+    } as unknown as DiscoveryResult;
+
+    const prompt = buildSystemPrompt({
+      activeCapabilities: [],
+      toolNames: [],
+      discovery: oldSchemaWithDuties,
+    });
+
+    expect(prompt).toContain("Responsibilities:");
+    expect(prompt).toContain("- foo");
+    expect(prompt).toContain("- bar");
+
+    // Should not include any horizon labels (those only apply to new-schema responsibilities)
+    expect(prompt).not.toMatch(/^Daily:/m);
+    expect(prompt).not.toMatch(/^Weekly:/m);
+  });
+
+  it("does not emit Key relationships header when orgRelationships is an empty array", () => {
+    const emptyRelationships = {
+      roleSummary: "Solo contributor.",
+      orgRelationships: [],
+    } as unknown as DiscoveryResult;
+
+    const prompt = buildSystemPrompt({
+      activeCapabilities: [],
+      toolNames: [],
+      discovery: emptyRelationships,
+    });
+
+    expect(prompt).toContain("User Profile:");
+    expect(prompt).not.toContain("Key relationships:");
+  });
+
+  it("does not throw when given a minimal old-schema discovery", () => {
+    // All three minimal-shape variants should render without throwing.
+    const minimal = { roleSummary: "Role." } as unknown as DiscoveryResult;
+    const withDuties = { roleSummary: "Role.", duties: ["x"] } as unknown as DiscoveryResult;
+    const emptyRels = { roleSummary: "Role.", orgRelationships: [] } as unknown as DiscoveryResult;
+
+    expect(() => buildSystemPrompt({ activeCapabilities: [], toolNames: [], discovery: minimal })).not.toThrow();
+    expect(() => buildSystemPrompt({ activeCapabilities: [], toolNames: [], discovery: withDuties })).not.toThrow();
+    expect(() => buildSystemPrompt({ activeCapabilities: [], toolNames: [], discovery: emptyRels })).not.toThrow();
+  });
+});
