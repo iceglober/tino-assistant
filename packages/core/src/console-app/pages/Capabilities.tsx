@@ -184,13 +184,13 @@ export function Capabilities(): JSX.Element {
               <p style={{ fontSize: "0.857rem", color: "var(--text-sub)", marginTop: 4 }}>{discovery.roleSummary}</p>
 
               {/* Org relationships grouped by type */}
-              {discovery.orgRelationships.length > 0 && (
+              {(discovery.orgRelationships?.length ?? 0) > 0 && (
                 <div style={{ marginTop: 12 }}>
                   <div style={{ fontSize: "0.786rem", fontWeight: 600, color: "var(--text-dim)", marginBottom: 6 }}>
                     org relationships
                   </div>
                   <ul style={{ margin: 0, paddingLeft: 18, fontSize: "0.857rem", color: "var(--text-sub)" }}>
-                    {discovery.orgRelationships.map((r, i) => (
+                    {(discovery.orgRelationships ?? []).map((r, i) => (
                       <li key={i} style={{ marginBottom: 4 }}>
                         <strong>{r.name}</strong>
                         <span style={{ color: "var(--text-dim)", marginLeft: 6, fontSize: "0.786rem" }}>
@@ -209,13 +209,13 @@ export function Capabilities(): JSX.Element {
               )}
 
               {/* Responsibilities grouped by time horizon */}
-              {discovery.responsibilities.length > 0 && (
+              {(discovery.responsibilities?.length ?? 0) > 0 && (
                 <div style={{ marginTop: 12 }}>
                   <div style={{ fontSize: "0.786rem", fontWeight: 600, color: "var(--text-dim)", marginBottom: 6 }}>
                     responsibilities
                   </div>
                   <ul style={{ margin: 0, paddingLeft: 18, fontSize: "0.857rem", color: "var(--text-sub)" }}>
-                    {[...discovery.responsibilities]
+                    {[...(discovery.responsibilities ?? [])]
                       .sort(
                         (a, b) => TIME_HORIZON_ORDER.indexOf(a.timeHorizon) - TIME_HORIZON_ORDER.indexOf(b.timeHorizon),
                       )
@@ -233,21 +233,21 @@ export function Capabilities(): JSX.Element {
               )}
 
               {/* Work patterns */}
-              {(discovery.workPatterns.meetingLoad || discovery.workPatterns.recurringCommitments.length > 0) && (
+              {(discovery.workPatterns?.meetingLoad || (discovery.workPatterns?.recurringCommitments?.length ?? 0) > 0) && (
                 <div style={{ marginTop: 12 }}>
                   <div style={{ fontSize: "0.786rem", fontWeight: 600, color: "var(--text-dim)", marginBottom: 6 }}>
                     work patterns
                   </div>
                   <div style={{ fontSize: "0.857rem", color: "var(--text-sub)" }}>
-                    {discovery.workPatterns.meetingLoad && (
+                    {discovery.workPatterns?.meetingLoad && (
                       <div style={{ marginBottom: 4 }}>
                         <span style={{ color: "var(--text-dim)", fontSize: "0.786rem" }}>meeting load</span>{" "}
                         {discovery.workPatterns.meetingLoad}
                       </div>
                     )}
-                    {discovery.workPatterns.timeInvestment.length > 0 && (
+                    {(discovery.workPatterns?.timeInvestment?.length ?? 0) > 0 && (
                       <div style={{ marginBottom: 4 }}>
-                        {discovery.workPatterns.timeInvestment.map((t, i) => (
+                        {(discovery.workPatterns?.timeInvestment ?? []).map((t, i) => (
                           <span key={i} style={{ marginRight: 8 }}>
                             <span style={{ color: "var(--text-dim)", fontSize: "0.786rem" }}>{t.category}</span>{" "}
                             {t.estimatedPct}%
@@ -255,9 +255,9 @@ export function Capabilities(): JSX.Element {
                         ))}
                       </div>
                     )}
-                    {discovery.workPatterns.recurringCommitments.length > 0 && (
+                    {(discovery.workPatterns?.recurringCommitments?.length ?? 0) > 0 && (
                       <ul style={{ margin: 0, paddingLeft: 18 }}>
-                        {discovery.workPatterns.recurringCommitments.map((c, i) => (
+                        {(discovery.workPatterns?.recurringCommitments ?? []).map((c, i) => (
                           <li key={i} style={{ marginBottom: 2 }}>
                             {c}
                           </li>
@@ -269,13 +269,13 @@ export function Capabilities(): JSX.Element {
               )}
 
               {/* Pain points */}
-              {discovery.painPoints.length > 0 && (
+              {(discovery.painPoints?.length ?? 0) > 0 && (
                 <div style={{ marginTop: 12 }}>
                   <div style={{ fontSize: "0.786rem", fontWeight: 600, color: "var(--text-dim)", marginBottom: 6 }}>
                     pain points
                   </div>
                   <ul style={{ margin: 0, paddingLeft: 18, fontSize: "0.857rem", color: "var(--text-sub)" }}>
-                    {discovery.painPoints.map((p, i) => (
+                    {(discovery.painPoints ?? []).map((p, i) => (
                       <li key={i} style={{ marginBottom: 2 }}>
                         {p}
                       </li>
@@ -285,13 +285,13 @@ export function Capabilities(): JSX.Element {
               )}
 
               {/* Suggestions */}
-              {discovery.suggestions.length > 0 && (
+              {(discovery.suggestions?.length ?? 0) > 0 && (
                 <div style={{ marginTop: 12 }}>
                   <div style={{ fontSize: "0.786rem", fontWeight: 600, color: "var(--text-dim)", marginBottom: 6 }}>
                     suggestions
                   </div>
                   <ul style={{ margin: 0, paddingLeft: 18, fontSize: "0.857rem", color: "var(--text-sub)" }}>
-                    {discovery.suggestions.map((s, i) => (
+                    {(discovery.suggestions ?? []).map((s, i) => (
                       <li key={i} style={{ marginBottom: 4 }}>
                         <strong>{s.title}</strong> — {s.description}
                       </li>

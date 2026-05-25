@@ -270,11 +270,11 @@ export function Onboarding({ session, onComplete }: { session: Session; onComple
                 <p>{result.roleSummary}</p>
               </div>
 
-              {result.responsibilities.length > 0 && (
+              {(result.responsibilities?.length ?? 0) > 0 && (
                 <div className="discovery-section">
                   <h3>key responsibilities</h3>
                   <ul className="discovery-list">
-                    {result.responsibilities.slice(0, 5).map((r, i) => (
+                    {(result.responsibilities ?? []).slice(0, 5).map((r, i) => (
                       <li key={i}>
                         <strong>{r.title}</strong>
                         {r.timeHorizon && <span className="discovery-freq">{r.timeHorizon}</span>}
@@ -285,11 +285,11 @@ export function Onboarding({ session, onComplete }: { session: Session; onComple
                 </div>
               )}
 
-              {result.suggestions.length > 0 && (
+              {(result.suggestions?.length ?? 0) > 0 && (
                 <div className="discovery-section">
                   <h3>suggestions</h3>
                   <ul className="discovery-list">
-                    {result.suggestions.map((s, i) => (
+                    {(result.suggestions ?? []).map((s, i) => (
                       <li key={i}>
                         <strong>{s.title}</strong>
                         <p>{s.description}</p>
