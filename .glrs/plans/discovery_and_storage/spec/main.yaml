@@ -1,0 +1,18 @@
+# spec/main.yaml
+title: "Storage Simplification + Discovery Redesign"
+goal: |
+  Two related problems that share enough surface area to ship together.
+
+  Storage: appDataFolder sprawl. Four different data types are stored in each user's Google Drive appDataFolder: encryption key, preferences, privacy config, and discovery results. Each has its own adapter with a "try Drive first, fall back to DynamoDB" pattern. This creates silent data loss (Drive writes skip DynamoDB), divergent state (no reconciliation between Drive and DynamoDB), and coupling explosion (each new integration requires another Drive adapter).
+
+  Discovery: too shallow to be useful. Discovery produces a generic role summary, a flat list of duties, and contact categories — but tino can't answer basic questions about the user like "who do I report to?", "what's my communication style?", or "what should I focus on today?". The results aren't injected into the agent's system prompt at all. The discovery prompt is also limited to email contacts/labels and calendar events; Slack data is available but unused.
+
+  Solution: (1) Key-only in appDataFolder — only the per-user encryption key lives in Drive; preferences, privacy config, and discovery go to DynamoDB directly. (2) Structured user profile — replace the flat discovery schema with one that directly answers the questions tino needs to answer, add Slack as a data source, and inject the result into the agent's system prompt.
+constraints: ""
+phases:
+  - file: wave_0.yaml
+    completed: false
+  - file: wave_1.yaml
+    completed: false
+  - file: wave_2.yaml
+    completed: false
