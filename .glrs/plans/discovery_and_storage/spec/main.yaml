@@ -11,8 +11,8 @@ goal: |
 constraints: ""
 phases:
   - file: wave_0.yaml
-    completed: false
+    completed: true
   - file: wave_1.yaml
-    completed: false
+    completed: true
   - file: wave_2.yaml
     completed: false

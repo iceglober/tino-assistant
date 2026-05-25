@@ -1,8 +1,8 @@
 import { type JSX, useCallback, useEffect, useRef, useState } from "react";
+import { useOutletContext } from "react-router-dom";
 import { Badge } from "../components/Badge.js";
 import { CapabilityModal } from "../components/CapabilityModal.js";
 import { useToast } from "../hooks/useToast.js";
-import { useOutletContext } from "react-router-dom";
 import type { CapabilityEntry, DiscoveryProgress, DiscoveryResult, HealthResponse, Session } from "../lib/api.js";
 import { getDiscoveryResult, getUserCapabilities, reloadCapabilities, startDiscovery } from "../lib/api.js";
 
@@ -15,6 +15,18 @@ const CAP_META: Record<string, { icon: string; name: string; desc: string }> = {
   slack: { icon: "💬", name: "Slack", desc: "public channels and content" },
   "slack-personal": { icon: "🔒", name: "Slack (personal)", desc: "DMs, search, and private messages" },
 };
+
+const RELATIONSHIP_LABELS: Record<string, string> = {
+  "reports-to": "reports to",
+  "direct-report": "direct report",
+  peer: "peer",
+  stakeholder: "stakeholder",
+  "cross-functional": "cross-functional",
+  external: "external",
+  "frequent-contact": "frequent contact",
+};
+
+const TIME_HORIZON_ORDER = ["daily", "weekly", "monthly", "quarterly", "ongoing"] as const;
 
 export function Capabilities(): JSX.Element {
   const { session } = useOutletContext<{ session: Session; health: HealthResponse | null }>();
@@ -35,18 +47,25 @@ export function Capabilities(): JSX.Element {
     try {
       const data = await getUserCapabilities(userId);
       setCaps(data);
-    } catch { /* ignore */ }
-    finally { setLoaded(true); }
+    } catch {
+      /* ignore */
+    } finally {
+      setLoaded(true);
+    }
   }, [userId]);
 
-  useEffect(() => { void loadCaps(); }, [loadCaps]);
+  useEffect(() => {
+    void loadCaps();
+  }, [loadCaps]);
 
   useEffect(() => {
     void (async () => {
       try {
         const result = await getDiscoveryResult();
         setDiscovery(result);
-      } catch { /* no discovery */ }
+      } catch {
+        /* no discovery */
+      }
       setDiscoveryLoaded(true);
     })();
   }, []);
@@ -68,7 +87,10 @@ export function Capabilities(): JSX.Element {
     } else if (oauth === "denied" || slackOauth === "denied") {
       toast.show("OAuth consent was denied", "err");
     } else if (oauth === "no_refresh_token") {
-      toast.show("Google did not return a refresh token — revoke access at myaccount.google.com/permissions and try again", "err");
+      toast.show(
+        "Google did not return a refresh token — revoke access at myaccount.google.com/permissions and try again",
+        "err",
+      );
     } else if (oauth === "expired" || oauth === "mismatch" || slackOauth === "expired" || slackOauth === "mismatch") {
       toast.show("OAuth session expired — try again", "err");
     } else if (oauth === "error" || slackOauth === "error") {
@@ -107,7 +129,9 @@ export function Capabilities(): JSX.Element {
       {discoveryLoaded && discovery && (
         <div style={{ marginBottom: 32 }}>
           <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
-            <h2 className="section-label" style={{ marginTop: 0 }}>Your role</h2>
+            <h2 className="section-label" style={{ marginTop: 0 }}>
+              Your role
+            </h2>
             <button
               type="button"
               className="btn-ghost"
@@ -127,23 +151,140 @@ export function Capabilities(): JSX.Element {
             </div>
           ) : (
             <>
+              {/* Role summary with inferred title/department badge */}
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                {discovery.inferredTitle && (
+                  <span
+                    style={{
+                      fontSize: "0.786rem",
+                      fontWeight: 600,
+                      color: "var(--accent)",
+                      background: "var(--accent-dim, rgba(99,102,241,0.1))",
+                      borderRadius: 4,
+                      padding: "2px 6px",
+                    }}
+                  >
+                    {discovery.inferredTitle}
+                  </span>
+                )}
+                {discovery.inferredDepartment && (
+                  <span
+                    style={{
+                      fontSize: "0.786rem",
+                      color: "var(--text-dim)",
+                      background: "var(--surface-2, rgba(0,0,0,0.05))",
+                      borderRadius: 4,
+                      padding: "2px 6px",
+                    }}
+                  >
+                    {discovery.inferredDepartment}
+                  </span>
+                )}
+              </div>
               <p style={{ fontSize: "0.857rem", color: "var(--text-sub)", marginTop: 4 }}>{discovery.roleSummary}</p>
-              {discovery.duties.length > 0 && (
+
+              {/* Org relationships grouped by type */}
+              {discovery.orgRelationships.length > 0 && (
                 <div style={{ marginTop: 12 }}>
                   <div style={{ fontSize: "0.786rem", fontWeight: 600, color: "var(--text-dim)", marginBottom: 6 }}>
-                    key responsibilities
+                    org relationships
                   </div>
                   <ul style={{ margin: 0, paddingLeft: 18, fontSize: "0.857rem", color: "var(--text-sub)" }}>
-                    {discovery.duties.map((d, i) => (
+                    {discovery.orgRelationships.map((r, i) => (
                       <li key={i} style={{ marginBottom: 4 }}>
-                        <strong>{d.title}</strong>
-                        {d.frequency && <span style={{ color: "var(--text-dim)", marginLeft: 6, fontSize: "0.786rem" }}>{d.frequency}</span>}
-                        {d.description && <span> — {d.description}</span>}
+                        <strong>{r.name}</strong>
+                        <span style={{ color: "var(--text-dim)", marginLeft: 6, fontSize: "0.786rem" }}>
+                          {RELATIONSHIP_LABELS[r.relationship] ?? r.relationship}
+                        </span>
+                        {r.interactionFrequency && (
+                          <span style={{ color: "var(--text-dim)", marginLeft: 4, fontSize: "0.786rem" }}>
+                            · {r.interactionFrequency}
+                          </span>
+                        )}
+                        {r.context && <span style={{ color: "var(--text-sub)" }}> — {r.context}</span>}
                       </li>
                     ))}
                   </ul>
                 </div>
               )}
+
+              {/* Responsibilities grouped by time horizon */}
+              {discovery.responsibilities.length > 0 && (
+                <div style={{ marginTop: 12 }}>
+                  <div style={{ fontSize: "0.786rem", fontWeight: 600, color: "var(--text-dim)", marginBottom: 6 }}>
+                    responsibilities
+                  </div>
+                  <ul style={{ margin: 0, paddingLeft: 18, fontSize: "0.857rem", color: "var(--text-sub)" }}>
+                    {[...discovery.responsibilities]
+                      .sort(
+                        (a, b) => TIME_HORIZON_ORDER.indexOf(a.timeHorizon) - TIME_HORIZON_ORDER.indexOf(b.timeHorizon),
+                      )
+                      .map((r, i) => (
+                        <li key={i} style={{ marginBottom: 4 }}>
+                          <strong>{r.title}</strong>
+                          <span style={{ color: "var(--text-dim)", marginLeft: 6, fontSize: "0.786rem" }}>
+                            {r.timeHorizon}
+                          </span>
+                          {r.description && <span> — {r.description}</span>}
+                        </li>
+                      ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Work patterns */}
+              {(discovery.workPatterns.meetingLoad || discovery.workPatterns.recurringCommitments.length > 0) && (
+                <div style={{ marginTop: 12 }}>
+                  <div style={{ fontSize: "0.786rem", fontWeight: 600, color: "var(--text-dim)", marginBottom: 6 }}>
+                    work patterns
+                  </div>
+                  <div style={{ fontSize: "0.857rem", color: "var(--text-sub)" }}>
+                    {discovery.workPatterns.meetingLoad && (
+                      <div style={{ marginBottom: 4 }}>
+                        <span style={{ color: "var(--text-dim)", fontSize: "0.786rem" }}>meeting load</span>{" "}
+                        {discovery.workPatterns.meetingLoad}
+                      </div>
+                    )}
+                    {discovery.workPatterns.timeInvestment.length > 0 && (
+                      <div style={{ marginBottom: 4 }}>
+                        {discovery.workPatterns.timeInvestment.map((t, i) => (
+                          <span key={i} style={{ marginRight: 8 }}>
+                            <span style={{ color: "var(--text-dim)", fontSize: "0.786rem" }}>{t.category}</span>{" "}
+                            {t.estimatedPct}%
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {discovery.workPatterns.recurringCommitments.length > 0 && (
+                      <ul style={{ margin: 0, paddingLeft: 18 }}>
+                        {discovery.workPatterns.recurringCommitments.map((c, i) => (
+                          <li key={i} style={{ marginBottom: 2 }}>
+                            {c}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Pain points */}
+              {discovery.painPoints.length > 0 && (
+                <div style={{ marginTop: 12 }}>
+                  <div style={{ fontSize: "0.786rem", fontWeight: 600, color: "var(--text-dim)", marginBottom: 6 }}>
+                    pain points
+                  </div>
+                  <ul style={{ margin: 0, paddingLeft: 18, fontSize: "0.857rem", color: "var(--text-sub)" }}>
+                    {discovery.painPoints.map((p, i) => (
+                      <li key={i} style={{ marginBottom: 2 }}>
+                        {p}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Suggestions */}
               {discovery.suggestions.length > 0 && (
                 <div style={{ marginTop: 12 }}>
                   <div style={{ fontSize: "0.786rem", fontWeight: 600, color: "var(--text-dim)", marginBottom: 6 }}>
@@ -163,7 +304,9 @@ export function Capabilities(): JSX.Element {
         </div>
       )}
 
-      <h2 className="section-label" style={{ marginTop: 0 }}>Integrations</h2>
+      <h2 className="section-label" style={{ marginTop: 0 }}>
+        Integrations
+      </h2>
       <p className="section-hint">
         manage your connected integrations. click the gear icon to configure settings and privacy.
       </p>
@@ -187,9 +330,13 @@ export function Capabilities(): JSX.Element {
               style={{ textDecoration: "none", color: "inherit", display: "block", marginTop: 12, maxWidth: 360 }}
             >
               <div className="cap-card-header">
-                <span className="cap-card-icon" style={{ opacity: 0.5 }}>+</span>
+                <span className="cap-card-icon" style={{ opacity: 0.5 }}>
+                  +
+                </span>
                 <div className="cap-card-meta">
-                  <div className="cap-card-name" style={{ color: "var(--accent)" }}>connect Google</div>
+                  <div className="cap-card-name" style={{ color: "var(--accent)" }}>
+                    connect Google
+                  </div>
                   <div className="cap-card-desc">Gmail, Calendar — read-only access</div>
                 </div>
               </div>
@@ -198,7 +345,9 @@ export function Capabilities(): JSX.Element {
 
           {disabledCaps.length > 0 && (
             <>
-              <div className="section-label" style={{ marginTop: 24 }}>available</div>
+              <div className="section-label" style={{ marginTop: 24 }}>
+                available
+              </div>
               <div className="cap-grid">
                 {disabledCaps.map((cap) => (
                   <CapCard key={cap.id} cap={cap} onSettings={() => setModalCap(cap)} />
@@ -222,13 +371,7 @@ export function Capabilities(): JSX.Element {
   );
 }
 
-function CapCard({
-  cap,
-  onSettings,
-}: {
-  cap: CapabilityEntry;
-  onSettings: () => void;
-}): JSX.Element {
+function CapCard({ cap, onSettings }: { cap: CapabilityEntry; onSettings: () => void }): JSX.Element {
   const meta = CAP_META[cap.id] ?? { icon: "⚙️", name: cap.displayName ?? cap.id, desc: "" };
 
   return (
@@ -246,7 +389,9 @@ function CapCard({
         </div>
         <div className="cap-card-status">
           {cap.enabled ? (
-            <span className="status-connected" style={{ color: "var(--ok)" }}>● on</span>
+            <span className="status-connected" style={{ color: "var(--ok)" }}>
+              ● on
+            </span>
           ) : (
             <span style={{ fontSize: "0.714rem", color: "var(--text-dim)" }}>off</span>
           )}
@@ -254,12 +399,20 @@ function CapCard({
         <button
           type="button"
           className="cap-settings-btn"
-          onClick={(e) => { e.stopPropagation(); onSettings(); }}
+          onClick={(e) => {
+            e.stopPropagation();
+            onSettings();
+          }}
           aria-label={`Configure ${meta.name}`}
           title="Settings"
         >
           <svg viewBox="0 0 16 16" fill="none" width="16" height="16" aria-hidden="true">
-            <path d="M6.5 1.5h3l.5 2 1.5.7 1.8-1 2.1 2.1-1 1.8.7 1.5 2 .5v3l-2 .5-0.7 1.5 1 1.8-2.1 2.1-1.8-1-1.5.7-.5 2h-3l-.5-2-1.5-.7-1.8 1-2.1-2.1 1-1.8-.7-1.5-2-.5v-3l2-.5.7-1.5-1-1.8 2.1-2.1 1.8 1 1.5-.7.5-2z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+            <path
+              d="M6.5 1.5h3l.5 2 1.5.7 1.8-1 2.1 2.1-1 1.8.7 1.5 2 .5v3l-2 .5-0.7 1.5 1 1.8-2.1 2.1-1.8-1-1.5.7-.5 2h-3l-.5-2-1.5-.7-1.8 1-2.1-2.1 1-1.8-.7-1.5-2-.5v-3l2-.5.7-1.5-1-1.8 2.1-2.1 1.8 1 1.5-.7.5-2z"
+              stroke="currentColor"
+              strokeWidth="1.2"
+              strokeLinejoin="round"
+            />
             <circle cx="8" cy="8" r="2.5" stroke="currentColor" strokeWidth="1.2" />
           </svg>
         </button>

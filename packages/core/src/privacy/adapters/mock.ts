@@ -1,8 +1,8 @@
 import type { CalendarEvent, CalendarPort as DiscoveryCalendarPort } from "../../discovery/calendar-port.js";
 import type { DiscoveryResult } from "../../discovery/types.js";
-import type { CalendarVisibility, PrivacyContact, PrivacyConversation, PrivacyLabel } from "../types.js";
 import type { CalendarPort, ContactSample, DMSample, EmailPort, EmailSample, MessagingPort } from "../ports.js";
 import type { ScanResult, ScanSuggestion } from "../scan-types.js";
+import type { CalendarVisibility, PrivacyContact, PrivacyConversation, PrivacyLabel } from "../types.js";
 
 const LABELS: PrivacyLabel[] = [
   { name: "INBOX", itemCount: 1842 },
@@ -64,7 +64,11 @@ const CALENDARS: CalendarVisibility = {
 };
 
 const SAMPLE_SUBJECTS: Record<string, string[]> = {
-  Medical: ["Lab Results - Quest Diagnostics", "Prescription Refill Reminder", "Appointment Confirmation - Dr. Williams"],
+  Medical: [
+    "Lab Results - Quest Diagnostics",
+    "Prescription Refill Reminder",
+    "Appointment Confirmation - Dr. Williams",
+  ],
   Finance: ["Your W-2 is ready", "Monthly Statement - Chase ****4821", "401(k) Contribution Update"],
   HR: ["Benefits Enrollment Deadline", "Performance Review Scheduled", "PTO Balance Update"],
   Legal: ["NDA - Signature Required", "Contract Amendment - Review", "Compliance Training Due"],
@@ -82,8 +86,16 @@ const SAMPLE_SUBJECTS: Record<string, string[]> = {
 };
 
 const CONTACT_SUBJECTS: Record<string, string[]> = {
-  "doctor@medcenter.com": ["Lab Results - Annual Physical", "Prescription Refill: Lisinopril", "Appointment Reminder: Tuesday 10am"],
-  "therapist@wellness.org": ["Session Recap - Anxiety Management", "Homework: Thought Journal", "Rescheduled to Thursday 3pm"],
+  "doctor@medcenter.com": [
+    "Lab Results - Annual Physical",
+    "Prescription Refill: Lisinopril",
+    "Appointment Reminder: Tuesday 10am",
+  ],
+  "therapist@wellness.org": [
+    "Session Recap - Anxiety Management",
+    "Homework: Thought Journal",
+    "Rescheduled to Thursday 3pm",
+  ],
   "lawyer@firm.com": ["NDA Review - Final Draft", "Employment Agreement Amendment", "Quick question about non-compete"],
   "hr@company.com": ["Benefits Open Enrollment Deadline", "Updated PTO Policy", "Performance Review Scheduled"],
   "finance@company.com": ["Q3 Budget Review", "Expense Report Approved", "Payroll Schedule Change"],
@@ -107,7 +119,11 @@ const DM_MESSAGES: Record<string, string[]> = {
   D005: ["reminder: session Thursday 3pm", "here's the worksheet we discussed", "how did the breathing exercise go?"],
   D006: ["your PTO request is approved", "we need to discuss comp adjustments", "open enrollment ends Friday"],
   D007: ["Q3 budget is approved", "please submit expenses by EOD", "payroll runs tomorrow"],
-  D008: ["NDA is signed — see attached", "any concerns with the non-compete clause?", "contract renewal due next month"],
+  D008: [
+    "NDA is signed — see attached",
+    "any concerns with the non-compete clause?",
+    "contract renewal due next month",
+  ],
   D009: ["dinner Saturday?", "that movie was amazing", "lol check this out"],
   D010: ["soccer practice moved to 4pm", "happy birthday!!!", "who's bringing dessert?"],
 };
@@ -127,7 +143,11 @@ export function createMockEmailAdapter(): EmailPort {
         subjects: (SAMPLE_SUBJECTS[l.name] ?? ["General email"]).slice(0, max),
       }));
     },
-    async getContactSamples(_userId: string, addresses: string[], opts?: { maxPerContact?: number }): Promise<ContactSample[]> {
+    async getContactSamples(
+      _userId: string,
+      addresses: string[],
+      opts?: { maxPerContact?: number },
+    ): Promise<ContactSample[]> {
       const max = opts?.maxPerContact ?? 3;
       return addresses.map((addr) => ({
         address: addr,
@@ -138,13 +158,41 @@ export function createMockEmailAdapter(): EmailPort {
 }
 
 const MOCK_EVENTS: CalendarEvent[] = [
-  { title: "Team Standup", attendees: ["alice@company.com", "bob@company.com", "carol@company.com"], startTime: Date.now() - 86400000, recurrence: "RRULE:FREQ=DAILY" },
-  { title: "Sprint Planning", attendees: ["alice@company.com", "bob@company.com", "carol@company.com", "dave@vendor.io"], startTime: Date.now() - 604800000, recurrence: "RRULE:FREQ=WEEKLY" },
-  { title: "1:1 with Alice", attendees: ["alice@company.com"], startTime: Date.now() - 172800000, recurrence: "RRULE:FREQ=WEEKLY" },
+  {
+    title: "Team Standup",
+    attendees: ["alice@company.com", "bob@company.com", "carol@company.com"],
+    startTime: Date.now() - 86400000,
+    recurrence: "RRULE:FREQ=DAILY",
+  },
+  {
+    title: "Sprint Planning",
+    attendees: ["alice@company.com", "bob@company.com", "carol@company.com", "dave@vendor.io"],
+    startTime: Date.now() - 604800000,
+    recurrence: "RRULE:FREQ=WEEKLY",
+  },
+  {
+    title: "1:1 with Alice",
+    attendees: ["alice@company.com"],
+    startTime: Date.now() - 172800000,
+    recurrence: "RRULE:FREQ=WEEKLY",
+  },
   { title: "Design Review", attendees: ["carol@company.com", "dave@vendor.io"], startTime: Date.now() - 259200000 },
-  { title: "Quarterly Planning", attendees: ["alice@company.com", "bob@company.com", "carol@company.com", "hr@company.com", "finance@company.com"], startTime: Date.now() - 2592000000 },
-  { title: "Vendor Sync", attendees: ["dave@vendor.io"], startTime: Date.now() - 432000000, recurrence: "RRULE:FREQ=MONTHLY" },
-  { title: "Architecture Review", attendees: ["alice@company.com", "bob@company.com"], startTime: Date.now() - 345600000 },
+  {
+    title: "Quarterly Planning",
+    attendees: ["alice@company.com", "bob@company.com", "carol@company.com", "hr@company.com", "finance@company.com"],
+    startTime: Date.now() - 2592000000,
+  },
+  {
+    title: "Vendor Sync",
+    attendees: ["dave@vendor.io"],
+    startTime: Date.now() - 432000000,
+    recurrence: "RRULE:FREQ=MONTHLY",
+  },
+  {
+    title: "Architecture Review",
+    attendees: ["alice@company.com", "bob@company.com"],
+    startTime: Date.now() - 345600000,
+  },
 ];
 
 export function createMockCalendarAdapter(): CalendarPort & DiscoveryCalendarPort {
@@ -163,7 +211,11 @@ export function createMockMessagingAdapter(): MessagingPort {
     async getDMs(): Promise<PrivacyConversation[]> {
       return DMS;
     },
-    async getDMSamples(_userId: string, conversationIds: string[], opts?: { maxPerConversation?: number }): Promise<DMSample[]> {
+    async getDMSamples(
+      _userId: string,
+      conversationIds: string[],
+      opts?: { maxPerConversation?: number },
+    ): Promise<DMSample[]> {
       const max = opts?.maxPerConversation ?? 3;
       return conversationIds.map((id) => ({
         id,
@@ -174,36 +226,156 @@ export function createMockMessagingAdapter(): MessagingPort {
 }
 
 const MOCK_LABEL_SUGGESTIONS: ScanSuggestion[] = [
-  { id: "Medical", sensitive: true, reason: "Contains medical correspondence (lab results, prescriptions, appointment confirmations)", confidence: "high" },
-  { id: "Finance", sensitive: true, reason: "Contains financial records (tax documents, bank statements, investment updates)", confidence: "high" },
-  { id: "HR", sensitive: true, reason: "Contains HR communications (benefits, performance reviews, compensation)", confidence: "high" },
-  { id: "Legal", sensitive: true, reason: "Contains legal documents (NDAs, contracts, compliance materials)", confidence: "high" },
-  { id: "Receipts", sensitive: true, reason: "Contains purchase receipts that may reveal medical or financial details (pharmacy, insurance EOBs)", confidence: "medium" },
-  { id: "Personal", sensitive: true, reason: "Contains personal communications (travel plans, social arrangements)", confidence: "medium" },
-  { id: "Family", sensitive: true, reason: "Contains family communications (children's schedules, personal events)", confidence: "medium" },
-  { id: "Therapy", sensitive: true, reason: "Contains mental health-related correspondence (session notes, appointment reminders)", confidence: "high" },
-  { id: "Private", sensitive: true, reason: "Contains account security information (recovery codes, 2FA tokens)", confidence: "high" },
-  { id: "Work", sensitive: false, reason: "Standard work communications (planning, code reviews, standup notes)", confidence: "high" },
-  { id: "INBOX", sensitive: false, reason: "General inbox with mixed content — review individual messages", confidence: "low" },
-  { id: "Vendor Updates", sensitive: false, reason: "Automated vendor notifications (API updates, maintenance windows)", confidence: "high" },
+  {
+    id: "Medical",
+    sensitive: true,
+    reason: "Contains medical correspondence (lab results, prescriptions, appointment confirmations)",
+    confidence: "high",
+  },
+  {
+    id: "Finance",
+    sensitive: true,
+    reason: "Contains financial records (tax documents, bank statements, investment updates)",
+    confidence: "high",
+  },
+  {
+    id: "HR",
+    sensitive: true,
+    reason: "Contains HR communications (benefits, performance reviews, compensation)",
+    confidence: "high",
+  },
+  {
+    id: "Legal",
+    sensitive: true,
+    reason: "Contains legal documents (NDAs, contracts, compliance materials)",
+    confidence: "high",
+  },
+  {
+    id: "Receipts",
+    sensitive: true,
+    reason: "Contains purchase receipts that may reveal medical or financial details (pharmacy, insurance EOBs)",
+    confidence: "medium",
+  },
+  {
+    id: "Personal",
+    sensitive: true,
+    reason: "Contains personal communications (travel plans, social arrangements)",
+    confidence: "medium",
+  },
+  {
+    id: "Family",
+    sensitive: true,
+    reason: "Contains family communications (children's schedules, personal events)",
+    confidence: "medium",
+  },
+  {
+    id: "Therapy",
+    sensitive: true,
+    reason: "Contains mental health-related correspondence (session notes, appointment reminders)",
+    confidence: "high",
+  },
+  {
+    id: "Private",
+    sensitive: true,
+    reason: "Contains account security information (recovery codes, 2FA tokens)",
+    confidence: "high",
+  },
+  {
+    id: "Work",
+    sensitive: false,
+    reason: "Standard work communications (planning, code reviews, standup notes)",
+    confidence: "high",
+  },
+  {
+    id: "INBOX",
+    sensitive: false,
+    reason: "General inbox with mixed content — review individual messages",
+    confidence: "low",
+  },
+  {
+    id: "Vendor Updates",
+    sensitive: false,
+    reason: "Automated vendor notifications (API updates, maintenance windows)",
+    confidence: "high",
+  },
   { id: "Newsletters", sensitive: false, reason: "Public newsletter subscriptions", confidence: "high" },
-  { id: "Travel", sensitive: true, reason: "Contains travel itineraries revealing location and schedule", confidence: "medium" },
-  { id: "Shopping", sensitive: false, reason: "Standard e-commerce notifications (shipping, order confirmations)", confidence: "medium" },
+  {
+    id: "Travel",
+    sensitive: true,
+    reason: "Contains travel itineraries revealing location and schedule",
+    confidence: "medium",
+  },
+  {
+    id: "Shopping",
+    sensitive: false,
+    reason: "Standard e-commerce notifications (shipping, order confirmations)",
+    confidence: "medium",
+  },
 ];
 
 const MOCK_CONTACT_SUGGESTIONS: ScanSuggestion[] = [
-  { id: "doctor@medcenter.com", sensitive: true, reason: "Frequent contact with a medical provider", confidence: "high" },
-  { id: "therapist@wellness.org", sensitive: true, reason: "Mental health provider — therapy-related correspondence", confidence: "high" },
+  {
+    id: "doctor@medcenter.com",
+    sensitive: true,
+    reason: "Frequent contact with a medical provider",
+    confidence: "high",
+  },
+  {
+    id: "therapist@wellness.org",
+    sensitive: true,
+    reason: "Mental health provider — therapy-related correspondence",
+    confidence: "high",
+  },
   { id: "lawyer@firm.com", sensitive: true, reason: "Legal counsel — privileged communications", confidence: "high" },
-  { id: "hr@company.com", sensitive: true, reason: "HR department — may contain compensation, benefits, or personnel issues", confidence: "medium" },
-  { id: "tax@accountant.com", sensitive: true, reason: "Tax advisor — contains financial and tax records", confidence: "high" },
-  { id: "spouse@personal.com", sensitive: true, reason: "Personal/family contact with high message volume", confidence: "medium" },
-  { id: "finance@company.com", sensitive: true, reason: "Finance team — may contain payroll or expense details", confidence: "medium" },
-  { id: "alice@company.com", sensitive: false, reason: "Work colleague — standard professional communication", confidence: "high" },
-  { id: "bob@company.com", sensitive: false, reason: "Work colleague — standard professional communication", confidence: "high" },
-  { id: "carol@company.com", sensitive: false, reason: "Work colleague — standard professional communication", confidence: "high" },
+  {
+    id: "hr@company.com",
+    sensitive: true,
+    reason: "HR department — may contain compensation, benefits, or personnel issues",
+    confidence: "medium",
+  },
+  {
+    id: "tax@accountant.com",
+    sensitive: true,
+    reason: "Tax advisor — contains financial and tax records",
+    confidence: "high",
+  },
+  {
+    id: "spouse@personal.com",
+    sensitive: true,
+    reason: "Personal/family contact with high message volume",
+    confidence: "medium",
+  },
+  {
+    id: "finance@company.com",
+    sensitive: true,
+    reason: "Finance team — may contain payroll or expense details",
+    confidence: "medium",
+  },
+  {
+    id: "alice@company.com",
+    sensitive: false,
+    reason: "Work colleague — standard professional communication",
+    confidence: "high",
+  },
+  {
+    id: "bob@company.com",
+    sensitive: false,
+    reason: "Work colleague — standard professional communication",
+    confidence: "high",
+  },
+  {
+    id: "carol@company.com",
+    sensitive: false,
+    reason: "Work colleague — standard professional communication",
+    confidence: "high",
+  },
   { id: "dave@vendor.io", sensitive: false, reason: "Vendor contact — business communications", confidence: "high" },
-  { id: "support@stripe.com", sensitive: false, reason: "Payment platform support — automated responses", confidence: "medium" },
+  {
+    id: "support@stripe.com",
+    sensitive: false,
+    reason: "Payment platform support — automated responses",
+    confidence: "medium",
+  },
   { id: "noreply@github.com", sensitive: false, reason: "Automated GitHub notifications", confidence: "high" },
   { id: "team@linear.app", sensitive: false, reason: "Project management notifications", confidence: "high" },
   { id: "notifications@slack.com", sensitive: false, reason: "Automated Slack notifications", confidence: "high" },
@@ -211,11 +383,26 @@ const MOCK_CONTACT_SUGGESTIONS: ScanSuggestion[] = [
 
 const MOCK_DM_SUGGESTIONS: ScanSuggestion[] = [
   { id: "D005", sensitive: true, reason: "Conversation with mental health-related contact", confidence: "high" },
-  { id: "D006", sensitive: true, reason: "HR manager — may contain personnel or compensation discussions", confidence: "medium" },
-  { id: "D008", sensitive: true, reason: "Legal review channel — may contain privileged information", confidence: "high" },
+  {
+    id: "D006",
+    sensitive: true,
+    reason: "HR manager — may contain personnel or compensation discussions",
+    confidence: "medium",
+  },
+  {
+    id: "D008",
+    sensitive: true,
+    reason: "Legal review channel — may contain privileged information",
+    confidence: "high",
+  },
   { id: "D009", sensitive: true, reason: "Personal friend — non-work communications", confidence: "medium" },
   { id: "D010", sensitive: true, reason: "Family group — personal communications", confidence: "medium" },
-  { id: "D007", sensitive: true, reason: "Finance lead — may contain budget or compensation details", confidence: "medium" },
+  {
+    id: "D007",
+    sensitive: true,
+    reason: "Finance lead — may contain budget or compensation details",
+    confidence: "medium",
+  },
   { id: "D001", sensitive: false, reason: "High-volume work colleague — standard collaboration", confidence: "high" },
   { id: "D002", sensitive: false, reason: "Work colleague — standard collaboration", confidence: "high" },
   { id: "D003", sensitive: false, reason: "Work colleague — standard collaboration", confidence: "high" },
@@ -224,25 +411,119 @@ const MOCK_DM_SUGGESTIONS: ScanSuggestion[] = [
 
 export function createMockDiscoveryResult(): DiscoveryResult {
   return {
-    roleSummary: "Software engineering lead focused on backend services and infrastructure. Primary responsibilities include code review, sprint planning, and vendor management. Frequently coordinates with design and operations teams.",
-    duties: [
-      { title: "Code Review", description: "Review pull requests from team members", frequency: "daily" },
-      { title: "Sprint Planning", description: "Lead weekly sprint planning with the engineering team", frequency: "weekly" },
-      { title: "1:1 Meetings", description: "Regular check-ins with direct reports", frequency: "weekly" },
-      { title: "Vendor Management", description: "Coordinate with external vendors on API integrations", frequency: "monthly" },
-      { title: "Architecture Reviews", description: "Review and approve architectural decisions", frequency: "ad-hoc" },
+    roleSummary:
+      "Software engineering lead focused on backend services and infrastructure. Primary responsibilities include code review, sprint planning, and vendor management. Frequently coordinates with design and operations teams.",
+    inferredTitle: "Engineering Lead",
+    inferredDepartment: "Engineering",
+    orgRelationships: [
+      {
+        name: "Alice Chen",
+        email: "alice@company.com",
+        relationship: "direct-report",
+        context: "weekly 1:1, co-authors PRs, reviews your docs",
+        interactionFrequency: "daily",
+      },
+      {
+        name: "Bob Martinez",
+        email: "bob@company.com",
+        relationship: "peer",
+        context: "on-call handoffs, deploy coordination",
+        interactionFrequency: "daily",
+      },
+      {
+        name: "Carol Kim",
+        email: "carol@company.com",
+        relationship: "cross-functional",
+        context: "design reviews, roadmap syncs",
+        interactionFrequency: "weekly",
+      },
+      {
+        name: "Dave (Vendor)",
+        email: "dave@vendor.io",
+        relationship: "external",
+        context: "API integration, vendor sync meetings",
+        interactionFrequency: "monthly",
+      },
     ],
-    contactCategories: [
-      { category: "Engineering Team", contacts: ["alice@company.com", "bob@company.com", "carol@company.com"], description: "Core engineering team members" },
-      { category: "External Vendors", contacts: ["dave@vendor.io", "support@stripe.com"], description: "Third-party service providers" },
-      { category: "Internal Support", contacts: ["hr@company.com", "finance@company.com"], description: "HR and finance teams" },
+    responsibilities: [
+      {
+        title: "Code Review",
+        description: "Review pull requests from team members",
+        timeHorizon: "daily",
+        evidence: "GitHub notifications show daily PR review activity",
+      },
+      {
+        title: "Sprint Planning",
+        description: "Lead weekly sprint planning with the engineering team",
+        timeHorizon: "weekly",
+        evidence: "Recurring 'Sprint Planning' calendar event with full team",
+      },
+      {
+        title: "1:1 Meetings",
+        description: "Regular check-ins with direct reports",
+        timeHorizon: "weekly",
+        evidence: "Recurring '1:1 with Alice' calendar event",
+      },
+      {
+        title: "Vendor Management",
+        description: "Coordinate with external vendors on API integrations",
+        timeHorizon: "monthly",
+        evidence: "Recurring 'Vendor Sync' calendar event with dave@vendor.io",
+      },
+      {
+        title: "Architecture Reviews",
+        description: "Review and approve architectural decisions",
+        timeHorizon: "ongoing",
+        evidence: "Recurring 'Architecture Review' calendar events with engineering team",
+      },
+    ],
+    communicationStyle: {
+      summary:
+        "Primarily communicates via Slack for quick coordination and email for formal updates. Prefers async communication with structured meeting cadences.",
+      preferredChannels: ["slack", "email", "meetings"],
+      patterns: ["responds quickly to DMs", "batches email replies", "schedules recurring syncs for ongoing work"],
+    },
+    workPatterns: {
+      meetingLoad: "moderate (8-12 hrs/week)",
+      peakHours: "mornings",
+      recurringCommitments: [
+        "daily standup 9am",
+        "weekly sprint planning",
+        "weekly 1:1s with direct reports",
+        "monthly vendor sync",
+      ],
+      timeInvestment: [
+        { category: "meetings", estimatedPct: 30, details: "Recurring standups, planning, and 1:1s" },
+        { category: "code review", estimatedPct: 25, details: "Daily PR reviews from team members" },
+        { category: "email", estimatedPct: 20, details: "Vendor coordination and cross-team communication" },
+        { category: "Slack", estimatedPct: 15, details: "Team coordination and quick questions" },
+        { category: "focus work", estimatedPct: 10, details: "Architecture and planning documents" },
+      ],
+    },
+    painPoints: [
+      "High volume of GitHub notifications may be causing context-switching",
+      "Multiple recurring meetings could be consolidated",
+      "Vendor coordination via email is manual and time-consuming",
     ],
     suggestions: [
-      { title: "Automate standup summaries", description: "Generate daily standup summaries from Slack messages", capabilityId: "slack" },
-      { title: "PR review reminders", description: "Track open PRs and send reminders for stale reviews", capabilityId: "github" },
-      { title: "Meeting prep", description: "Generate agenda items from recent email threads before recurring meetings", capabilityId: "gmail" },
+      {
+        title: "Automate standup summaries",
+        description: "Generate daily standup summaries from Slack messages",
+        capabilityId: "slack",
+      },
+      {
+        title: "PR review reminders",
+        description: "Track open PRs and send reminders for stale reviews",
+        capabilityId: "github",
+      },
+      {
+        title: "Meeting prep",
+        description: "Generate agenda items from recent email threads before recurring meetings",
+        capabilityId: "gmail",
+      },
     ],
     analyzedAt: Date.now(),
+    dataSourcesUsed: ["email", "calendar"],
   };
 }
 

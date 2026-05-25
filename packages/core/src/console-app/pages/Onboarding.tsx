@@ -1,23 +1,11 @@
 import { type JSX, useCallback, useEffect, useRef, useState } from "react";
 import { useToast } from "../hooks/useToast.js";
 import type { DiscoveryProgress, DiscoveryResult, Session } from "../lib/api.js";
-import {
-  getDiscoveryResult,
-  getMe,
-  getPrivacyStatus,
-  getSlackOAuthStatus,
-  startDiscovery,
-} from "../lib/api.js";
+import { getDiscoveryResult, getMe, getPrivacyStatus, getSlackOAuthStatus, startDiscovery } from "../lib/api.js";
 
 type Phase = "checking" | "verify-slack" | "slack-connect" | "connect" | "running" | "done";
 
-export function Onboarding({
-  session,
-  onComplete,
-}: {
-  session: Session;
-  onComplete: () => void;
-}): JSX.Element {
+export function Onboarding({ session, onComplete }: { session: Session; onComplete: () => void }): JSX.Element {
   const toast = useToast();
   const [phase, setPhase] = useState<Phase>("checking");
   const [progress, setProgress] = useState<DiscoveryProgress | null>(null);
@@ -33,12 +21,12 @@ export function Onboarding({
         setPhase("done");
         return;
       }
-    } catch { /* no cached discovery */ }
+    } catch {
+      /* no cached discovery */
+    }
     try {
       const status = await getPrivacyStatus();
-      const hasGoogle = status.connectedCapabilities.some(
-        (c) => c === "gmail" || c === "calendar",
-      );
+      const hasGoogle = status.connectedCapabilities.some((c) => c === "gmail" || c === "calendar");
       if (hasGoogle) {
         setPhase("running");
         setProgress(null);
@@ -55,7 +43,9 @@ export function Onboarding({
         );
         return;
       }
-    } catch { /* no Google creds — show connect */ }
+    } catch {
+      /* no Google creds — show connect */
+    }
     setPhase("connect");
   }, [toast]);
 
@@ -66,7 +56,9 @@ export function Onboarding({
         setPhase("slack-connect");
         return;
       }
-    } catch { /* Slack OAuth not available — skip */ }
+    } catch {
+      /* Slack OAuth not available — skip */
+    }
     await advanceToDiscovery();
   }, [advanceToDiscovery]);
 
@@ -137,7 +129,9 @@ export function Onboarding({
           pollRef.current = null;
           void advanceToSlackConnect();
         }
-      } catch { /* retry on next tick */ }
+      } catch {
+        /* retry on next tick */
+      }
     }, 3000);
 
     return () => {
@@ -156,9 +150,7 @@ export function Onboarding({
         {phase === "verify-slack" && (
           <>
             <h1 className="setup-heading">say hi to tino in Slack</h1>
-            <p className="setup-lead">
-              open Slack and send tino a direct message to verify the connection.
-            </p>
+            <p className="setup-lead">open Slack and send tino a direct message to verify the connection.</p>
             <div style={{ display: "flex", justifyContent: "center", marginTop: 24 }}>
               <div className="pulse-dot" />
             </div>
@@ -171,9 +163,7 @@ export function Onboarding({
         {phase === "slack-connect" && (
           <>
             <h1 className="setup-heading">connect your Slack account</h1>
-            <p className="setup-lead">
-              let tino search your Slack messages and read your DMs for better context.
-            </p>
+            <p className="setup-lead">let tino search your Slack messages and read your DMs for better context.</p>
             <div className="btn-row" style={{ justifyContent: "center" }}>
               <button
                 className="btn btn-primary btn-large"
@@ -200,8 +190,7 @@ export function Onboarding({
           <>
             <h1 className="setup-heading">connect your Google account</h1>
             <p className="setup-lead">
-              tino needs read-only access to your email and calendar to understand your role
-              and communication patterns.
+              tino needs read-only access to your email and calendar to understand your role and communication patterns.
             </p>
             <div className="btn-row" style={{ justifyContent: "center" }}>
               <button
@@ -228,9 +217,7 @@ export function Onboarding({
         {phase === "running" && (
           <div className="onboarding-scan">
             <h1 className="setup-heading">learning about your role…</h1>
-            <p className="setup-lead">
-              tino is analyzing your recent emails and calendar to understand how you work.
-            </p>
+            <p className="setup-lead">tino is analyzing your recent emails and calendar to understand how you work.</p>
             {progress && (
               <div className="scan-progress" style={{ justifyContent: "center" }}>
                 <div className="scan-progress-bar" style={{ maxWidth: 400 }}>
@@ -249,20 +236,49 @@ export function Onboarding({
             <div className="discovery-result">
               <div className="discovery-section">
                 <h3>your role</h3>
+                {(result.inferredTitle || result.inferredDepartment) && (
+                  <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+                    {result.inferredTitle && (
+                      <span
+                        style={{
+                          fontSize: "0.786rem",
+                          fontWeight: 600,
+                          color: "var(--accent)",
+                          background: "var(--accent-dim, rgba(99,102,241,0.1))",
+                          borderRadius: 4,
+                          padding: "2px 6px",
+                        }}
+                      >
+                        {result.inferredTitle}
+                      </span>
+                    )}
+                    {result.inferredDepartment && (
+                      <span
+                        style={{
+                          fontSize: "0.786rem",
+                          color: "var(--text-dim)",
+                          background: "var(--surface-2, rgba(0,0,0,0.05))",
+                          borderRadius: 4,
+                          padding: "2px 6px",
+                        }}
+                      >
+                        {result.inferredDepartment}
+                      </span>
+                    )}
+                  </div>
+                )}
                 <p>{result.roleSummary}</p>
               </div>
 
-              {result.duties.length > 0 && (
+              {result.responsibilities.length > 0 && (
                 <div className="discovery-section">
                   <h3>key responsibilities</h3>
                   <ul className="discovery-list">
-                    {result.duties.map((d, i) => (
+                    {result.responsibilities.slice(0, 5).map((r, i) => (
                       <li key={i}>
-                        <strong>{d.title}</strong>
-                        {d.frequency && (
-                          <span className="discovery-freq">{d.frequency}</span>
-                        )}
-                        <p>{d.description}</p>
+                        <strong>{r.title}</strong>
+                        {r.timeHorizon && <span className="discovery-freq">{r.timeHorizon}</span>}
+                        <p>{r.description}</p>
                       </li>
                     ))}
                   </ul>
@@ -285,11 +301,7 @@ export function Onboarding({
             </div>
 
             <div className="btn-row" style={{ justifyContent: "center", marginTop: 24 }}>
-              <button
-                className="btn btn-primary btn-large"
-                type="button"
-                onClick={onComplete}
-              >
+              <button className="btn btn-primary btn-large" type="button" onClick={onComplete}>
                 continue to dashboard
               </button>
             </div>
