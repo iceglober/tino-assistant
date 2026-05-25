@@ -34,6 +34,7 @@ import { createTaskRoutes } from "./routes/tasks.js";
 import { createUsersRoutes } from "./routes/users.js";
 import { createUserCapabilityRoutes } from "./routes/user-capabilities.js";
 import { createGoogleOAuthRoutes } from "./routes/google-oauth.js";
+import { createSlackOAuthRoutes } from "./routes/slack-oauth.js";
 import { createPrivacyRoutes } from "./routes/privacy.js";
 
 /**
@@ -69,7 +70,6 @@ export interface StartServerOptions {
   privacyConfigStore?: PrivacyConfigStore;
   userCapabilities?: import("../persistence/user-capabilities.js").UserCapabilityStore;
   taskStore?: import("../persistence/tasks.js").TaskStore;
-  resolveAppDataClient?: (userId: string) => Promise<import("../drive/types.js").AppDataClient | null>;
   model?: LanguageModel;
   mockPrivacy?: boolean;
 }
@@ -95,7 +95,6 @@ export async function startServer(opts: StartServerOptions): Promise<StartedServ
     privacyConfigStore,
     userCapabilities,
     taskStore,
-    resolveAppDataClient,
     model,
     mockPrivacy,
   } = opts;
@@ -225,6 +224,15 @@ export async function startServer(opts: StartServerOptions): Promise<StartedServ
     auditLogger,
     baseUrl,
   }));
+  app.route("/api/oauth/slack", createSlackOAuthRoutes({
+    config,
+    userCapabilities,
+    identities,
+    users,
+    logger,
+    auditLogger,
+    baseUrl,
+  }));
 
   if (privacyConfigStore) {
     let email, calendar, messaging;
@@ -254,11 +262,8 @@ export async function startServer(opts: StartServerOptions): Promise<StartedServ
       mockMode: mockPrivacy,
     }));
 
-    const nullResolver = async () => null;
     const discoveryStore = createDiscoveryStore({
-      resolveClient: resolveAppDataClient ?? nullResolver,
       configStore: config,
-      logger,
     });
 
     app.route("/api/discovery", createDiscoveryRoutes({

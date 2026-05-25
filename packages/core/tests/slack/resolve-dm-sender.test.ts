@@ -126,7 +126,7 @@ describe("resolveDmSender", () => {
     );
   });
 
-  it("zero-user bootstrap creates admin from slack DM", async () => {
+  it("zero users — rejects with setup-needed message", async () => {
     const opts = makeOpts();
     (opts.configStore.get as ReturnType<typeof vi.fn>).mockImplementation(async (key: string) => {
       if (key === "org.accessControl.mode") return JSON.stringify("org-domain");
@@ -137,17 +137,14 @@ describe("resolveDmSender", () => {
       new Error("unknown_user"),
     );
     (opts.users.list as ReturnType<typeof vi.fn>).mockResolvedValue([]);
-    (opts.users.create as ReturnType<typeof vi.fn>).mockImplementation(async (u: TinoUser) => u);
 
     const result = await resolveDmSender("U_FIRST", opts);
 
-    expect(result).toEqual(expect.any(String));
-    expect(opts.users.create).toHaveBeenCalledWith(
-      expect.objectContaining({ role: "admin", slackUserId: "U_FIRST", status: "active" }),
+    expect(result).toBeNull();
+    expect(opts.say).toHaveBeenCalledWith(
+      expect.objectContaining({ text: expect.stringContaining("isn't set up yet") }),
     );
-    expect(opts.identities.link).toHaveBeenCalledWith(
-      expect.objectContaining({ provider: "slack", externalId: "U_FIRST" }),
-    );
+    expect(opts.users.create).not.toHaveBeenCalled();
   });
 
   it("unknown user in org-domain mode with non-matching email is rejected", async () => {
@@ -168,7 +165,7 @@ describe("resolveDmSender", () => {
     expect(result).toBeNull();
     expect(opts.say).toHaveBeenCalledWith(
       expect.objectContaining({
-        text: expect.stringContaining("don't recognize you"),
+        text: expect.stringContaining("couldn't verify your identity"),
       }),
     );
     expect(opts.auditLogger?.log).toHaveBeenCalledWith(

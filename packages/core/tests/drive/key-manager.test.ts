@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createKeyManager } from "../../src/drive/key-manager.js";
+import { createDriveKeyStore } from "../../src/drive/key-manager.js";
 import type { AppDataClient, EncryptedKeyEnvelope } from "../../src/drive/types.js";
 
 function mockAppDataClient(): AppDataClient {
@@ -21,22 +21,22 @@ function mockAppDataClient(): AppDataClient {
   };
 }
 
-describe("AppDataKeyManager", () => {
+describe("DriveKeyStore", () => {
   it("generates a 32-byte key on first access", async () => {
-    const km = createKeyManager();
     const client = mockAppDataClient();
+    const ks = createDriveKeyStore({ resolveClient: async () => client });
 
-    const key = await km.getOrCreateKey("user-1", client);
+    const key = await ks.getOrCreateKey("user-1");
 
     expect(key).not.toBeNull();
     expect(key!.length).toBe(32);
   });
 
   it("stores the key in appDataFolder", async () => {
-    const km = createKeyManager();
     const client = mockAppDataClient();
+    const ks = createDriveKeyStore({ resolveClient: async () => client });
 
-    await km.getOrCreateKey("user-1", client);
+    await ks.getOrCreateKey("user-1");
 
     const envelope = await client.readJson<EncryptedKeyEnvelope>("encryption-key.json");
     expect(envelope).not.toBeNull();
@@ -46,63 +46,71 @@ describe("AppDataKeyManager", () => {
   });
 
   it("returns the same key on subsequent calls (cached)", async () => {
-    const km = createKeyManager();
     const client = mockAppDataClient();
+    const ks = createDriveKeyStore({ resolveClient: async () => client });
 
-    const key1 = await km.getOrCreateKey("user-1", client);
-    const key2 = await km.getOrCreateKey("user-1", client);
+    const key1 = await ks.getOrCreateKey("user-1");
+    const key2 = await ks.getOrCreateKey("user-1");
 
     expect(key1!.equals(key2!)).toBe(true);
   });
 
   it("reads existing key from appDataFolder", async () => {
-    const km = createKeyManager();
     const client = mockAppDataClient();
+    const ks1 = createDriveKeyStore({ resolveClient: async () => client });
+    const key1 = await ks1.getOrCreateKey("user-1");
 
-    const key1 = await km.getOrCreateKey("user-1", client);
-
-    // New key manager instance — no cache, must read from client
-    const km2 = createKeyManager();
-    const key2 = await km2.getOrCreateKey("user-1", client);
+    // New key store instance — no cache, must read from client
+    const ks2 = createDriveKeyStore({ resolveClient: async () => client });
+    const key2 = await ks2.getOrCreateKey("user-1");
 
     expect(key1!.equals(key2!)).toBe(true);
   });
 
   it("generates different keys for different users", async () => {
-    const km = createKeyManager();
     const client1 = mockAppDataClient();
     const client2 = mockAppDataClient();
+    const ks = createDriveKeyStore({
+      resolveClient: async (userId) => (userId === "user-1" ? client1 : client2),
+    });
 
-    const key1 = await km.getOrCreateKey("user-1", client1);
-    const key2 = await km.getOrCreateKey("user-2", client2);
+    const key1 = await ks.getOrCreateKey("user-1");
+    const key2 = await ks.getOrCreateKey("user-2");
 
     expect(key1!.equals(key2!)).toBe(false);
   });
 
   it("evicts cached key", async () => {
-    const km = createKeyManager();
     const client = mockAppDataClient();
     const readSpy = vi.spyOn(client, "readJson");
+    const ks = createDriveKeyStore({ resolveClient: async () => client });
 
-    await km.getOrCreateKey("user-1", client);
+    await ks.getOrCreateKey("user-1");
     readSpy.mockClear();
 
     // Cached — should not call readJson
-    await km.getOrCreateKey("user-1", client);
+    await ks.getOrCreateKey("user-1");
     expect(readSpy).not.toHaveBeenCalled();
 
     // Evict — next call must re-read
-    km.evict("user-1");
-    await km.getOrCreateKey("user-1", client);
+    ks.evict("user-1");
+    await ks.getOrCreateKey("user-1");
     expect(readSpy).toHaveBeenCalledWith("encryption-key.json");
   });
 
+  it("returns null if client is unavailable", async () => {
+    const ks = createDriveKeyStore({ resolveClient: async () => null });
+
+    const key = await ks.getOrCreateKey("user-1");
+    expect(key).toBeNull();
+  });
+
   it("returns null if client throws", async () => {
-    const km = createKeyManager();
     const client = mockAppDataClient();
     vi.spyOn(client, "readJson").mockRejectedValue(new Error("network error"));
+    const ks = createDriveKeyStore({ resolveClient: async () => client });
 
-    const key = await km.getOrCreateKey("user-1", client);
+    const key = await ks.getOrCreateKey("user-1");
     expect(key).toBeNull();
   });
 });

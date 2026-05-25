@@ -4,7 +4,7 @@ import type { Session } from "../lib/api.js";
 
 const NAV_ITEMS = [
   { path: "/", label: "Home" },
-  { path: "/capabilities", label: "Capabilities" },
+  { path: "/capabilities", label: "Customize" },
   { path: "/work", label: "Work" },
   { path: "/workspace", label: "Workspace" },
 ];
@@ -31,7 +31,7 @@ export function Header({
           : "checking…";
 
   const isActive = (path: string) =>
-    path === "/" ? location.pathname === "/" : location.pathname.startsWith(path);
+    path === "/" ? location.pathname === "/" : location.pathname === path;
 
   return (
     <header className="header">

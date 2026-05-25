@@ -1,27 +1,20 @@
 import type { ModelMessage } from "ai";
 import type { HistoryStore } from "../../agent/history.js";
 import { trim } from "../../agent/history.js";
+import type { UserKeyStorePort } from "../../persistence/key-store.js";
 import type { AppLogger } from "../../slack/app.js";
 import { decrypt, encrypt, isEncryptedBlob } from "../crypto.js";
-import type { AppDataKeyManager } from "../key-manager.js";
-import type { AppDataClient, EncryptedBlob } from "../types.js";
+import type { EncryptedBlob } from "../types.js";
 
 const ENCRYPTED_ROLE = "assistant" as const;
 
 export function createEncryptedHistoryStore(deps: {
   inner: HistoryStore;
-  keyManager: AppDataKeyManager;
-  resolveClient: (userId: string) => Promise<AppDataClient | null>;
+  keyStore: UserKeyStorePort;
   logger: AppLogger;
   cap?: number;
 }): HistoryStore {
-  const { inner, keyManager, resolveClient, logger, cap = 40 } = deps;
-
-  async function resolveKey(userId: string): Promise<Buffer | null> {
-    const client = await resolveClient(userId);
-    if (!client) return null;
-    return keyManager.getOrCreateKey(userId, client);
-  }
+  const { inner, keyStore, logger, cap = 40 } = deps;
 
   function isEncryptedEnvelope(msgs: ModelMessage[]): msgs is [ModelMessage] {
     if (msgs.length !== 1 || !msgs[0]) return false;
@@ -41,7 +34,7 @@ export function createEncryptedHistoryStore(deps: {
 
       if (!isEncryptedEnvelope(raw)) return raw;
 
-      const dek = await resolveKey(userId);
+      const dek = await keyStore.getOrCreateKey(userId);
       if (!dek) {
         logger.info({ userId }, "encrypted-history: no DEK available, returning empty (encrypted data exists but cannot be decrypted)");
         return [];
@@ -58,7 +51,7 @@ export function createEncryptedHistoryStore(deps: {
     },
 
     async append(userId: string, msgs: ModelMessage[]): Promise<void> {
-      const dek = await resolveKey(userId);
+      const dek = await keyStore.getOrCreateKey(userId);
       if (!dek) {
         await inner.append(userId, msgs);
         return;

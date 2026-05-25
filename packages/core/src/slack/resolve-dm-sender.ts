@@ -58,7 +58,7 @@ export async function resolveDmSender(
   // Fall back to console.allowedDomain (set via CONSOLE_ALLOWED_DOMAIN env var
   // or the config store) so org-domain mode activates automatically when an
   // allowed domain is configured — no separate access-control setup needed.
-  const consoleDomain = parseConfigJson(await configStore.get("console.allowedDomain"));
+  const consoleDomain = parseConfigJson(await configStore.get("console.allowedDomain")) || process.env.CONSOLE_ALLOWED_DOMAIN;
   const effectiveDomain = orgDomain || consoleDomain;
 
   const mode = rawMode ? (JSON.parse(rawMode) as string) : (effectiveDomain ? "org-domain" : "allowlist");
@@ -107,16 +107,19 @@ export async function resolveDmSender(
       }
 
       if (allUsers.length === 0) {
-        const id = crypto.randomUUID();
-        await users.create({ id, email: "", role: "admin", status: "active", slackUserId, createdAt: Date.now(), updatedAt: Date.now() });
-        await identities.link({ provider: "slack", externalId: slackUserId, tinoUserId: id, linkedAt: Date.now() });
-        logger.info({ tinoUserId: id, slackUserId }, "created first admin from slack DM (zero-user bootstrap)");
-        await auditLogger?.log({ userId: id, action: "login", status: "success", errorMessage: "zero-user bootstrap" });
-        return id;
+        logger.warn({ slackUserId }, "DM received but no users exist — admin must sign in via console first");
+        await say({ text: "tino isn't set up yet. an admin needs to sign in at the console first." });
+        await auditLogger?.log({
+          userId: `UNKNOWN_SLACK:${slackUserId}`,
+          action: "login",
+          status: "denied",
+          errorMessage: "no users exist",
+        });
+        return null;
       }
 
       await say({
-        text: "i don't recognize you and your email domain doesn't match the configured org. ask your admin to add you to tino.",
+        text: "i couldn't verify your identity. try signing in at the tino console to connect your Slack account.",
       });
       await auditLogger?.log({
         userId: `UNKNOWN_SLACK:${slackUserId}`,

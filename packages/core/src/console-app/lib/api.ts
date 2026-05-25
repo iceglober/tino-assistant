@@ -152,7 +152,7 @@ export async function getCompliance(): Promise<unknown> {
 }
 
 export interface Session {
-  user: { id: string; email: string; name?: string; role?: "admin" | "member" };
+  user: { id: string; email: string; name?: string; role?: "admin" | "member"; slackUserId?: string | null };
 }
 
 export async function getSession(): Promise<Session | null> {
@@ -166,6 +166,7 @@ export async function getSession(): Promise<Session | null> {
     if (me) {
       data.user.id = me.id;
       data.user.role = me.role;
+      data.user.slackUserId = me.slackUserId;
     }
     return data;
   } catch {
@@ -178,11 +179,12 @@ export async function getMe(): Promise<{
   email: string;
   role: "admin" | "member";
   status: string;
+  slackUserId?: string | null;
 } | null> {
   try {
     const r = await fetch("/api/me", { credentials: "include" });
     if (!r.ok) return null;
-    return (await r.json()) as { id: string; email: string; role: "admin" | "member"; status: string };
+    return (await r.json()) as { id: string; email: string; role: "admin" | "member"; status: string; slackUserId?: string | null };
   } catch {
     return null;
   }
@@ -489,6 +491,11 @@ export interface DiscoveryProgress {
   phase: "email" | "calendar" | "analysis" | "done";
   pct: number;
   message: string;
+}
+
+export async function getSlackOAuthStatus(): Promise<{ configured: boolean; connected: boolean }> {
+  const r = await fetch("/api/oauth/slack/status", { credentials: "include" });
+  return unwrap<{ configured: boolean; connected: boolean }>(r);
 }
 
 export async function getDiscoveryResult(): Promise<DiscoveryResult | null> {

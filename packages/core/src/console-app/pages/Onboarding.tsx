@@ -1,11 +1,18 @@
 import { type JSX, useCallback, useEffect, useRef, useState } from "react";
 import { useToast } from "../hooks/useToast.js";
 import type { DiscoveryProgress, DiscoveryResult, Session } from "../lib/api.js";
-import { getDiscoveryResult, getPrivacyStatus, startDiscovery } from "../lib/api.js";
+import {
+  getDiscoveryResult,
+  getMe,
+  getPrivacyStatus,
+  getSlackOAuthStatus,
+  startDiscovery,
+} from "../lib/api.js";
 
-type Phase = "checking" | "connect" | "running" | "done";
+type Phase = "checking" | "verify-slack" | "slack-connect" | "connect" | "running" | "done";
 
 export function Onboarding({
+  session,
   onComplete,
 }: {
   session: Session;
@@ -16,6 +23,52 @@ export function Onboarding({
   const [progress, setProgress] = useState<DiscoveryProgress | null>(null);
   const [result, setResult] = useState<DiscoveryResult | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const advanceToDiscovery = useCallback(async () => {
+    try {
+      const existing = await getDiscoveryResult();
+      if (existing) {
+        setResult(existing);
+        setPhase("done");
+        return;
+      }
+    } catch { /* no cached discovery */ }
+    try {
+      const status = await getPrivacyStatus();
+      const hasGoogle = status.connectedCapabilities.some(
+        (c) => c === "gmail" || c === "calendar",
+      );
+      if (hasGoogle) {
+        setPhase("running");
+        setProgress(null);
+        abortRef.current = startDiscovery(
+          (p) => setProgress(p),
+          (r) => {
+            setResult(r);
+            setPhase("done");
+          },
+          (err) => {
+            toast.show(`Discovery failed: ${err.message}`, "err");
+            setPhase("connect");
+          },
+        );
+        return;
+      }
+    } catch { /* no Google creds — show connect */ }
+    setPhase("connect");
+  }, [toast]);
+
+  const advanceToSlackConnect = useCallback(async () => {
+    try {
+      const status = await getSlackOAuthStatus();
+      if (status.configured && !status.connected) {
+        setPhase("slack-connect");
+        return;
+      }
+    } catch { /* Slack OAuth not available — skip */ }
+    await advanceToDiscovery();
+  }, [advanceToDiscovery]);
 
   const runDiscoveryFlow = useCallback(() => {
     setPhase("running");
@@ -34,8 +87,19 @@ export function Onboarding({
   }, [toast]);
 
   useEffect(() => {
-    // Check for OAuth callback first
     const params = new URLSearchParams(window.location.search);
+
+    const slackOauth = params.get("slack_oauth");
+    if (slackOauth === "success") {
+      window.history.replaceState({}, "", "/");
+      void advanceToDiscovery();
+      return;
+    }
+    if (slackOauth && slackOauth !== "success") {
+      window.history.replaceState({}, "", "/");
+      toast.show(`Slack connection failed: ${slackOauth}`, "err");
+    }
+
     const oauth = params.get("oauth");
     if (oauth === "success") {
       window.history.replaceState({}, "", "/");
@@ -48,32 +112,39 @@ export function Onboarding({
     }
 
     void (async () => {
-      try {
-        const existing = await getDiscoveryResult();
-        if (existing) {
-          setResult(existing);
-          setPhase("done");
-          return;
-        }
-
-        const status = await getPrivacyStatus();
-        const hasGoogle = status.connectedCapabilities.some(
-          (c) => c === "gmail" || c === "calendar",
-        );
-        if (hasGoogle) {
-          runDiscoveryFlow();
-        } else {
-          setPhase("connect");
-        }
-      } catch {
-        setPhase("connect");
+      if (!session.user.slackUserId) {
+        setPhase("verify-slack");
+        return;
       }
+
+      await advanceToSlackConnect();
     })();
 
     return () => {
       abortRef.current?.abort();
+      if (pollRef.current) clearInterval(pollRef.current);
     };
-  }, [runDiscoveryFlow, toast]);
+  }, [session, advanceToSlackConnect, advanceToDiscovery, runDiscoveryFlow, toast]);
+
+  useEffect(() => {
+    if (phase !== "verify-slack") return;
+
+    pollRef.current = setInterval(async () => {
+      try {
+        const me = await getMe();
+        if (me.slackUserId) {
+          if (pollRef.current) clearInterval(pollRef.current);
+          pollRef.current = null;
+          void advanceToSlackConnect();
+        }
+      } catch { /* retry on next tick */ }
+    }, 3000);
+
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+      pollRef.current = null;
+    };
+  }, [phase, advanceToSlackConnect]);
 
   return (
     <div className="onboarding-page">
@@ -81,6 +152,49 @@ export function Onboarding({
         <img src="/assets/tino-logo.png" alt="tino" className="onboarding-logo" />
 
         {phase === "checking" && <p className="empty">loading…</p>}
+
+        {phase === "verify-slack" && (
+          <>
+            <h1 className="setup-heading">say hi to tino in Slack</h1>
+            <p className="setup-lead">
+              open Slack and send tino a direct message to verify the connection.
+            </p>
+            <div style={{ display: "flex", justifyContent: "center", marginTop: 24 }}>
+              <div className="pulse-dot" />
+            </div>
+            <p style={{ fontSize: "0.786rem", color: "var(--text-dim)", marginTop: 16, textAlign: "center" }}>
+              waiting for your first message…
+            </p>
+          </>
+        )}
+
+        {phase === "slack-connect" && (
+          <>
+            <h1 className="setup-heading">connect your Slack account</h1>
+            <p className="setup-lead">
+              let tino search your Slack messages and read your DMs for better context.
+            </p>
+            <div className="btn-row" style={{ justifyContent: "center" }}>
+              <button
+                className="btn btn-primary btn-large"
+                type="button"
+                onClick={() => {
+                  window.location.href = "/api/oauth/slack/authorize";
+                }}
+              >
+                connect Slack
+              </button>
+            </div>
+            <p style={{ fontSize: "0.786rem", color: "var(--text-dim)", marginTop: 12, textAlign: "center" }}>
+              grants read-only search and DM access. you can disconnect any time.
+            </p>
+            <div style={{ textAlign: "center", marginTop: 16 }}>
+              <button className="btn-ghost" type="button" onClick={() => void advanceToDiscovery()}>
+                skip for now
+              </button>
+            </div>
+          </>
+        )}
 
         {phase === "connect" && (
           <>
