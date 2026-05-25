@@ -169,9 +169,9 @@ No automated migration. Old Drive data stays harmlessly in users' Google account
 
 ## Verification
 
-- [ ] `bun --bun vitest run` passes
+- [x] `bun --bun vitest run` passes
 - [ ] Deploy → sign in → set a preference → read it back (DynamoDB only)
 - [ ] Deploy → run discovery → results visible in Customize page (DynamoDB only)
 - [ ] Conversation history still encrypts/decrypts via Drive-backed `UserKeyStorePort`
-- [ ] No `AppDataClient` imports outside of `src/drive/`
-- [ ] No references to deleted adapter files remain
+- [x] No `AppDataClient` imports outside of `src/drive/`
+- [x] No references to deleted adapter files remain
