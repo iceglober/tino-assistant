@@ -175,3 +175,7 @@ No automated migration. Old Drive data stays harmlessly in users' Google account
 - [ ] Conversation history still encrypts/decrypts via Drive-backed `UserKeyStorePort`
 - [x] No `AppDataClient` imports outside of `src/drive/`
 - [x] No references to deleted adapter files remain
+
+## Open questions
+
+- Pre-existing failure confirmed in `packages/core/tests/console-app/{capability-card,header-role-nav,header-restart-button,save-button}.test.ts` (14 tests) — `ReferenceError: React is not defined` thrown from `src/console-app/hooks/useToast.tsx:55` during SSR. Not introduced by this change (these console-app component tests pre-date wave 0; verified by checking out the console-app foundation commit `4309e2175` and seeing the same failures, and by `git log` showing the test files have never been touched by waves 0–2). The wave-0 surface area itself is fully green: `bun --bun vitest run --root packages/core tests/drive tests/persistence tests/discovery tests/server` reports 207/207 passing, including the three drive tests cited as the proof for item 0j (`encrypted-history-store.test.ts`, `key-manager.test.ts`, `app-data-client.test.ts`). Recommend a separate cleanup wave to fix the JSX runtime / React-import setup in the console-app vitest config.
