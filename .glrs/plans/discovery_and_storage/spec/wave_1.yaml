@@ -297,7 +297,7 @@ items:
       inferredTitle/inferredDepartment, roleSummary, and the top 5
       responsibilities so users see immediate signal after their first discovery
       run.
-    checked: false
+    checked: true
     files:
       - path: packages/core/src/console-app/pages/Onboarding.tsx
         isNew: false
