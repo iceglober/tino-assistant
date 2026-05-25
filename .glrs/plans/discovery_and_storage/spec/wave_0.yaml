@@ -1,18 +1,16 @@
-# spec/wave_0.yaml
-# Wave 0: Storage Simplification
-# Note: paths in plan reference "src/" but real layout is "packages/core/src/".
-# Most items are already implemented in the working tree; spec captures the
-# intended end-state and verification proofs regardless.
 items:
-  - id: "0a"
-    intent: "Define UserKeyStorePort interface — abstract port for per-user encryption key storage, decoupled from any specific backend (Drive, KMS, etc)."
+  - id: 0a
+    intent: Define UserKeyStorePort interface — abstract port for per-user
+      encryption key storage, decoupled from any specific backend (Drive, KMS,
+      etc).
     checked: true
     files:
       - path: packages/core/src/persistence/key-store.ts
         isNew: true
-        change: "New file exporting the UserKeyStorePort interface with getOrCreateKey(userId) and evict(userId)."
+        change: New file exporting the UserKeyStorePort interface with
+          getOrCreateKey(userId) and evict(userId).
     tests: []
-    verify: "bun --bun vitest run --root packages/core --typecheck"
+    verify: bun --bun vitest run --root packages/core --typecheck
     mirror: packages/core/src/persistence/config.ts
     context: |
       // packages/core/src/persistence/key-store.ts (target)
@@ -20,29 +18,46 @@ items:
         getOrCreateKey(userId: string): Promise<Buffer | null>;
         evict(userId: string): void;
       }
-    conventions: "ESM imports with .js extension suffixes; named exports only; interface-as-port pattern matches sibling persistence ports (ConfigStore, PreferencesStore); no implementation in port file."
-    proof: "Importing UserKeyStorePort from packages/core/src/persistence/key-store.ts type-checks. The interface declares exactly two methods: getOrCreateKey(userId: string): Promise<Buffer | null> and evict(userId: string): void."
-    proof_type: "type-check"
-
-  - id: "0b"
-    intent: "Refactor createKeyManager into createDriveKeyStore — Drive adapter implementing UserKeyStorePort, taking resolveClient as a constructor dep instead of receiving AppDataClient per call. Preserves the existing 1-hour TTL cache and sweep loop."
+    conventions: ESM imports with .js extension suffixes; named exports only;
+      interface-as-port pattern matches sibling persistence ports (ConfigStore,
+      PreferencesStore); no implementation in port file.
+    proof: "Importing UserKeyStorePort from
+      packages/core/src/persistence/key-store.ts type-checks. The interface
+      declares exactly two methods: getOrCreateKey(userId: string):
+      Promise<Buffer | null> and evict(userId: string): void."
+    proof_type: type-check
+  - id: 0b
+    intent: Refactor createKeyManager into createDriveKeyStore — Drive adapter
+      implementing UserKeyStorePort, taking resolveClient as a constructor dep
+      instead of receiving AppDataClient per call. Preserves the existing 1-hour
+      TTL cache and sweep loop.
     checked: true
     files:
       - path: packages/core/src/drive/key-manager.ts
         isNew: false
-        change: "Replace createKeyManager() / AppDataKeyManager export with createDriveKeyStore(deps: { resolveClient }) returning UserKeyStorePort. Move resolveClient invocation inside getOrCreateKey. Keep KEY_FILE constant, TTL_MS, cache Map, sweepInterval, and 32-byte key generation logic unchanged."
+        change: "Replace createKeyManager() / AppDataKeyManager export with
+          createDriveKeyStore(deps: { resolveClient }) returning
+          UserKeyStorePort. Move resolveClient invocation inside getOrCreateKey.
+          Keep KEY_FILE constant, TTL_MS, cache Map, sweepInterval, and 32-byte
+          key generation logic unchanged."
     tests:
-      - "packages/core/tests/drive/key-manager.test.ts"
-    verify: "bun --bun vitest run --root packages/core tests/drive/key-manager.test.ts"
+      - packages/core/tests/drive/key-manager.test.ts
+    verify: bun --bun vitest run --root packages/core tests/drive/key-manager.test.ts
     mirror: packages/core/src/drive/adapters/encrypted-history-store.ts
-    context: |
+    context: >
       // packages/core/src/drive/key-manager.ts
+
       import { randomBytes } from "node:crypto";
+
       import type { UserKeyStorePort } from "../persistence/key-store.js";
+
       import type { AppDataClient, EncryptedKeyEnvelope } from "./types.js";
 
+
       const KEY_FILE = "encryption-key.json";
+
       const TTL_MS = 60 * 60 * 1000;
+
 
       export function createDriveKeyStore(deps: {
         resolveClient: (userId: string) => Promise<AppDataClient | null>;
@@ -51,20 +66,33 @@ items:
         const cache = new Map<string, CacheEntry>();
         // sweep interval, getOrCreateKey reads/creates, evict deletes from cache
       }
-    conventions: "ESM with .js suffix imports; deps-object factory pattern (deps: { ... }); cache uses Map<string, CacheEntry>; setInterval is unref'd to avoid blocking process exit; errors swallowed and surfaced as null."
-    proof: "createDriveKeyStore({ resolveClient }) returns an object satisfying UserKeyStorePort. Calling getOrCreateKey(userId) twice in succession resolves the underlying AppDataClient only once (cache hit on second call within TTL). Calling evict(userId) clears the cache entry so the next getOrCreateKey re-resolves the client. When resolveClient returns null, getOrCreateKey returns null without throwing."
-    proof_type: "test"
-
-  - id: "0c"
-    intent: "Simplify createEncryptedHistoryStore — replace { keyManager, resolveClient } deps with a single { keyStore: UserKeyStorePort } dep. The encrypted-history adapter no longer knows that keys live in Drive."
+    conventions: "ESM with .js suffix imports; deps-object factory pattern (deps: {
+      ... }); cache uses Map<string, CacheEntry>; setInterval is unref'd to
+      avoid blocking process exit; errors swallowed and surfaced as null."
+    proof: createDriveKeyStore({ resolveClient }) returns an object satisfying
+      UserKeyStorePort. Calling getOrCreateKey(userId) twice in succession
+      resolves the underlying AppDataClient only once (cache hit on second call
+      within TTL). Calling evict(userId) clears the cache entry so the next
+      getOrCreateKey re-resolves the client. When resolveClient returns null,
+      getOrCreateKey returns null without throwing.
+    proof_type: test
+  - id: 0c
+    intent: "Simplify createEncryptedHistoryStore — replace { keyManager,
+      resolveClient } deps with a single { keyStore: UserKeyStorePort } dep. The
+      encrypted-history adapter no longer knows that keys live in Drive."
     checked: true
     files:
       - path: packages/core/src/drive/adapters/encrypted-history-store.ts
         isNew: false
-        change: "Change deps signature from { inner, keyManager, resolveClient, logger, cap? } to { inner, keyStore: UserKeyStorePort, logger, cap? }. Replace internal resolveKey(userId) helper with direct deps.keyStore.getOrCreateKey(userId) calls in get() and append(). Remove resolveClient invocation entirely."
+        change: "Change deps signature from { inner, keyManager, resolveClient, logger,
+          cap? } to { inner, keyStore: UserKeyStorePort, logger, cap? }. Replace
+          internal resolveKey(userId) helper with direct
+          deps.keyStore.getOrCreateKey(userId) calls in get() and append().
+          Remove resolveClient invocation entirely."
     tests:
-      - "packages/core/tests/drive/encrypted-history-store.test.ts"
-    verify: "bun --bun vitest run --root packages/core tests/drive/encrypted-history-store.test.ts"
+      - packages/core/tests/drive/encrypted-history-store.test.ts
+    verify: bun --bun vitest run --root packages/core
+      tests/drive/encrypted-history-store.test.ts
     mirror: packages/core/src/drive/key-manager.ts
     context: |
       // packages/core/src/drive/adapters/encrypted-history-store.ts
@@ -80,121 +108,191 @@ items:
         // get(): const dek = await keyStore.getOrCreateKey(userId);
         // append(): const dek = await keyStore.getOrCreateKey(userId);
       }
-    conventions: "Imports type UserKeyStorePort with .js suffix from sibling persistence module; deps destructured at top of factory; null DEK falls back gracefully (return [] on get, write plaintext on append)."
-    proof: "createEncryptedHistoryStore accepts { inner, keyStore, logger } where keyStore is a UserKeyStorePort mock. Test uses createDriveKeyStore over a mock AppDataClient and verifies (1) appended messages round-trip through encrypt/decrypt, (2) get() returns [] when keyStore.getOrCreateKey returns null. The deps signature does NOT include keyManager or resolveClient — type-check rejects the old shape."
-    proof_type: "test"
-
-  - id: "0d"
-    intent: "Update wiring in core entrypoint — construct keyStore via createDriveKeyStore({ resolveClient: appDataResolver }) and pass it to createEncryptedHistoryStore. Drive dependency stops at the UserKeyStorePort boundary."
-    checked: true
+    conventions: Imports type UserKeyStorePort with .js suffix from sibling
+      persistence module; deps destructured at top of factory; null DEK falls
+      back gracefully (return [] on get, write plaintext on append).
+    proof: createEncryptedHistoryStore accepts { inner, keyStore, logger } where
+      keyStore is a UserKeyStorePort mock. Test uses createDriveKeyStore over a
+      mock AppDataClient and verifies (1) appended messages round-trip through
+      encrypt/decrypt, (2) get() returns [] when keyStore.getOrCreateKey returns
+      null. The deps signature does NOT include keyManager or resolveClient —
+      type-check rejects the old shape.
+    proof_type: test
+  - id: 0d
+    intent: "Update wiring in core entrypoint — construct keyStore via
+      createDriveKeyStore({ resolveClient: appDataResolver }) and pass it to
+      createEncryptedHistoryStore. Drive dependency stops at the
+      UserKeyStorePort boundary."
+    checked: false
     files:
       - path: packages/core/src/index.ts
         isNew: false
-        change: "Replace `const appDataKeyManager = createKeyManager();` with `const keyStore = createDriveKeyStore({ resolveClient: appDataResolver });`. Update createEncryptedHistoryStore call from { keyManager: appDataKeyManager, resolveClient: appDataResolver, ... } to { keyStore, ... }. Imports updated accordingly."
+        change: "Replace `const appDataKeyManager = createKeyManager();` with `const
+          keyStore = createDriveKeyStore({ resolveClient: appDataResolver });`.
+          Update createEncryptedHistoryStore call from { keyManager:
+          appDataKeyManager, resolveClient: appDataResolver, ... } to {
+          keyStore, ... }. Imports updated accordingly."
     tests: []
-    verify: "bun --bun vitest run --root packages/core --typecheck"
+    verify: bun --bun vitest run --root packages/core --typecheck
     mirror: packages/core/src/server/index.ts
-    context: |
+    context: >
       // packages/core/src/index.ts (target)
-      import { createEncryptedHistoryStore } from "./drive/adapters/encrypted-history-store.js";
+
+      import { createEncryptedHistoryStore } from
+      "./drive/adapters/encrypted-history-store.js";
+
       import { createDriveKeyStore } from "./drive/key-manager.js";
 
-      const appDataResolver = createAppDataClientResolver({ resolveCreds: googleCreds, logger });
+
+      const appDataResolver = createAppDataClientResolver({ resolveCreds:
+      googleCreds, logger });
+
       const keyStore = createDriveKeyStore({ resolveClient: appDataResolver });
+
       const wrappedHistory = createEncryptedHistoryStore({
         inner: history,
         keyStore,
         logger,
       });
-    conventions: "Composition root in src/index.ts; deps wired top-down (resolver -> store -> wrapper); appDataResolver still constructed but no longer flows past the keyStore boundary."
-    proof: "tsc/typecheck passes on packages/core/src/index.ts. grep for 'keyManager' and 'resolveClient: appDataResolver' in src/index.ts returns zero matches outside the createDriveKeyStore line. The wrappedHistory constructor call uses the keyStore variable."
-    proof_type: "type-check"
-
-  - id: "0e"
-    intent: "Delete createAppDataPreferencesStore — preferences live in DynamoDB only. Remove the Drive-write wrapper and pass preferencesStore directly through to consumers."
+    conventions: Composition root in src/index.ts; deps wired top-down (resolver ->
+      store -> wrapper); appDataResolver still constructed but no longer flows
+      past the keyStore boundary.
+    proof: "tsc/typecheck passes on packages/core/src/index.ts. grep for
+      'keyManager' and 'resolveClient: appDataResolver' in src/index.ts returns
+      zero matches outside the createDriveKeyStore line. The wrappedHistory
+      constructor call uses the keyStore variable."
+    proof_type: type-check
+  - id: 0e
+    intent: Delete createAppDataPreferencesStore — preferences live in DynamoDB
+      only. Remove the Drive-write wrapper and pass preferencesStore directly
+      through to consumers.
     checked: true
     files:
       - path: packages/core/src/drive/adapters/preferences-store.ts
         isNew: false
-        change: "Delete file."
+        change: Delete file.
       - path: packages/core/src/index.ts
         isNew: false
-        change: "Remove createAppDataPreferencesStore import; remove wrappedPreferences variable; pass preferencesStore directly wherever wrappedPreferences was used."
+        change: Remove createAppDataPreferencesStore import; remove wrappedPreferences
+          variable; pass preferencesStore directly wherever wrappedPreferences
+          was used.
     tests: []
-    verify: "test ! -f packages/core/src/drive/adapters/preferences-store.ts && ! grep -rn 'createAppDataPreferencesStore\\|preferences-store' packages/core/src apps"
+    verify: test ! -f packages/core/src/drive/adapters/preferences-store.ts && !
+      grep -rn 'createAppDataPreferencesStore\|preferences-store'
+      packages/core/src apps
     mirror: packages/core/src/discovery/store.ts
-    context: |
+    context: >
       // packages/core/src/index.ts (current — already migrated)
-      // line 37:  preferences: preferencesStore,
-      // line 91:  preferences: preferencesStore,
-      // line 158: preferencesStore: preferencesStore,
-      // No wrappedPreferences variable anywhere; no createAppDataPreferencesStore import.
-    conventions: "When deleting an adapter, also delete any test file under packages/core/tests/drive/ covering it; consumer call sites take the underlying store directly."
-    proof: "File packages/core/src/drive/adapters/preferences-store.ts does not exist. ripgrep for 'createAppDataPreferencesStore' or 'preferences-store' across packages/core/src and apps/ returns no matches. preferencesStore is referenced directly (no wrappedPreferences variable) in src/index.ts."
-    proof_type: "script"
 
-  - id: "0f"
-    intent: "Delete createAppDataPrivacyConfigStore — privacy config lives in DynamoDB only. Rename serverPrivacyConfigStore -> privacyConfigStore at call sites."
+      // line 37:  preferences: preferencesStore,
+
+      // line 91:  preferences: preferencesStore,
+
+      // line 158: preferencesStore: preferencesStore,
+
+      // No wrappedPreferences variable anywhere; no
+      createAppDataPreferencesStore import.
+    conventions: When deleting an adapter, also delete any test file under
+      packages/core/tests/drive/ covering it; consumer call sites take the
+      underlying store directly.
+    proof: File packages/core/src/drive/adapters/preferences-store.ts does not
+      exist. ripgrep for 'createAppDataPreferencesStore' or 'preferences-store'
+      across packages/core/src and apps/ returns no matches. preferencesStore is
+      referenced directly (no wrappedPreferences variable) in src/index.ts.
+    proof_type: script
+  - id: 0f
+    intent: Delete createAppDataPrivacyConfigStore — privacy config lives in
+      DynamoDB only. Rename serverPrivacyConfigStore -> privacyConfigStore at
+      call sites.
     checked: true
     files:
       - path: packages/core/src/drive/adapters/privacy-config-store.ts
         isNew: false
-        change: "Delete file."
+        change: Delete file.
       - path: packages/core/src/index.ts
         isNew: false
-        change: "Remove createAppDataPrivacyConfigStore import; remove wrapping call; rename serverPrivacyConfigStore -> privacyConfigStore."
+        change: Remove createAppDataPrivacyConfigStore import; remove wrapping call;
+          rename serverPrivacyConfigStore -> privacyConfigStore.
     tests: []
-    verify: "test ! -f packages/core/src/drive/adapters/privacy-config-store.ts && ! grep -rn 'createAppDataPrivacyConfigStore\\|privacy-config-store' packages/core/src apps"
+    verify: test ! -f packages/core/src/drive/adapters/privacy-config-store.ts && !
+      grep -rn 'createAppDataPrivacyConfigStore\|privacy-config-store'
+      packages/core/src apps
     mirror: packages/core/src/discovery/store.ts
-    context: |
-      // After deletion the only privacy config store should be the DynamoDB-backed one
-      // referenced as privacyConfigStore (not serverPrivacyConfigStore) throughout src/index.ts.
-    conventions: "Same as 0e — delete adapter file, drop import, rename variable to remove the now-redundant 'server' qualifier."
-    proof: "File packages/core/src/drive/adapters/privacy-config-store.ts does not exist. ripgrep for 'createAppDataPrivacyConfigStore' or 'privacy-config-store' across packages/core/src and apps/ returns no matches. No 'serverPrivacyConfigStore' identifier remains in src/index.ts."
-    proof_type: "script"
+    context: >
+      // After deletion the only privacy config store should be the
+      DynamoDB-backed one
 
-  - id: "0g"
-    intent: "Simplify createDiscoveryStore — remove resolveClient dep, write/read only through ConfigStore (DynamoDB)."
-    checked: true
+      // referenced as privacyConfigStore (not serverPrivacyConfigStore)
+      throughout src/index.ts.
+    conventions: Same as 0e — delete adapter file, drop import, rename variable to
+      remove the now-redundant 'server' qualifier.
+    proof: File packages/core/src/drive/adapters/privacy-config-store.ts does not
+      exist. ripgrep for 'createAppDataPrivacyConfigStore' or
+      'privacy-config-store' across packages/core/src and apps/ returns no
+      matches. No 'serverPrivacyConfigStore' identifier remains in src/index.ts.
+    proof_type: script
+  - id: 0g
+    intent: Simplify createDiscoveryStore — remove resolveClient dep, write/read
+      only through ConfigStore (DynamoDB).
+    checked: false
     files:
       - path: packages/core/src/discovery/store.ts
         isNew: false
-        change: "Reduce deps to { configStore: ConfigStore }. get() reads from configStore.get(`user.${userId}.discovery_result`); set() writes to configStore.set with same key. JSON.parse with try/catch returning null on malformed data."
+        change: "Reduce deps to { configStore: ConfigStore }. get() reads from
+          configStore.get(`user.${userId}.discovery_result`); set() writes to
+          configStore.set with same key. JSON.parse with try/catch returning
+          null on malformed data."
       - path: packages/core/src/server/index.ts
         isNew: false
-        change: "Remove resolveAppDataClient from createDiscoveryStore call site; pass only { configStore: config }."
+        change: "Remove resolveAppDataClient from createDiscoveryStore call site; pass
+          only { configStore: config }."
     tests: []
-    verify: "bun --bun vitest run --root packages/core --typecheck"
+    verify: bun --bun vitest run --root packages/core --typecheck
     mirror: packages/core/src/persistence/config.ts
-    context: |
+    context: >
       // packages/core/src/discovery/store.ts (target — already in place)
+
       import type { ConfigStore } from "../persistence/config.js";
+
       import type { DiscoveryResult } from "./types.js";
+
 
       function configKey(userId: string): string {
         return `user.${userId}.discovery_result`;
       }
 
-      export function createDiscoveryStore(deps: { configStore: ConfigStore }): DiscoveryStore {
+
+      export function createDiscoveryStore(deps: { configStore: ConfigStore }):
+      DiscoveryStore {
         const { configStore } = deps;
         return {
           async get(userId) { /* configStore.get only */ },
           async set(userId, result) { /* configStore.set only */ },
         };
       }
-    conventions: "Config keys namespaced as `user.${userId}.<feature>`; JSON.parse wrapped in try/catch returning null; ConfigStore is the single source of truth."
-    proof: "createDiscoveryStore({ configStore }) returns a store whose get/set round-trip a DiscoveryResult through ConfigStore alone (no AppDataClient mock needed). The deps type does NOT include resolveClient/resolveAppDataClient — type-check rejects the old shape."
-    proof_type: "type-check"
-
-  - id: "0h"
-    intent: "Clean up dead code — verify only key-store, resolver, app-data-client, crypto, and types remain in src/drive/. AppDataClient does not leak outside src/drive/ except at the keyStore wiring point in index.ts."
-    checked: true
+    conventions: Config keys namespaced as `user.${userId}.<feature>`; JSON.parse
+      wrapped in try/catch returning null; ConfigStore is the single source of
+      truth.
+    proof: createDiscoveryStore({ configStore }) returns a store whose get/set
+      round-trip a DiscoveryResult through ConfigStore alone (no AppDataClient
+      mock needed). The deps type does NOT include
+      resolveClient/resolveAppDataClient — type-check rejects the old shape.
+    proof_type: type-check
+  - id: 0h
+    intent: Clean up dead code — verify only key-store, resolver, app-data-client,
+      crypto, and types remain in src/drive/. AppDataClient does not leak
+      outside src/drive/ except at the keyStore wiring point in index.ts.
+    checked: false
     files:
       - path: packages/core/src/drive/
         isNew: false
-        change: "After 0e/0f deletions, drive/ should contain: app-data-client.ts, client-factory.ts, crypto.ts, key-manager.ts, resolve-client.ts, types.ts, and adapters/encrypted-history-store.ts (only)."
+        change: "After 0e/0f deletions, drive/ should contain: app-data-client.ts,
+          client-factory.ts, crypto.ts, key-manager.ts, resolve-client.ts,
+          types.ts, and adapters/encrypted-history-store.ts (only)."
     tests: []
-    verify: "ls packages/core/src/drive/adapters && grep -rn 'AppDataClient' packages/core/src apps --include='*.ts' | grep -v '/drive/' | grep -v 'createAppDataClientResolver'"
+    verify: ls packages/core/src/drive/adapters && grep -rn 'AppDataClient'
+      packages/core/src apps --include='*.ts' | grep -v '/drive/' | grep -v
+      'createAppDataClientResolver'
     mirror: packages/core/src/drive/key-manager.ts
     context: |
       // packages/core/src/drive/adapters/
@@ -202,49 +300,83 @@ items:
       // packages/core/src/drive/
       //   app-data-client.ts, client-factory.ts, crypto.ts,
       //   key-manager.ts, resolve-client.ts, types.ts
-    conventions: "Adapter files live under drive/adapters/; primitives live directly under drive/; AppDataClient type stays internal to drive/ except for the single createAppDataClientResolver call in src/index.ts."
-    proof: "ls packages/core/src/drive/adapters/ shows only encrypted-history-store.ts. ripgrep for 'AppDataClient' across packages/core/src and apps/ outside packages/core/src/drive/ returns zero matches except the createAppDataClientResolver call in packages/core/src/index.ts."
-    proof_type: "script"
-
-  - id: "0i"
-    intent: "Document data migration consideration — no automated migration; users re-set preferences/privacy/discovery in console. Old Drive data stays harmlessly in users' Google accounts."
+    conventions: Adapter files live under drive/adapters/; primitives live directly
+      under drive/; AppDataClient type stays internal to drive/ except for the
+      single createAppDataClientResolver call in src/index.ts.
+    proof: ls packages/core/src/drive/adapters/ shows only
+      encrypted-history-store.ts. ripgrep for 'AppDataClient' across
+      packages/core/src and apps/ outside packages/core/src/drive/ returns zero
+      matches except the createAppDataClientResolver call in
+      packages/core/src/index.ts.
+    proof_type: script
+  - id: 0i
+    intent: Document data migration consideration — no automated migration; users
+      re-set preferences/privacy/discovery in console. Old Drive data stays
+      harmlessly in users' Google accounts.
     checked: true
     files:
       - path: .glrs/plans/discovery_and_storage/wave_0.md
         isNew: false
-        change: "Section 0i documents the migration stance: re-set preferences (low impact), re-configure privacy (DynamoDB fallback populates fresh), re-run discovery (~30s). No code change required."
+        change: "Section 0i documents the migration stance: re-set preferences (low
+          impact), re-configure privacy (DynamoDB fallback populates fresh),
+          re-run discovery (~30s). No code change required."
     tests: []
-    verify: "true"  # documentation-only item
-    mirror: ".glrs/plans/discovery_and_storage/wave_0.md"
-    context: |
+    verify: "true"
+    mirror: .glrs/plans/discovery_and_storage/wave_0.md
+    context: >
       ### 0i. Data migration consideration
-      Users who have data in Drive but not DynamoDB will lose:
-      - Preferences: re-set in the console. Low impact.
-      - Privacy config: re-configure in console. DynamoDB fallback populates on fresh setups.
-      - Discovery results: re-run in 30 seconds.
-      No automated migration. Old Drive data stays harmlessly in users' Google accounts.
-    conventions: "Documentation-only items have verify: \"true\" and proof_type: manual; no executable assertion."
-    proof: "Wave 0 markdown contains an explicit 0i section acknowledging no automated migration and naming the three affected data classes (preferences, privacy config, discovery results) with their recovery paths."
-    proof_type: "manual"
 
-  - id: "0j"
-    intent: "Final wave verification — all unit tests pass, AppDataClient does not leak, no references to deleted adapters remain."
-    checked: true
+      Users who have data in Drive but not DynamoDB will lose:
+
+      - Preferences: re-set in the console. Low impact.
+
+      - Privacy config: re-configure in console. DynamoDB fallback populates on
+      fresh setups.
+
+      - Discovery results: re-run in 30 seconds.
+
+      No automated migration. Old Drive data stays harmlessly in users' Google
+      accounts.
+    conventions: 'Documentation-only items have verify: "true" and proof_type:
+      manual; no executable assertion.'
+    proof: Wave 0 markdown contains an explicit 0i section acknowledging no
+      automated migration and naming the three affected data classes
+      (preferences, privacy config, discovery results) with their recovery
+      paths.
+    proof_type: manual
+  - id: 0j
+    intent: Final wave verification — all unit tests pass, AppDataClient does not
+      leak, no references to deleted adapters remain.
+    checked: false
     files: []
     tests:
-      - "packages/core/tests/drive/encrypted-history-store.test.ts"
-      - "packages/core/tests/drive/key-manager.test.ts"
-      - "packages/core/tests/drive/app-data-client.test.ts"
-    verify: "bun --bun vitest run --root packages/core"
+      - packages/core/tests/drive/encrypted-history-store.test.ts
+      - packages/core/tests/drive/key-manager.test.ts
+      - packages/core/tests/drive/app-data-client.test.ts
+    verify: bun --bun vitest run --root packages/core
     mirror: packages/core/tests/drive/encrypted-history-store.test.ts
-    context: |
+    context: >
       // Verification checklist from wave_0.md:
+
       // [x] bun --bun vitest run passes
+
       // [ ] Deploy → set preference → read back (DynamoDB only) — manual
+
       // [ ] Deploy → run discovery → results in Customize page — manual
-      // [ ] History encrypts/decrypts via Drive-backed UserKeyStorePort — covered by tests
+
+      // [ ] History encrypts/decrypts via Drive-backed UserKeyStorePort —
+      covered by tests
+
       // [x] No AppDataClient imports outside src/drive/
+
       // [x] No references to deleted adapter files remain
-    conventions: "Wave-level verification is a single `bun --bun vitest run` from the package root plus two ripgrep guards; manual deploy steps are tracked separately and not part of the automated proof."
-    proof: "`bun --bun vitest run` exits 0 from packages/core. ripgrep for 'createAppDataPreferencesStore', 'createAppDataPrivacyConfigStore', 'preferences-store', or 'privacy-config-store' across packages/core/src and apps/ returns zero matches. ripgrep for 'AppDataClient' outside packages/core/src/drive/ shows only the single createAppDataClientResolver call site in src/index.ts."
-    proof_type: "test"
+    conventions: Wave-level verification is a single `bun --bun vitest run` from the
+      package root plus two ripgrep guards; manual deploy steps are tracked
+      separately and not part of the automated proof.
+    proof: "`bun --bun vitest run` exits 0 from packages/core. ripgrep for
+      'createAppDataPreferencesStore', 'createAppDataPrivacyConfigStore',
+      'preferences-store', or 'privacy-config-store' across packages/core/src
+      and apps/ returns zero matches. ripgrep for 'AppDataClient' outside
+      packages/core/src/drive/ shows only the single createAppDataClientResolver
+      call site in src/index.ts."
+    proof_type: test
