@@ -282,7 +282,7 @@ items:
     intent: Clean up dead code — verify only key-store, resolver, app-data-client,
       crypto, and types remain in src/drive/. AppDataClient does not leak
       outside src/drive/ except at the keyStore wiring point in index.ts.
-    checked: false
+    checked: true
     files:
       - path: packages/core/src/drive/
         isNew: false
