@@ -220,9 +220,9 @@ Don't over-design the UI. The primary consumer is the system prompt, not the pag
 
 ## Verification
 
-- [ ] `bun --bun vitest run` passes
-- [ ] Discovery with email + calendar + Slack produces all new fields
-- [ ] Discovery with email + calendar only (no Slack) still works — Slack port is optional
-- [ ] Discovery with no data sources returns graceful empty result
-- [ ] Customize page renders new fields without layout breakage
-- [ ] Re-running discovery replaces old-schema results cleanly
+- [x] `bun --bun vitest run` passes
+- [x] Discovery with email + calendar + Slack produces all new fields
+- [x] Discovery with email + calendar only (no Slack) still works — Slack port is optional
+- [x] Discovery with no data sources returns graceful empty result
+- [x] Customize page renders new fields without layout breakage
+- [x] Re-running discovery replaces old-schema results cleanly

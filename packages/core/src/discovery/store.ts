@@ -10,17 +10,18 @@ export interface DiscoveryStore {
   set(userId: string, result: DiscoveryResult): Promise<void>;
 }
 
-export function createDiscoveryStore(deps: {
-  configStore: ConfigStore;
-}): DiscoveryStore {
+export function createDiscoveryStore(deps: { configStore: ConfigStore }): DiscoveryStore {
   const { configStore } = deps;
 
   return {
     async get(userId: string): Promise<DiscoveryResult | null> {
       const raw = await configStore.get(configKey(userId));
       if (!raw) return null;
-      try { return JSON.parse(raw) as DiscoveryResult; }
-      catch { return null; }
+      try {
+        return JSON.parse(raw) as DiscoveryResult;
+      } catch {
+        return null;
+      }
     },
 
     async set(userId: string, result: DiscoveryResult): Promise<void> {

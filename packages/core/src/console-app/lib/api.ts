@@ -120,15 +120,12 @@ export async function putUserCapability(
   capabilityId: string,
   data: unknown,
 ): Promise<{ ok: true; userId: string; id: string }> {
-  const r = await fetch(
-    `/api/user-capabilities/${encodeURIComponent(userId)}/${encodeURIComponent(capabilityId)}`,
-    {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify(data),
-    },
-  );
+  const r = await fetch(`/api/user-capabilities/${encodeURIComponent(userId)}/${encodeURIComponent(capabilityId)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(data),
+  });
   return unwrap(r);
 }
 
@@ -136,13 +133,10 @@ export async function deleteUserCapability(
   userId: string,
   capabilityId: string,
 ): Promise<{ ok: true; userId: string; id: string }> {
-  const r = await fetch(
-    `/api/user-capabilities/${encodeURIComponent(userId)}/${encodeURIComponent(capabilityId)}`,
-    {
-      method: "DELETE",
-      credentials: "include",
-    },
-  );
+  const r = await fetch(`/api/user-capabilities/${encodeURIComponent(userId)}/${encodeURIComponent(capabilityId)}`, {
+    method: "DELETE",
+    credentials: "include",
+  });
   return unwrap(r);
 }
 
@@ -184,7 +178,13 @@ export async function getMe(): Promise<{
   try {
     const r = await fetch("/api/me", { credentials: "include" });
     if (!r.ok) return null;
-    return (await r.json()) as { id: string; email: string; role: "admin" | "member"; status: string; slackUserId?: string | null };
+    return (await r.json()) as {
+      id: string;
+      email: string;
+      role: "admin" | "member";
+      status: string;
+      slackUserId?: string | null;
+    };
   } catch {
     return null;
   }
@@ -463,7 +463,11 @@ export async function getPrivacyCalendarVisibility(): Promise<{
 }> {
   const r = await fetch("/api/privacy/calendar/visibility", { credentials: "include" });
   if (!r.ok) return { defaultVisibility: "public", calendars: [], message: "failed to load" };
-  return (await r.json()) as { defaultVisibility: string; calendars: Array<{ id: string; name: string }>; message?: string };
+  return (await r.json()) as {
+    defaultVisibility: string;
+    calendars: Array<{ id: string; name: string }>;
+    message?: string;
+  };
 }
 
 export async function savePrivacySection(section: string, config: Record<string, unknown>): Promise<{ ok: boolean }> {
@@ -479,16 +483,63 @@ export async function savePrivacySection(section: string, config: Record<string,
 
 // ── Discovery ─────────────────────────────────────────────────────────────────
 
+export interface OrgRelationship {
+  name: string;
+  email?: string;
+  relationship:
+    | "reports-to"
+    | "direct-report"
+    | "peer"
+    | "stakeholder"
+    | "cross-functional"
+    | "external"
+    | "frequent-contact";
+  context: string;
+  interactionFrequency: string;
+}
+
+export interface Responsibility {
+  title: string;
+  description: string;
+  timeHorizon: "daily" | "weekly" | "monthly" | "quarterly" | "ongoing";
+  evidence: string;
+}
+
+export interface CommunicationStyle {
+  summary: string;
+  preferredChannels: string[];
+  patterns: string[];
+}
+
+export interface TimeInvestment {
+  category: string;
+  estimatedPct: number;
+  details: string;
+}
+
+export interface WorkPatterns {
+  meetingLoad: string;
+  peakHours: string;
+  recurringCommitments: string[];
+  timeInvestment: TimeInvestment[];
+}
+
 export interface DiscoveryResult {
   roleSummary: string;
-  duties: Array<{ title: string; description: string; frequency?: string }>;
-  contactCategories: Array<{ category: string; contacts: string[]; description: string }>;
+  inferredTitle: string;
+  inferredDepartment: string;
+  orgRelationships: OrgRelationship[];
+  responsibilities: Responsibility[];
+  communicationStyle: CommunicationStyle;
+  workPatterns: WorkPatterns;
+  painPoints: string[];
   suggestions: Array<{ title: string; description: string; capabilityId?: string }>;
   analyzedAt: number;
+  dataSourcesUsed: string[];
 }
 
 export interface DiscoveryProgress {
-  phase: "email" | "calendar" | "analysis" | "done";
+  phase: "email" | "calendar" | "slack" | "analysis" | "done";
   pct: number;
   message: string;
 }
@@ -546,7 +597,9 @@ export function startDiscovery(
               if (currentEvent === "progress") onProgress(parsed as DiscoveryProgress);
               else if (currentEvent === "result") onResult(parsed as DiscoveryResult);
               else if (currentEvent === "error") onError(new Error((parsed as { error: string }).error));
-            } catch { /* skip malformed frames */ }
+            } catch {
+              /* skip malformed frames */
+            }
             currentEvent = "";
           } else if (line === "") {
             currentEvent = "";
@@ -629,7 +682,9 @@ export function startPrivacyScan(
               if (currentEvent === "progress") onProgress(parsed as ScanProgress);
               else if (currentEvent === "result") onResult(parsed as ScanResult);
               else if (currentEvent === "error") onError(new Error((parsed as { error: string }).error));
-            } catch { /* skip malformed frames */ }
+            } catch {
+              /* skip malformed frames */
+            }
             currentEvent = "";
           } else if (line === "") {
             currentEvent = "";

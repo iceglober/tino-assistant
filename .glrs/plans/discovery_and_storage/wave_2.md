@@ -166,7 +166,7 @@ This avoids forcing a re-run before the agent can use any discovery data.
 
 ## Verification
 
-- [ ] `bun --bun vitest run` passes
+- [x] `bun --bun vitest run` passes
 - [ ] DM tino "tell me about my role" → tino answers with specifics from discovery profile
 - [ ] DM tino "who do I report to?" → tino answers with org relationship data
 - [ ] DM tino "what should I focus on today?" → tino uses responsibilities + calendar context

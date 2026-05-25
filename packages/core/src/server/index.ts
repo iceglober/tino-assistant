@@ -1,41 +1,46 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { LanguageModel } from "ai";
 import { type ServerType, serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
+import type { LanguageModel } from "ai";
 import { type Context, Hono } from "hono";
 import type { AuditLogger } from "../audit/logger.js";
 import type { CapabilityRegistry } from "../capabilities/types.js";
+import { createSlackDiscoveryPort } from "../discovery/slack-port.js";
+import { createDiscoveryStore } from "../discovery/store.js";
 import type { IdentityStore, UserStore } from "../identity/store.js";
 import type { ConfigStore } from "../persistence/config.js";
 import type { SessionSecondaryStorage } from "../persistence/factory.js";
-import type { AppLogger } from "../slack/app.js";
-import { createDiscoveryStore } from "../discovery/store.js";
 import { createGoogleCredentialResolver, createSlackCredentialResolver } from "../privacy/adapters/credentials.js";
 import { createGoogleCalendarAdapter, createGoogleEmailAdapter } from "../privacy/adapters/google.js";
-import { createMockCalendarAdapter, createMockEmailAdapter, createMockMessagingAdapter } from "../privacy/adapters/mock.js";
+import {
+  createMockCalendarAdapter,
+  createMockEmailAdapter,
+  createMockMessagingAdapter,
+} from "../privacy/adapters/mock.js";
 import { createSlackMessagingAdapter } from "../privacy/adapters/slack.js";
 import type { PrivacyConfigStore } from "../privacy/config-store.js";
+import type { AppLogger } from "../slack/app.js";
 import { type AuthVariables, buildAuthMiddleware, createAuth } from "./middleware/auth.js";
 import { privacyGate } from "./middleware/privacy-gate.js";
+import { createActivityRoutes } from "./routes/activity.js";
 import { createAdminRoutes } from "./routes/admin.js";
+import { createAuditRoutes } from "./routes/audit.js";
 import { createBedrockRoutes } from "./routes/bedrock.js";
-import { createDiscoveryRoutes } from "./routes/discovery.js";
 import { createCapabilityRoutes } from "./routes/capabilities.js";
 import { createComplianceRoutes } from "./routes/compliance.js";
 import { createConfigRoutes } from "./routes/config.js";
+import { createDiscoveryRoutes } from "./routes/discovery.js";
+import { createGoogleOAuthRoutes } from "./routes/google-oauth.js";
 import { createHealthRoutes } from "./routes/health.js";
-import { createActivityRoutes } from "./routes/activity.js";
-import { createAuditRoutes } from "./routes/audit.js";
 import { createInstructionRoutes } from "./routes/instructions.js";
 import { createOrgConfigRoutes } from "./routes/org-config.js";
-import { createReloadRoutes } from "./routes/reload.js";
-import { createTaskRoutes } from "./routes/tasks.js";
-import { createUsersRoutes } from "./routes/users.js";
-import { createUserCapabilityRoutes } from "./routes/user-capabilities.js";
-import { createGoogleOAuthRoutes } from "./routes/google-oauth.js";
-import { createSlackOAuthRoutes } from "./routes/slack-oauth.js";
 import { createPrivacyRoutes } from "./routes/privacy.js";
+import { createReloadRoutes } from "./routes/reload.js";
+import { createSlackOAuthRoutes } from "./routes/slack-oauth.js";
+import { createTaskRoutes } from "./routes/tasks.js";
+import { createUserCapabilityRoutes } from "./routes/user-capabilities.js";
+import { createUsersRoutes } from "./routes/users.js";
 
 /**
  * Tino console HTTP server — Hono app on top of `@hono/node-server`.
@@ -107,8 +112,7 @@ export async function startServer(opts: StartServerOptions): Promise<StartedServ
   const isLocalDev = baseUrl.startsWith("http://localhost");
 
   const hasGoogleCreds = !!(
-    (await config.getTyped<string>("google.oauth.clientId", "")) ||
-    process.env.GOOGLE_OAUTH_CLIENT_ID
+    (await config.getTyped<string>("google.oauth.clientId", "")) || process.env.GOOGLE_OAUTH_CLIENT_ID
   );
   const canSignIn = hasGoogleCreds || isLocalDev;
 
@@ -164,17 +168,20 @@ export async function startServer(opts: StartServerOptions): Promise<StartedServ
   // ── Build the Hono app ────────────────────────────────────────────────────
   const app = new Hono<{ Variables: AuthVariables }>();
 
-  app.use("*", buildAuthMiddleware({
-    authRef,
-    allowedDomain,
-    logger,
-    identities,
-    users,
-    configStore: config,
-    userCapabilities,
-    authDbPath: process.env.AUTH_DB_PATH ?? "/tmp/tino-auth.db",
-    localDev: isLocalDev,
-  }));
+  app.use(
+    "*",
+    buildAuthMiddleware({
+      authRef,
+      allowedDomain,
+      logger,
+      identities,
+      users,
+      configStore: config,
+      userCapabilities,
+      authDbPath: process.env.AUTH_DB_PATH ?? "/tmp/tino-auth.db",
+      localDev: isLocalDev,
+    }),
+  );
 
   if (privacyConfigStore) {
     app.use("*", privacyGate({ privacyConfigStore }));
@@ -195,7 +202,10 @@ export async function startServer(opts: StartServerOptions): Promise<StartedServ
   });
 
   // ── API routes ────────────────────────────────────────────────────────────
-  app.route("/api/health", createHealthRoutes({ startTime, tools, registry, isAuthConfigured: () => !!authRef.current }));
+  app.route(
+    "/api/health",
+    createHealthRoutes({ startTime, tools, registry, isAuthConfigured: () => !!authRef.current }),
+  );
   app.route("/api/config", createConfigRoutes({ config, logger, auditLogger }));
   app.route("/api/capabilities", createCapabilityRoutes({ config, logger }));
   app.route("/api/user-capabilities", createUserCapabilityRoutes({ config, logger, auditLogger, userCapabilities }));
@@ -212,27 +222,43 @@ export async function startServer(opts: StartServerOptions): Promise<StartedServ
     app.route("/api/tasks", createTaskRoutes({ taskStore, logger }));
   }
   app.route("/api/instructions", createInstructionRoutes({ config, logger }));
-  app.route("/api/reload", createReloadRoutes({ reconnectSlack, reloadCapabilities, reloadAuth, isAuthConfigured: () => !!authRef.current, logger, auditLogger }));
+  app.route(
+    "/api/reload",
+    createReloadRoutes({
+      reconnectSlack,
+      reloadCapabilities,
+      reloadAuth,
+      isAuthConfigured: () => !!authRef.current,
+      logger,
+      auditLogger,
+    }),
+  );
   if (shutdown) {
     app.route("/api/admin", createAdminRoutes({ logger, auditLogger, shutdown }));
   }
   app.route("/api/bedrock", createBedrockRoutes({ logger }));
-  app.route("/api/oauth/google", createGoogleOAuthRoutes({
-    config,
-    userCapabilities,
-    logger,
-    auditLogger,
-    baseUrl,
-  }));
-  app.route("/api/oauth/slack", createSlackOAuthRoutes({
-    config,
-    userCapabilities,
-    identities,
-    users,
-    logger,
-    auditLogger,
-    baseUrl,
-  }));
+  app.route(
+    "/api/oauth/google",
+    createGoogleOAuthRoutes({
+      config,
+      userCapabilities,
+      logger,
+      auditLogger,
+      baseUrl,
+    }),
+  );
+  app.route(
+    "/api/oauth/slack",
+    createSlackOAuthRoutes({
+      config,
+      userCapabilities,
+      identities,
+      users,
+      logger,
+      auditLogger,
+      baseUrl,
+    }),
+  );
 
   if (privacyConfigStore) {
     let email, calendar, messaging;
@@ -250,30 +276,44 @@ export async function startServer(opts: StartServerOptions): Promise<StartedServ
       messaging = createSlackMessagingAdapter({ resolveCreds: slackCreds, logger });
     }
 
-    app.route("/api/privacy", createPrivacyRoutes({
-      privacyConfigStore,
-      logger,
-      userCapabilities,
-      configStore: config,
-      email,
-      calendar,
-      messaging,
-      model,
-      mockMode: mockPrivacy,
-    }));
+    app.route(
+      "/api/privacy",
+      createPrivacyRoutes({
+        privacyConfigStore,
+        logger,
+        userCapabilities,
+        configStore: config,
+        email,
+        calendar,
+        messaging,
+        model,
+        mockMode: mockPrivacy,
+      }),
+    );
 
     const discoveryStore = createDiscoveryStore({
       configStore: config,
     });
 
-    app.route("/api/discovery", createDiscoveryRoutes({
-      discoveryStore,
-      logger,
-      email,
-      calendar,
-      model,
-      mockMode: mockPrivacy,
-    }));
+    const slackDiscoveryPort = mockPrivacy
+      ? undefined
+      : createSlackDiscoveryPort({
+          resolveCreds: createSlackCredentialResolver({ userCapabilities, configStore: config }),
+          logger,
+        });
+
+    app.route(
+      "/api/discovery",
+      createDiscoveryRoutes({
+        discoveryStore,
+        logger,
+        email,
+        calendar,
+        slack: slackDiscoveryPort,
+        model,
+        mockMode: mockPrivacy,
+      }),
+    );
   }
 
   // ── Logo asset ────────────────────────────────────────────────────────────
