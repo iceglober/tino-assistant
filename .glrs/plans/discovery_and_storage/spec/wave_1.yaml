@@ -1,0 +1,248 @@
+# spec/wave_1.yaml
+# Wave 1: Discovery Redesign — structured user profile, Slack data source, directive prompt.
+# Note: plan paths reference "src/" but real layout is "packages/core/src/".
+# Most items are already implemented in the working tree; spec captures the
+# intended end-state and verification proofs regardless.
+items:
+  - id: "1a"
+    intent: "Rewrite DiscoveryResult schema — replace shallow {roleSummary, duties, contactCategories, suggestions} with structured fields (identity, orgRelationships, responsibilities, communicationStyle, workPatterns, painPoints, suggestions, metadata) and a matching Zod schema for LLM structured output."
+    checked: true
+    files:
+      - path: packages/core/src/discovery/types.ts
+        isNew: false
+        change: "Export DiscoveryResult interface with: roleSummary, inferredTitle, inferredDepartment, orgRelationships[], responsibilities[], communicationStyle, workPatterns, painPoints[], suggestions[], analyzedAt, dataSourcesUsed[]. Export supporting interfaces: OrgRelationship, Responsibility, CommunicationStyle, WorkPatterns, TimeInvestment, Suggestion, DiscoveryProgress. Export DiscoveryAnalysisSchema (Zod) mirroring the result shape minus metadata fields."
+    tests: []
+    verify: "bun --bun vitest run --root packages/core --typecheck"
+    mirror: packages/core/src/discovery/calendar-port.ts
+    context: |
+      // packages/core/src/discovery/types.ts
+      export interface DiscoveryResult {
+        roleSummary: string;
+        inferredTitle: string;
+        inferredDepartment: string;
+        orgRelationships: OrgRelationship[];
+        responsibilities: Responsibility[];
+        communicationStyle: CommunicationStyle;
+        workPatterns: WorkPatterns;
+        painPoints: string[];
+        suggestions: Suggestion[];
+        analyzedAt: number;
+        dataSourcesUsed: string[];
+      }
+      export interface OrgRelationship {
+        name: string;
+        email?: string;
+        relationship: "reports-to" | "direct-report" | "peer" | "stakeholder"
+                    | "cross-functional" | "external" | "frequent-contact";
+        context: string;
+        interactionFrequency: string;
+      }
+      export interface Responsibility {
+        title: string; description: string;
+        timeHorizon: "daily" | "weekly" | "monthly" | "quarterly" | "ongoing";
+        evidence: string;
+      }
+      export const DiscoveryAnalysisSchema = z.object({ /* mirrors DiscoveryResult minus metadata */ });
+    conventions: "ESM imports with .js suffix; named exports only; Zod schema field names match TS interface field names exactly; enum unions in TS map to z.enum() in Zod; .describe() on every Zod field for LLM prompt grounding."
+    proof: "Importing DiscoveryResult, OrgRelationship, Responsibility, CommunicationStyle, WorkPatterns, TimeInvestment, Suggestion, and DiscoveryAnalysisSchema from packages/core/src/discovery/types.ts type-checks. DiscoveryResult does NOT include legacy fields `duties` or `contactCategories` — type-check rejects them. DiscoveryAnalysisSchema.parse() accepts an object containing all required new fields and rejects an object missing orgRelationships."
+    proof_type: "type-check"
+
+  - id: "1b"
+    intent: "Add SlackDiscoveryPort — new port exposing getTopDMPartners, getActiveChannels, and getMessageSample over the user's xoxp- token. Implementation calls @slack/bolt webApi.WebClient with conversations.list, conversations.history, users.conversations, users.info, and search.messages."
+    checked: true
+    files:
+      - path: packages/core/src/discovery/slack-port.ts
+        isNew: true
+        change: "New file exporting SlackDiscoveryPort interface and createSlackDiscoveryPort({ resolveCreds, logger }) factory. resolveCreds returns SlackCreds | null; when null, every method returns []. All Slack API errors are caught, logged via logger.warn, and degraded to []."
+    tests:
+      - "packages/core/tests/discovery/slack-port.test.ts"
+    verify: "bun --bun vitest run --root packages/core tests/discovery/slack-port.test.ts"
+    mirror: packages/core/src/discovery/calendar-port.ts
+    context: |
+      // packages/core/src/discovery/slack-port.ts
+      export interface SlackDiscoveryPort {
+        getTopDMPartners(userId, opts?: { sinceDays?, limit? }): Promise<Array<{ name; messageCount }>>;
+        getActiveChannels(userId, opts?: { sinceDays?, limit? }): Promise<Array<{ name; messageCount }>>;
+        getMessageSample(userId, opts?: { limit? }): Promise<Array<{ channel; text; ts }>>;
+      }
+      export function createSlackDiscoveryPort(deps: {
+        resolveCreds: (userId: string) => Promise<SlackCreds | null>;
+        logger: AppLogger;
+      }): SlackDiscoveryPort {
+        // For each method: resolve creds; if null return []. Wrap WebClient calls in try/catch
+        // logging to logger.warn and returning []. DM partners: paginate conversations.list types=im,
+        // resolve display name via users.info, count via conversations.history (oldest=sinceDays).
+        // Active channels: users.conversations, conversations.history per channel.
+        // Message sample: search.messages query=from:me sort=timestamp desc.
+      }
+    conventions: "ESM imports with .js suffix; deps-object factory pattern (deps: { ... }); types from sibling modules imported with `type` modifier; default opts (sinceDays=180, limit=20); errors swallowed via logger.warn returning []; Slack API objects typed as Record<string, unknown> with explicit casts; channel names prefixed with '#'."
+    proof: "createSlackDiscoveryPort({ resolveCreds, logger }) returns an object satisfying SlackDiscoveryPort. With resolveCreds returning null, all three methods return []. With creds and a mocked @slack/bolt WebClient, getTopDMPartners returns DMs sorted by messageCount descending and excludes zero-count DMs; getActiveChannels prefixes names with '#' and sorts by messageCount; getMessageSample shapes search.messages.matches into { channel, text, ts } and filters out empty-text entries. Each method returns [] and calls logger.warn exactly once when the underlying Slack API throws."
+    proof_type: "test"
+
+  - id: "1c"
+    intent: "Rewrite discovery service — accept optional SlackDiscoveryPort, fetch Slack DM/channel/sample data alongside email and calendar, build a structured prompt section per source, run generateObject with the new directive system prompt + DiscoveryAnalysisSchema, and return DiscoveryResult with analyzedAt + dataSourcesUsed."
+    checked: true
+    files:
+      - path: packages/core/src/discovery/service.ts
+        isNew: false
+        change: "Export DiscoveryServiceDeps with optional `slack?: SlackDiscoveryPort` alongside email/calendar. Replace generic prompt with the directive SYSTEM_PROMPT covering IDENTITY/ORG RELATIONSHIPS/RESPONSIBILITIES/COMMUNICATION STYLE/WORK PATTERNS/PAIN POINTS/SUGGESTIONS sections. Add Phase 3 (Slack) between calendar and analysis: parallel-fetch dmPartners, activeChannels, messageSample with 15s timeouts; append '## Slack activity' section to dataPoints when any return non-empty. Track dataSourcesUsed: string[] including 'email'|'calendar'|'slack'. When dataPoints empty, return graceful empty DiscoveryResult with all new fields populated as empty/unknown defaults. Otherwise generateObject({ model, schema: DiscoveryAnalysisSchema, system: SYSTEM_PROMPT, prompt }) and spread result with analyzedAt + dataSourcesUsed."
+    tests: []
+    verify: "bun --bun vitest run --root packages/core --typecheck"
+    mirror: packages/core/src/discovery/slack-port.ts
+    context: |
+      // packages/core/src/discovery/service.ts
+      export interface DiscoveryServiceDeps {
+        model: LanguageModel;
+        email?: EmailPort;
+        calendar?: CalendarPort;
+        slack?: SlackDiscoveryPort;
+        logger: AppLogger;
+        onProgress?: (p: DiscoveryProgress) => void;
+      }
+      export async function runDiscovery(userId, deps): Promise<DiscoveryResult> {
+        // Phase 1: email contacts/labels/samples (existing)
+        // Phase 2: calendar recurring/one-off (existing)
+        // Phase 3: slack — Promise.all([getTopDMPartners, getActiveChannels, getMessageSample])
+        //   guarded by withTimeout 15s; append '## Slack activity (last 180 days)' section.
+        // Phase 4: generateObject({ model, schema: DiscoveryAnalysisSchema, system: SYSTEM_PROMPT, prompt })
+        // Return { ...object, analyzedAt: Date.now(), dataSourcesUsed }
+      }
+    conventions: "Each data source is optional and gated by `if (port)`; per-source fetches are Promise.all'd with 15s withTimeout fallbacks to []; dataSourcesUsed pushed only when source produced non-empty data; onProgress emits {phase, pct, message} between phases (email→calendar→slack→analysis→done); empty-result fallback exits before generateObject."
+    proof: "runDiscovery with all three ports calls each port and returns dataSourcesUsed including 'email','calendar','slack'. runDiscovery with only email+calendar (slack omitted) does NOT call any Slack API and returns dataSourcesUsed without 'slack'; the result still type-checks as DiscoveryResult. runDiscovery with no ports at all returns a DiscoveryResult whose roleSummary signals 'no data', orgRelationships=[], responsibilities=[], dataSourcesUsed=[], without invoking generateObject. The system prompt string contains the literal section headers IDENTITY:, ORG RELATIONSHIPS:, RESPONSIBILITIES:, COMMUNICATION STYLE:, WORK PATTERNS:, PAIN POINTS:, SUGGESTIONS:."
+    proof_type: "test"
+
+  - id: "1d"
+    intent: "Wire SlackDiscoveryPort through the discovery HTTP route — accept optional `slack?: SlackDiscoveryPort` in DiscoveryRouteDeps and pass it to runDiscovery. The mock-mode SSE branch is unchanged."
+    checked: true
+    files:
+      - path: packages/core/src/server/routes/discovery.ts
+        isNew: false
+        change: "Add `slack?: SlackDiscoveryPort` to DiscoveryRouteDeps. In the POST /run streamSSE handler, pass deps.slack to runDiscovery alongside email/calendar/model/logger/onProgress. Import type SlackDiscoveryPort from '../../discovery/slack-port.js'."
+    tests: []
+    verify: "bun --bun vitest run --root packages/core --typecheck"
+    mirror: packages/core/src/discovery/service.ts
+    context: |
+      // packages/core/src/server/routes/discovery.ts
+      import type { SlackDiscoveryPort } from "../../discovery/slack-port.js";
+      export interface DiscoveryRouteDeps {
+        discoveryStore: DiscoveryStore;
+        logger: AppLogger;
+        email?: EmailPort;
+        calendar?: CalendarPort;
+        slack?: SlackDiscoveryPort;
+        model?: LanguageModel;
+        mockMode?: boolean;
+      }
+      // POST /run handler:
+      const result = await runDiscovery(user.id, {
+        model: deps.model!,
+        email: deps.email,
+        calendar: deps.calendar,
+        slack: deps.slack,
+        logger,
+        onProgress: async (p) => { await stream.writeSSE({ event: "progress", data: JSON.stringify(p) }); },
+      });
+    conventions: "Hono route deps as a single interface; optional ports threaded through verbatim; type imports use .js suffix; SSE events 'progress' | 'result' | 'error'."
+    proof: "DiscoveryRouteDeps type accepts a `slack: SlackDiscoveryPort` field and the createDiscoveryRoutes factory passes it to runDiscovery. Type-check fails if the slack arg is omitted from the runDiscovery call site (the field is part of DiscoveryServiceDeps even when optional and must be threaded). createDiscoveryRoutes still constructs without `slack` provided (it's optional)."
+    proof_type: "type-check"
+
+  - id: "1e"
+    intent: "Render new discovery fields on the Customize page — add UI sections for inferred title/department badge, org relationships grouped by relationship type, responsibilities grouped by time horizon, work-pattern meeting load + time investment + recurring commitments, and pain points list. Defensive optional chaining handles old-shape results that lack the new fields."
+    checked: true
+    files:
+      - path: packages/core/src/console-app/pages/Capabilities.tsx
+        isNew: false
+        change: "In the discovery results section, after roleSummary, render: (1) inferredTitle/inferredDepartment as a badge near the role summary; (2) orgRelationships block when length>0; (3) responsibilities block sorted by timeHorizon (daily→weekly→monthly→quarterly→ongoing) when length>0; (4) workPatterns block when meetingLoad set or recurringCommitments non-empty, including timeInvestment percentages; (5) painPoints bulleted list when non-empty. All array accesses guarded by `?? []` and `?.length ?? 0` so old-shape results render gracefully."
+    tests: []
+    verify: "bun --bun vitest run --root packages/core --typecheck"
+    mirror: packages/core/src/console-app/pages/Onboarding.tsx
+    context: |
+      // packages/core/src/console-app/pages/Capabilities.tsx (target snippet)
+      {discovery.inferredTitle && (
+        <span className="badge">{discovery.inferredTitle}</span>
+      )}
+      <p>{discovery.roleSummary}</p>
+      {(discovery.orgRelationships?.length ?? 0) > 0 && (
+        <section>{(discovery.orgRelationships ?? []).map((r, i) => ...)}</section>
+      )}
+      {(discovery.responsibilities?.length ?? 0) > 0 && (
+        <section>{[...(discovery.responsibilities ?? [])].sort(byTimeHorizon).map(...)}</section>
+      )}
+      {(discovery.workPatterns?.meetingLoad || (discovery.workPatterns?.recurringCommitments?.length ?? 0) > 0) && (
+        <section>{discovery.workPatterns?.meetingLoad}{(discovery.workPatterns?.timeInvestment ?? []).map(...)}</section>
+      )}
+      {(discovery.painPoints?.length ?? 0) > 0 && (
+        <section>{(discovery.painPoints ?? []).map(...)}</section>
+      )}
+    conventions: "React functional component; optional chaining + nullish coalescing for every array/scalar from the discovery result; inline styles using CSS variables (var(--text-sub) etc.) consistent with file's existing style; old `duties` and `contactCategories` not referenced anywhere."
+    proof: "Capabilities.tsx references discovery.inferredTitle, discovery.orgRelationships, discovery.responsibilities, discovery.workPatterns, discovery.painPoints, and renders each conditionally on `?.length ?? 0` or scalar truthiness. Component renders without throwing when given a DiscoveryResult that has empty arrays for all new fields. ripgrep for 'duties' or 'contactCategories' in Capabilities.tsx returns zero matches."
+    proof_type: "manual"
+
+  - id: "1f"
+    intent: "Render new discovery fields on the Onboarding results page — show inferredTitle/inferredDepartment, roleSummary, and the top 5 responsibilities so users see immediate signal after their first discovery run."
+    checked: true
+    files:
+      - path: packages/core/src/console-app/pages/Onboarding.tsx
+        isNew: false
+        change: "In the discovery-result render block, conditionally show inferredTitle and inferredDepartment, then roleSummary as a paragraph, then a 'key responsibilities' list using `(result.responsibilities ?? []).slice(0, 5)`. All accesses guarded by optional chaining so an old-shape result still renders the legacy roleSummary."
+    tests: []
+    verify: "bun --bun vitest run --root packages/core --typecheck"
+    mirror: packages/core/src/console-app/pages/Capabilities.tsx
+    context: |
+      // packages/core/src/console-app/pages/Onboarding.tsx (target snippet)
+      {(result.inferredTitle || result.inferredDepartment) && (
+        <div className="badges">
+          {result.inferredTitle && <span>{result.inferredTitle}</span>}
+          {result.inferredDepartment && <span>{result.inferredDepartment}</span>}
+        </div>
+      )}
+      <p>{result.roleSummary}</p>
+      {(result.responsibilities?.length ?? 0) > 0 && (
+        <section>
+          <h3>key responsibilities</h3>
+          <ul>{(result.responsibilities ?? []).slice(0, 5).map((r, i) => <li key={i}>{r.title}: {r.description}</li>)}</ul>
+        </section>
+      )}
+    conventions: "Same as Capabilities.tsx: React functional component, optional chaining for new fields, slice(0, 5) limit for onboarding-page brevity (first impression page, not the full Customize view)."
+    proof: "Onboarding.tsx references result.inferredTitle, result.inferredDepartment, result.roleSummary, and result.responsibilities. Component renders without throwing on an empty/old-shape result. ripgrep for 'duties' or 'contactCategories' in Onboarding.tsx returns zero matches."
+    proof_type: "manual"
+
+  - id: "1g"
+    intent: "Schema migration stance — option 1 from plan: no automated migration, old discovery results are silently replaced when the user re-runs discovery. Readers use optional chaining; legacy fields (duties, contactCategories) are simply ignored if present in stored JSON."
+    checked: true
+    files:
+      - path: .glrs/plans/discovery_and_storage/wave_1.md
+        isNew: false
+        change: "Section 'Schema Migration' documents the no-migration stance: old DiscoveryResult JSON in the config store is silently replaced on next run; UI uses optional chaining; discovery completes in ~30s so the cost is trivial."
+    tests: []
+    verify: "true"  # documentation-only item; behavior covered by 1e/1f optional chaining proofs
+    mirror: ".glrs/plans/discovery_and_storage/wave_1.md"
+    context: |
+      ## Schema Migration
+      Recommend option 1 — it's early stage, one user, and discovery takes 30 seconds.
+      Old results are silently replaced when the user re-runs discovery.
+      The Customize page and system prompt handle missing fields with optional chaining.
+      Old `contactCategories` field is ignored.
+    conventions: "Documentation-only items have verify: \"true\" and proof_type: manual; no executable assertion."
+    proof: "Wave 1 markdown documents the no-migration decision. UI consumers (Capabilities.tsx, Onboarding.tsx) use optional chaining on every new field so a stored old-shape DiscoveryResult does not throw on render — covered transitively by 1e/1f."
+    proof_type: "manual"
+
+  - id: "1h"
+    intent: "Final wave verification — vitest passes, discovery runs end-to-end across all source combinations (all three / email+calendar / none), Customize and Onboarding render new fields, re-running discovery cleanly replaces old-schema JSON in the config store."
+    checked: true
+    files: []
+    tests:
+      - "packages/core/tests/discovery/slack-port.test.ts"
+    verify: "bun --bun vitest run --root packages/core"
+    mirror: packages/core/tests/discovery/slack-port.test.ts
+    context: |
+      // Verification checklist from wave_1.md:
+      // [x] bun --bun vitest run passes
+      // [x] Discovery with email + calendar + Slack produces all new fields — covered by 1c proof
+      // [x] Discovery with email + calendar only (no Slack) still works — covered by 1c proof (slack optional)
+      // [x] Discovery with no data sources returns graceful empty result — covered by 1c proof
+      // [x] Customize page renders new fields without layout breakage — manual via 1e
+      // [x] Re-running discovery replaces old-schema results cleanly — 1g optional chaining + ConfigStore overwrite
+    conventions: "Wave-level verification is a single `bun --bun vitest run` from the package root; UI verifications are manual smoke checks since no Capabilities/Onboarding RTL tests exist for these branches."
+    proof: "`bun --bun vitest run` from packages/core exits 0. The slack-port test suite passes (DM partners sorted, channels prefixed and sorted, message sample shaped/filtered, empty-creds and API-error degradation paths all green). Manual smoke: navigate to Customize after a discovery run with the new Slack port wired, verify badges + responsibilities + work patterns + pain points render; re-run discovery, verify old JSON is replaced with the new shape in DynamoDB."
+    proof_type: "test"

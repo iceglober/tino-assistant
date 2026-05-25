@@ -226,3 +226,7 @@ Don't over-design the UI. The primary consumer is the system prompt, not the pag
 - [x] Discovery with no data sources returns graceful empty result
 - [x] Customize page renders new fields without layout breakage
 - [x] Re-running discovery replaces old-schema results cleanly
+
+## Open questions
+
+- Pre-existing failure confirmed in `packages/core/tests/console-app/{capability-card,header-role-nav,header-restart-button,save-button}.test.ts` (14 tests) — `ReferenceError: React is not defined` thrown from `src/console-app/hooks/useToast.tsx:55` during SSR. Not introduced by wave 1 (already logged in wave_0.md `## Open questions` from item 0j; identical failure set, identical root cause). The wave-1 surface area is fully green: `bun --bun vitest run --root packages/core tests/discovery tests/server tests/persistence tests/drive` reports 207/207 passing, and `tests/discovery/slack-port.test.ts` (the 1h proof) reports 11/11 passing. Recommend a separate cleanup wave to fix the JSX runtime / React-import setup in the console-app vitest config — does not gate wave-1 acceptance.
