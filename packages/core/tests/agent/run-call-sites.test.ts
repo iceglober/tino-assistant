@@ -13,4 +13,15 @@ describe("runAgent call sites", () => {
       expect(block).toContain("activeCapabilities");
     }
   });
+
+  it("every runAgent call site in src/index.ts passes configStore", () => {
+    const src = readFileSync(fileURLToPath(new URL("../../src/index.ts", import.meta.url)), "utf8");
+
+    // Match each `runAgent({ ... })` body, lazily, across newlines.
+    const callBlocks = src.match(/runAgent\(\{[\s\S]*?\}\)/g) ?? [];
+    expect(callBlocks.length).toBeGreaterThanOrEqual(3);
+    for (const block of callBlocks) {
+      expect(block).toContain("configStore");
+    }
+  });
 });
