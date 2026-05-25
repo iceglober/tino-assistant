@@ -74,14 +74,14 @@ items:
 
   - id: "2c"
     intent: "Add discovery parameter to buildSystemPrompt and render a compact User Profile section after the always-on prefix"
-    checked: false
+    checked: true
     files:
       - path: packages/core/src/agent/systemPrompt.ts
         isNew: false
         change: "Add `discovery?: DiscoveryResult` to opts. Add `buildUserProfileSection(d)` helper that renders Role, Key relationships, Responsibilities, Communication style, Work patterns, Pain points — omitting empty sections. Insert the rendered section after the always-on prefix and before capability tool bullets."
     tests:
-      - "packages/core/tests/agent/systemPrompt.test.ts"
-    verify: "bun --bun vitest run packages/core/tests/agent/systemPrompt.test.ts"
+      - "packages/core/tests/agent/system-prompt.test.ts"
+    verify: "bun --bun vitest run packages/core/tests/agent/system-prompt.test.ts"
     mirror: "packages/core/src/agent/systemPrompt.ts"
     context: |
       // packages/core/src/agent/systemPrompt.ts (current state — already implemented)

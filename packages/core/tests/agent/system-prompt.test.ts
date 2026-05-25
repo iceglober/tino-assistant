@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildSystemPrompt } from "../../src/agent/systemPrompt.js";
+import type { DiscoveryResult } from "../../src/discovery/types.js";
 
 describe("buildSystemPrompt — capability-gated sections", () => {
   it("emits only github sections when only github is active", () => {
@@ -225,5 +226,186 @@ describe("buildSystemPrompt — wave 5 instructions", () => {
     expect(prompt).toContain("You are tino");
     expect(prompt).not.toContain("Instructions:");
     expect(prompt).not.toContain("Permissions:");
+  });
+});
+
+// ── User Profile (discovery) section ────────────────────────────────────────
+
+const fullDiscovery: DiscoveryResult = {
+  roleSummary: "Engineering manager for the platform team.",
+  inferredTitle: "Engineering Manager",
+  inferredDepartment: "Platform",
+  orgRelationships: [
+    {
+      name: "Alice",
+      relationship: "peer",
+      context: "co-leads the infra working group",
+      interactionFrequency: "weekly",
+    },
+    {
+      name: "Bob",
+      relationship: "reports-to",
+      context: "1:1 every Monday",
+      interactionFrequency: "weekly",
+    },
+    {
+      name: "Carol",
+      relationship: "direct-report",
+      context: "owns the deploy pipeline",
+      interactionFrequency: "daily",
+    },
+    {
+      name: "Dave",
+      relationship: "stakeholder",
+      context: "PM partner for Q2 roadmap",
+      interactionFrequency: "biweekly",
+    },
+  ],
+  responsibilities: [
+    {
+      title: "Triage incidents",
+      description: "Page rotation",
+      timeHorizon: "daily",
+      evidence: "PagerDuty schedule",
+    },
+    {
+      title: "Plan quarterly roadmap",
+      description: "OKR planning",
+      timeHorizon: "quarterly",
+      evidence: "Linear projects",
+    },
+    {
+      title: "Run team standup",
+      description: "Daily sync",
+      timeHorizon: "weekly",
+      evidence: "Calendar events",
+    },
+    {
+      title: "Performance reviews",
+      description: "1:1 cadence",
+      timeHorizon: "monthly",
+      evidence: "Calendar 1:1s",
+    },
+    {
+      title: "Mentor engineers",
+      description: "Career growth",
+      timeHorizon: "ongoing",
+      evidence: "Slack DMs",
+    },
+  ],
+  communicationStyle: {
+    summary: "Direct and async-first.",
+    preferredChannels: ["slack", "email"],
+    patterns: ["batches replies in mornings"],
+  },
+  workPatterns: {
+    meetingLoad: "heavy (20+ hrs/week)",
+    peakHours: "9am-12pm",
+    recurringCommitments: ["daily standup 9am"],
+    timeInvestment: [
+      { category: "meetings", estimatedPct: 40, details: "many 1:1s" },
+      { category: "code review", estimatedPct: 20, details: "PR reviews" },
+    ],
+  },
+  painPoints: ["context switching between Slack and email", "too many recurring meetings"],
+  suggestions: [],
+  analyzedAt: 1_700_000_000_000,
+  dataSourcesUsed: ["gmail", "calendar", "slack"],
+};
+
+describe("buildSystemPrompt — User Profile (discovery) section", () => {
+  it("renders all User Profile sub-sections when a full discovery is provided", () => {
+    const prompt = buildSystemPrompt({
+      activeCapabilities: [],
+      toolNames: [],
+      discovery: fullDiscovery,
+    });
+
+    expect(prompt).toContain("User Profile:");
+    expect(prompt).toContain("Role: Engineering Manager — Platform");
+    expect(prompt).toContain("Key relationships:");
+    expect(prompt).toContain("Responsibilities:");
+    expect(prompt).toContain("Communication style:");
+    expect(prompt).toContain("Work patterns:");
+    expect(prompt).toContain("Known pain points:");
+  });
+
+  it("renders reports-to and direct-report relationships before other relationship types", () => {
+    const prompt = buildSystemPrompt({
+      activeCapabilities: [],
+      toolNames: [],
+      discovery: fullDiscovery,
+    });
+
+    const bobIdx = prompt.indexOf("Bob");
+    const carolIdx = prompt.indexOf("Carol");
+    const aliceIdx = prompt.indexOf("Alice");
+    const daveIdx = prompt.indexOf("Dave");
+
+    // reports-to (Bob) and direct-report (Carol) come before peer (Alice) and stakeholder (Dave)
+    expect(bobIdx).toBeGreaterThan(0);
+    expect(carolIdx).toBeGreaterThan(0);
+    expect(aliceIdx).toBeGreaterThan(0);
+    expect(daveIdx).toBeGreaterThan(0);
+    expect(bobIdx).toBeLessThan(aliceIdx);
+    expect(bobIdx).toBeLessThan(daveIdx);
+    expect(carolIdx).toBeLessThan(aliceIdx);
+    expect(carolIdx).toBeLessThan(daveIdx);
+  });
+
+  it("groups responsibilities by timeHorizon in order daily/weekly/monthly/quarterly/ongoing", () => {
+    const prompt = buildSystemPrompt({
+      activeCapabilities: [],
+      toolNames: [],
+      discovery: fullDiscovery,
+    });
+
+    const dailyIdx = prompt.indexOf("Daily:");
+    const weeklyIdx = prompt.indexOf("Weekly:");
+    const monthlyIdx = prompt.indexOf("Monthly:");
+    const quarterlyIdx = prompt.indexOf("Quarterly:");
+    const ongoingIdx = prompt.indexOf("Ongoing:");
+
+    expect(dailyIdx).toBeGreaterThan(0);
+    expect(weeklyIdx).toBeGreaterThan(dailyIdx);
+    expect(monthlyIdx).toBeGreaterThan(weeklyIdx);
+    expect(quarterlyIdx).toBeGreaterThan(monthlyIdx);
+    expect(ongoingIdx).toBeGreaterThan(quarterlyIdx);
+
+    // The horizon labels should be followed by the responsibility titles
+    expect(prompt).toContain("Daily: Triage incidents");
+    expect(prompt).toContain("Weekly: Run team standup");
+    expect(prompt).toContain("Monthly: Performance reviews");
+    expect(prompt).toContain("Quarterly: Plan quarterly roadmap");
+    expect(prompt).toContain("Ongoing: Mentor engineers");
+  });
+
+  it("omits the User Profile section entirely when no discovery is provided", () => {
+    const prompt = buildSystemPrompt({
+      activeCapabilities: [],
+      toolNames: [],
+    });
+    expect(prompt).not.toContain("User Profile:");
+    expect(prompt).not.toContain("Key relationships:");
+    expect(prompt).not.toContain("Responsibilities:");
+    expect(prompt).not.toContain("Communication style:");
+    expect(prompt).not.toContain("Work patterns:");
+    expect(prompt).not.toContain("Known pain points:");
+  });
+
+  it("places the User Profile section after the always-on prefix and before capability tool bullets", () => {
+    const prompt = buildSystemPrompt({
+      activeCapabilities: ["github"],
+      toolNames: ["github_search_code", "github_get_file"],
+      discovery: fullDiscovery,
+    });
+
+    const toneIdx = prompt.indexOf("Tone and style:");
+    const profileIdx = prompt.indexOf("User Profile:");
+    const toolsHeaderIdx = prompt.indexOf("You have these tools available:");
+
+    expect(toneIdx).toBeGreaterThan(0);
+    expect(profileIdx).toBeGreaterThan(toneIdx);
+    expect(toolsHeaderIdx).toBeGreaterThan(profileIdx);
   });
 });
