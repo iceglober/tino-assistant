@@ -123,7 +123,7 @@ items:
       createDriveKeyStore({ resolveClient: appDataResolver }) and pass it to
       createEncryptedHistoryStore. Drive dependency stops at the
       UserKeyStorePort boundary."
-    checked: false
+    checked: true
     files:
       - path: packages/core/src/index.ts
         isNew: false
