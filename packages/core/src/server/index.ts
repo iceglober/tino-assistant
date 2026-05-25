@@ -70,7 +70,6 @@ export interface StartServerOptions {
   privacyConfigStore?: PrivacyConfigStore;
   userCapabilities?: import("../persistence/user-capabilities.js").UserCapabilityStore;
   taskStore?: import("../persistence/tasks.js").TaskStore;
-  resolveAppDataClient?: (userId: string) => Promise<import("../drive/types.js").AppDataClient | null>;
   model?: LanguageModel;
   mockPrivacy?: boolean;
 }
@@ -96,7 +95,6 @@ export async function startServer(opts: StartServerOptions): Promise<StartedServ
     privacyConfigStore,
     userCapabilities,
     taskStore,
-    resolveAppDataClient,
     model,
     mockPrivacy,
   } = opts;
@@ -264,11 +262,8 @@ export async function startServer(opts: StartServerOptions): Promise<StartedServ
       mockMode: mockPrivacy,
     }));
 
-    const nullResolver = async () => null;
     const discoveryStore = createDiscoveryStore({
-      resolveClient: resolveAppDataClient ?? nullResolver,
       configStore: config,
-      logger,
     });
 
     app.route("/api/discovery", createDiscoveryRoutes({

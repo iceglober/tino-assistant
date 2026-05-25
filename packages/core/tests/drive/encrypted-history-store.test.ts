@@ -3,8 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createHistoryStore } from "../../src/agent/history.js";
 import { createEncryptedHistoryStore } from "../../src/drive/adapters/encrypted-history-store.js";
 import { isEncryptedBlob } from "../../src/drive/crypto.js";
-import type { AppDataKeyManager } from "../../src/drive/key-manager.js";
-import { createKeyManager } from "../../src/drive/key-manager.js";
+import { createDriveKeyStore } from "../../src/drive/key-manager.js";
 import type { AppDataClient } from "../../src/drive/types.js";
 
 const noopLogger = {
@@ -34,20 +33,15 @@ function mockAppDataClient(): AppDataClient {
   };
 }
 
-function makeResolver(client: AppDataClient | null) {
-  return async () => client;
-}
-
 describe("EncryptedHistoryStore", () => {
   it("encrypts and decrypts conversation round-trip", async () => {
     const inner = createHistoryStore({ cap: 40 });
-    const km = createKeyManager();
     const client = mockAppDataClient();
+    const keyStore = createDriveKeyStore({ resolveClient: async () => client });
 
     const store = createEncryptedHistoryStore({
       inner,
-      keyManager: km,
-      resolveClient: makeResolver(client),
+      keyStore,
       logger: noopLogger,
     });
 
@@ -66,13 +60,12 @@ describe("EncryptedHistoryStore", () => {
 
   it("stores ciphertext in the inner store", async () => {
     const inner = createHistoryStore({ cap: 40 });
-    const km = createKeyManager();
     const client = mockAppDataClient();
+    const keyStore = createDriveKeyStore({ resolveClient: async () => client });
 
     const store = createEncryptedHistoryStore({
       inner,
-      keyManager: km,
-      resolveClient: makeResolver(client),
+      keyStore,
       logger: noopLogger,
     });
 
@@ -90,12 +83,11 @@ describe("EncryptedHistoryStore", () => {
 
   it("falls back to plaintext when no DEK available", async () => {
     const inner = createHistoryStore({ cap: 40 });
-    const km = createKeyManager();
+    const keyStore = createDriveKeyStore({ resolveClient: async () => null });
 
     const store = createEncryptedHistoryStore({
       inner,
-      keyManager: km,
-      resolveClient: makeResolver(null),
+      keyStore,
       logger: noopLogger,
     });
 
@@ -109,8 +101,8 @@ describe("EncryptedHistoryStore", () => {
 
   it("reads pre-existing plaintext messages", async () => {
     const inner = createHistoryStore({ cap: 40 });
-    const km = createKeyManager();
     const client = mockAppDataClient();
+    const keyStore = createDriveKeyStore({ resolveClient: async () => client });
 
     // Write plaintext directly to inner store (simulates pre-encryption data)
     await inner.append("user-1", [
@@ -120,8 +112,7 @@ describe("EncryptedHistoryStore", () => {
 
     const store = createEncryptedHistoryStore({
       inner,
-      keyManager: km,
-      resolveClient: makeResolver(client),
+      keyStore,
       logger: noopLogger,
     });
 
@@ -132,13 +123,12 @@ describe("EncryptedHistoryStore", () => {
 
   it("trims to cap after appending", async () => {
     const inner = createHistoryStore({ cap: 100 });
-    const km = createKeyManager();
     const client = mockAppDataClient();
+    const keyStore = createDriveKeyStore({ resolveClient: async () => client });
 
     const store = createEncryptedHistoryStore({
       inner,
-      keyManager: km,
-      resolveClient: makeResolver(client),
+      keyStore,
       logger: noopLogger,
       cap: 3,
     });
@@ -160,13 +150,12 @@ describe("EncryptedHistoryStore", () => {
 
   it("reset clears the inner store", async () => {
     const inner = createHistoryStore({ cap: 40 });
-    const km = createKeyManager();
     const client = mockAppDataClient();
+    const keyStore = createDriveKeyStore({ resolveClient: async () => client });
 
     const store = createEncryptedHistoryStore({
       inner,
-      keyManager: km,
-      resolveClient: makeResolver(client),
+      keyStore,
       logger: noopLogger,
     });
 
@@ -179,26 +168,25 @@ describe("EncryptedHistoryStore", () => {
 
   it("returns empty when encrypted data exists but DEK is unavailable", async () => {
     const inner = createHistoryStore({ cap: 40 });
-    const km = createKeyManager();
     const client = mockAppDataClient();
+    const keyStore = createDriveKeyStore({ resolveClient: async () => client });
 
     // Write encrypted data with DEK
     const store = createEncryptedHistoryStore({
       inner,
-      keyManager: km,
-      resolveClient: makeResolver(client),
+      keyStore,
       logger: noopLogger,
     });
     await store.append("user-1", [{ role: "user", content: "secret" }]);
 
     // Read without DEK — should return empty, not crash
-    const noKeyStore = createEncryptedHistoryStore({
+    const noKeyStore = createDriveKeyStore({ resolveClient: async () => null });
+    const noKeyHistoryStore = createEncryptedHistoryStore({
       inner,
-      keyManager: km,
-      resolveClient: makeResolver(null),
+      keyStore: noKeyStore,
       logger: noopLogger,
     });
-    const result = await noKeyStore.get("user-1");
+    const result = await noKeyHistoryStore.get("user-1");
     expect(result).toHaveLength(0);
   });
 });

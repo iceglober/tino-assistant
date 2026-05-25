@@ -11,9 +11,7 @@ import { initCapabilityRegistry } from "./capabilities/registry.js";
 import { createCryptoAdapter } from "./crypto/factory.js";
 import { migrateCredentialsToUserPartitions } from "./crypto/migration.js";
 import { createEncryptedHistoryStore } from "./drive/adapters/encrypted-history-store.js";
-import { createAppDataPreferencesStore } from "./drive/adapters/preferences-store.js";
-import { createAppDataPrivacyConfigStore } from "./drive/adapters/privacy-config-store.js";
-import { createKeyManager } from "./drive/key-manager.js";
+import { createDriveKeyStore } from "./drive/key-manager.js";
 import { createAppDataClientResolver } from "./drive/resolve-client.js";
 import { loadEnv } from "./env.js";
 import { createLogger } from "./logging/logger.js";
@@ -53,31 +51,17 @@ const {
 // Create privacy config store (encrypted per-user config) and wire the real filter
 const serverPrivacyConfigStore = createPrivacyConfigStore({ configStore, crypto: cryptoAdapter });
 
-// Wire appDataFolder-backed stores for per-user private storage.
-// When Google credentials are available, privacy config and preferences live in
-// each user's Drive appDataFolder; conversation history stays server-side but
-// encrypted with a per-user key from appDataFolder. Falls back to server-side
-// storage when Google is unavailable.
+// Wire Drive-backed key store for per-user encryption keys.
+// All other user data (preferences, privacy config, discovery) goes to DynamoDB directly.
 const googleCreds = createGoogleCredentialResolver({ userCapabilities, configStore });
 const appDataResolver = createAppDataClientResolver({ resolveCreds: googleCreds, logger });
-const appDataKeyManager = createKeyManager();
+const keyStore = createDriveKeyStore({ resolveClient: appDataResolver });
 
-const privacyConfigStore = createAppDataPrivacyConfigStore({
-  resolveClient: appDataResolver,
-  fallback: serverPrivacyConfigStore,
-  logger,
-});
-
-const wrappedPreferences = createAppDataPreferencesStore({
-  resolveClient: appDataResolver,
-  fallback: preferencesStore,
-  logger,
-});
+const privacyConfigStore = serverPrivacyConfigStore;
 
 const wrappedHistory = createEncryptedHistoryStore({
   inner: history,
-  keyManager: appDataKeyManager,
-  resolveClient: appDataResolver,
+  keyStore,
   logger,
 });
 
@@ -171,7 +155,7 @@ const registry = await initCapabilityRegistry({
   logger,
   allowedUserId,
   dbPath: env.DB_PATH,
-  preferencesStore: wrappedPreferences,
+  preferencesStore: preferencesStore,
   taskStore,
   userCapabilities,
   onNewWork: async (summary: string) => {
@@ -430,7 +414,6 @@ const consoleServer = await startServer({
   privacyConfigStore,
   userCapabilities,
   taskStore,
-  resolveAppDataClient: appDataResolver,
   model,
   mockPrivacy,
 });

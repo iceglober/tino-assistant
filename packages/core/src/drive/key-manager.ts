@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import type { UserKeyStorePort } from "../persistence/key-store.js";
 import type { AppDataClient, EncryptedKeyEnvelope } from "./types.js";
 
 const KEY_FILE = "encryption-key.json";
@@ -9,12 +10,10 @@ interface CacheEntry {
   lastAccess: number;
 }
 
-export interface AppDataKeyManager {
-  getOrCreateKey(userId: string, client: AppDataClient): Promise<Buffer | null>;
-  evict(userId: string): void;
-}
-
-export function createKeyManager(): AppDataKeyManager {
+export function createDriveKeyStore(deps: {
+  resolveClient: (userId: string) => Promise<AppDataClient | null>;
+}): UserKeyStorePort {
+  const { resolveClient } = deps;
   const cache = new Map<string, CacheEntry>();
 
   // Lazy eviction: check TTL on access, sweep periodically.
@@ -29,7 +28,7 @@ export function createKeyManager(): AppDataKeyManager {
   }
 
   return {
-    async getOrCreateKey(userId: string, client: AppDataClient): Promise<Buffer | null> {
+    async getOrCreateKey(userId: string): Promise<Buffer | null> {
       const cached = cache.get(userId);
       if (cached) {
         if (Date.now() - cached.lastAccess <= TTL_MS) {
@@ -38,6 +37,9 @@ export function createKeyManager(): AppDataKeyManager {
         }
         cache.delete(userId);
       }
+
+      const client = await resolveClient(userId);
+      if (!client) return null;
 
       try {
         const existing = await client.readJson<EncryptedKeyEnvelope>(KEY_FILE);
