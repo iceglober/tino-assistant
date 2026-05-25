@@ -183,6 +183,7 @@ const registry = await initCapabilityRegistry({
       text: prompt,
       auditLogger,
       activeCapabilities,
+      configStore,
     });
 
     const allUsers = await users.list();
@@ -286,6 +287,7 @@ async function reconnectSlack(): Promise<{ ok: boolean; error?: string }> {
       text,
       auditLogger,
       activeCapabilities,
+      configStore,
     });
   };
 
@@ -340,6 +342,7 @@ async function reconnectSlack(): Promise<{ ok: boolean; error?: string }> {
         text: taskPrompt,
         auditLogger,
         activeCapabilities,
+        configStore,
       });
     },
     postResult: (userId: string, text: string) => postDm(userId, text),

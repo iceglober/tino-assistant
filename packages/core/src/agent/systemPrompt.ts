@@ -1,3 +1,5 @@
+import type { DiscoveryResult } from "../discovery/types.js";
+
 /**
  * The system prompt for tino.
  *
@@ -19,13 +21,106 @@
  * @param opts.instructions - Resolved instructions from the instruction
  *   precedence resolver. When present, appends Instructions and Permissions
  *   sections to the prompt.
+ * @param opts.discovery - Discovery result for the user. When present, renders
+ *   a compact "User Profile" section after the always-on prefix.
  */
+
+/**
+ * Render a compact User Profile section from a DiscoveryResult.
+ * Handles both the new schema (inferredTitle, orgRelationships, responsibilities, etc.)
+ * and the old schema (roleSummary only, or with duties/contactCategories).
+ * Omits empty sections entirely. Target: ~300-500 tokens.
+ */
+function buildUserProfileSection(d: DiscoveryResult): string {
+  // Cast to any to handle old-schema fields gracefully
+  const raw = d as DiscoveryResult & { duties?: string[]; contactCategories?: string[] };
+
+  const lines: string[] = ["\n\nUser Profile:"];
+
+  // Role line — new schema has inferredTitle; old schema may not
+  if (d.inferredTitle && d.inferredDepartment) {
+    lines.push(`Role: ${d.inferredTitle} — ${d.inferredDepartment}`);
+  }
+  if (d.roleSummary) {
+    lines.push(d.roleSummary);
+  }
+
+  // Key relationships — render reports-to and direct-report first
+  const relationships = d.orgRelationships ?? [];
+  if (relationships.length > 0) {
+    lines.push("\nKey relationships:");
+    const priority = ["reports-to", "direct-report"];
+    const sorted = [
+      ...relationships.filter((r) => priority.includes(r.relationship)),
+      ...relationships.filter((r) => !priority.includes(r.relationship)),
+    ];
+    for (const r of sorted) {
+      lines.push(`- ${r.name} (${r.relationship}) — ${r.context}, ${r.interactionFrequency}`);
+    }
+  }
+
+  // Responsibilities — new schema; fall back to old-schema duties
+  const responsibilities = d.responsibilities ?? [];
+  if (responsibilities.length > 0) {
+    const byHorizon: Record<string, string[]> = {};
+    for (const r of responsibilities) {
+      const h = r.timeHorizon;
+      if (!byHorizon[h]) byHorizon[h] = [];
+      byHorizon[h].push(r.title);
+    }
+    lines.push("\nResponsibilities:");
+    const horizonOrder = ["daily", "weekly", "monthly", "quarterly", "ongoing"];
+    for (const h of horizonOrder) {
+      if (byHorizon[h]?.length) {
+        lines.push(`${h.charAt(0).toUpperCase() + h.slice(1)}: ${byHorizon[h].join(", ")}`);
+      }
+    }
+  } else if (raw.duties?.length) {
+    lines.push("\nResponsibilities:");
+    for (const duty of raw.duties) {
+      lines.push(`- ${duty}`);
+    }
+  }
+
+  // Communication style
+  if (d.communicationStyle?.summary) {
+    lines.push("\nCommunication style:");
+    lines.push(d.communicationStyle.summary);
+    if (d.communicationStyle.preferredChannels?.length) {
+      lines.push(`Preferred channels: ${d.communicationStyle.preferredChannels.join(", ")}`);
+    }
+  }
+
+  // Work patterns
+  if (d.workPatterns) {
+    const wp = d.workPatterns;
+    lines.push("\nWork patterns:");
+    if (wp.meetingLoad) lines.push(`Meeting load: ${wp.meetingLoad}`);
+    if (wp.peakHours) lines.push(`Peak hours: ${wp.peakHours}`);
+    if (wp.timeInvestment?.length) {
+      const inv = wp.timeInvestment.map((t) => `${t.category}: ~${t.estimatedPct}%`).join(", ");
+      lines.push(`Time investment: ${inv}`);
+    }
+  }
+
+  // Pain points
+  if (d.painPoints?.length) {
+    lines.push("\nKnown pain points:");
+    for (const p of d.painPoints) {
+      lines.push(`- ${p}`);
+    }
+  }
+
+  return lines.join("\n");
+}
+
 export function buildSystemPrompt(opts: {
   activeCapabilities: string[];
   toolNames: string[];
   instructions?: { permissions: { write: boolean; delete: boolean; crossContextShare: boolean }; behaviorChunks: Array<{ source: string; text: string }> };
+  discovery?: DiscoveryResult;
 }): string {
-  const { activeCapabilities, toolNames, instructions } = opts;
+  const { activeCapabilities, toolNames, instructions, discovery } = opts;
 
   const active = new Set(activeCapabilities);
   const tools = new Set(toolNames);
@@ -108,6 +203,11 @@ Tone and style:
 - Be warm but not performative. no "Great question!" or "I'd be happy to help!" — just answer.
 - Emoji are fine when natural, not as decoration. one or two max per message.
 - Keep it short. if the answer is one sentence, send one sentence. don't pad.`;
+
+  // ── User Profile (discovery) ──────────────────────────────────────────────
+  if (discovery) {
+    prompt += buildUserProfileSection(discovery);
+  }
 
   // ── Capability tool bullets ───────────────────────────────────────────────
   if (hasAnyCapabilityBullets) {

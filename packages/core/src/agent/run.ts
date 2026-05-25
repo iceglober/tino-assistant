@@ -1,5 +1,6 @@
 import { generateText, type LanguageModel, stepCountIs, type ToolSet } from "ai";
 import type { AuditLogger } from "../audit/logger.js";
+import type { DiscoveryResult } from "../discovery/types.js";
 import { resolveInstructionsForUser } from "../instructions/loader.js";
 import type { ConfigStore } from "../persistence/config.js";
 import type { AppLogger } from "../slack/app.js";
@@ -50,10 +51,22 @@ export async function runAgent(params: RunAgentParams): Promise<string> {
     ? await resolveInstructionsForUser({ tinoUserId: userId, configStore })
     : undefined;
 
+  let discovery: DiscoveryResult | undefined;
+  if (configStore) {
+    const raw = await configStore.get(`user.${userId}.discovery_result`);
+    if (raw) {
+      try {
+        discovery = JSON.parse(raw) as DiscoveryResult;
+      } catch {
+        /* ignore malformed */
+      }
+    }
+  }
+
   const start = Date.now();
   const result = await generateText({
     model,
-    system: buildSystemPrompt({ activeCapabilities, toolNames: Object.keys(tools ?? {}), instructions }),
+    system: buildSystemPrompt({ activeCapabilities, toolNames: Object.keys(tools ?? {}), instructions, discovery }),
     messages: await history.get(userId),
     tools: tools ?? {},
     stopWhen: stepCountIs(10),
