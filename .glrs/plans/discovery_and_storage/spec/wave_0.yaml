@@ -347,7 +347,7 @@ items:
   - id: 0j
     intent: Final wave verification — all unit tests pass, AppDataClient does not
       leak, no references to deleted adapters remain.
-    checked: false
+    checked: true
     files: []
     tests:
       - packages/core/tests/drive/encrypted-history-store.test.ts
