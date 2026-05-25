@@ -75,6 +75,7 @@ export interface StartServerOptions {
   privacyConfigStore?: PrivacyConfigStore;
   userCapabilities?: import("../persistence/user-capabilities.js").UserCapabilityStore;
   taskStore?: import("../persistence/tasks.js").TaskStore;
+  preferencesStore?: import("../persistence/preferences.js").PreferencesStore;
   model?: LanguageModel;
   mockPrivacy?: boolean;
 }
@@ -100,6 +101,7 @@ export async function startServer(opts: StartServerOptions): Promise<StartedServ
     privacyConfigStore,
     userCapabilities,
     taskStore,
+    preferencesStore,
     model,
     mockPrivacy,
   } = opts;
@@ -220,6 +222,14 @@ export async function startServer(opts: StartServerOptions): Promise<StartedServ
   }
   if (taskStore) {
     app.route("/api/tasks", createTaskRoutes({ taskStore, logger }));
+  }
+  if (preferencesStore) {
+    app.get("/api/preferences", async (c) => {
+      const user = c.get("user");
+      if (!user) return c.json({ error: "unauthorized" }, 401);
+      const prefs = await preferencesStore.list(user.id);
+      return c.json(prefs);
+    });
   }
   app.route("/api/instructions", createInstructionRoutes({ config, logger }));
   app.route(

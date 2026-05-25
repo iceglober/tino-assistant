@@ -417,6 +417,7 @@ const consoleServer = await startServer({
   privacyConfigStore,
   userCapabilities,
   taskStore,
+  preferencesStore,
   model,
   mockPrivacy,
 });

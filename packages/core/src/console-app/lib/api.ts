@@ -549,6 +549,11 @@ export async function getSlackOAuthStatus(): Promise<{ configured: boolean; conn
   return unwrap<{ configured: boolean; connected: boolean }>(r);
 }
 
+export async function getUserPreferences(): Promise<Array<{ key: string; value: string }>> {
+  const r = await fetch("/api/preferences", { credentials: "include" });
+  return unwrap<Array<{ key: string; value: string }>>(r);
+}
+
 export async function getDiscoveryResult(): Promise<DiscoveryResult | null> {
   const r = await fetch("/api/discovery/result", { credentials: "include" });
   const data = await unwrap<{ result: DiscoveryResult | null }>(r);

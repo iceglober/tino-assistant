@@ -78,6 +78,7 @@ export function Setup({
     const ok = await slackSave.run(async () => {
       await putConfig("slack.botToken", botToken.trim());
       await putConfig("slack.appToken", appToken.trim());
+      await putConfig("capability.slack", JSON.stringify({ enabled: true, credentials: {}, settings: {} }));
     });
     if (ok) {
       setTimeout(() => {

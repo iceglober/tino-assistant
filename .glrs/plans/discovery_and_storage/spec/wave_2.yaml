@@ -1,19 +1,24 @@
-# spec/wave_2.yaml
 items:
-  - id: "2a"
-    intent: "Pass configStore to all three runAgent call sites in packages/core/src/index.ts (DM handler, findWork callback, task scheduler) so instructions and discovery actually load"
+  - id: 2a
+    intent: Pass configStore to all three runAgent call sites in
+      packages/core/src/index.ts (DM handler, findWork callback, task scheduler)
+      so instructions and discovery actually load
     checked: true
     files:
       - path: packages/core/src/index.ts
         isNew: false
-        change: "Add `configStore` field to each of the three `runAgent({ ... })` call sites (DM handler ~line 280, findWork callback ~line 176, task scheduler ~line 335). configStore is already in closure scope."
+        change: Add `configStore` field to each of the three `runAgent({ ... })` call
+          sites (DM handler ~line 280, findWork callback ~line 176, task
+          scheduler ~line 335). configStore is already in closure scope.
     tests:
-      - "packages/core/tests/agent/run-call-sites.test.ts"
-    verify: "bun --bun vitest run packages/core/tests/agent/run-call-sites.test.ts"
-    mirror: "packages/core/tests/agent/run-call-sites.test.ts"
-    context: |
+      - packages/core/tests/agent/run-call-sites.test.ts
+    verify: bun --bun vitest run packages/core/tests/agent/run-call-sites.test.ts
+    mirror: packages/core/tests/agent/run-call-sites.test.ts
+    context: >
       // packages/core/src/index.ts — runAgent calls
+
       // ~line 176 (findWork callback):
+
       const result = await runAgent({
         model,
         history: taskHistory,
@@ -26,32 +31,46 @@ items:
         activeCapabilities,
         configStore,        // <-- added
       });
-      // ~line 280 (DM handler) and ~line 335 (task scheduler) follow same shape.
-      // configStore is already in module-level scope (declared at top of file).
-    conventions: "ESM imports with .js extensions, named exports, vitest for tests, AWS SDK style trailing-comma object literals"
-    proof: "Read packages/core/src/index.ts and assert that every `runAgent({ ... })` call block contains the literal token `configStore`. Mirror the existing `run-call-sites.test.ts` regex approach: match `runAgent\\(\\{[\\s\\S]*?\\}\\)` lazily and assert each match contains `configStore`. Expect at least 3 call blocks."
-    proof_type: "test"
 
-  - id: "2b"
-    intent: "Load discovery result from configStore in runAgent and pass it to buildSystemPrompt"
+      // ~line 280 (DM handler) and ~line 335 (task scheduler) follow same
+      shape.
+
+      // configStore is already in module-level scope (declared at top of file).
+    conventions: ESM imports with .js extensions, named exports, vitest for tests,
+      AWS SDK style trailing-comma object literals
+    proof: "Read packages/core/src/index.ts and assert that every `runAgent({ ...
+      })` call block contains the literal token `configStore`. Mirror the
+      existing `run-call-sites.test.ts` regex approach: match
+      `runAgent\\(\\{[\\s\\S]*?\\}\\)` lazily and assert each match contains
+      `configStore`. Expect at least 3 call blocks."
+    proof_type: test
+  - id: 2b
+    intent: Load discovery result from configStore in runAgent and pass it to
+      buildSystemPrompt
     checked: true
     files:
       - path: packages/core/src/agent/run.ts
         isNew: false
-        change: "Import DiscoveryResult type. After the instructions load, fetch `user.${userId}.discovery_result` from configStore, JSON.parse with try/catch (ignore malformed), pass `discovery` to buildSystemPrompt."
+        change: Import DiscoveryResult type. After the instructions load, fetch
+          `user.${userId}.discovery_result` from configStore, JSON.parse with
+          try/catch (ignore malformed), pass `discovery` to buildSystemPrompt.
     tests:
-      - "packages/core/tests/agent/run.test.ts"
-    verify: "bun --bun vitest run packages/core/tests/agent/run.test.ts"
-    mirror: "packages/core/src/instructions/loader.ts"
-    context: |
+      - packages/core/tests/agent/run.test.ts
+    verify: bun --bun vitest run packages/core/tests/agent/run.test.ts
+    mirror: packages/core/src/instructions/loader.ts
+    context: >
       // packages/core/src/agent/run.ts (current state — already implemented)
+
       import type { DiscoveryResult } from "../discovery/types.js";
+
       // ...
+
       const instructions = configStore
         ? await resolveInstructionsForUser({ tinoUserId: userId, configStore })
         : undefined;
 
       let discovery: DiscoveryResult | undefined;
+
       if (configStore) {
         const raw = await configStore.get(`user.${userId}.discovery_result`);
         if (raw) {
@@ -63,28 +82,43 @@ items:
         }
       }
 
+
       const result = await generateText({
         model,
         system: buildSystemPrompt({ activeCapabilities, toolNames: Object.keys(tools ?? {}), instructions, discovery }),
         // ...
       });
-    conventions: "ESM imports with .js extensions, type-only imports for types, async/await, optional chaining, try/catch for JSON.parse with silent ignore on malformed data, ConfigStore.get returns string | undefined"
-    proof: "Test that runAgent reads `user.${userId}.discovery_result` from configStore and forwards a parsed DiscoveryResult to buildSystemPrompt. Use a stub configStore with a stored JSON-stringified discovery object; spy on or wrap buildSystemPrompt to capture its `discovery` argument; assert the parsed object reaches it. Also assert that malformed JSON is silently ignored (discovery becomes undefined, no throw). Also assert that when configStore is undefined, no discovery load is attempted."
-    proof_type: "test"
-
-  - id: "2c"
-    intent: "Add discovery parameter to buildSystemPrompt and render a compact User Profile section after the always-on prefix"
+    conventions: ESM imports with .js extensions, type-only imports for types,
+      async/await, optional chaining, try/catch for JSON.parse with silent
+      ignore on malformed data, ConfigStore.get returns string | undefined
+    proof: Test that runAgent reads `user.${userId}.discovery_result` from
+      configStore and forwards a parsed DiscoveryResult to buildSystemPrompt.
+      Use a stub configStore with a stored JSON-stringified discovery object;
+      spy on or wrap buildSystemPrompt to capture its `discovery` argument;
+      assert the parsed object reaches it. Also assert that malformed JSON is
+      silently ignored (discovery becomes undefined, no throw). Also assert that
+      when configStore is undefined, no discovery load is attempted.
+    proof_type: test
+  - id: 2c
+    intent: Add discovery parameter to buildSystemPrompt and render a compact User
+      Profile section after the always-on prefix
     checked: true
     files:
       - path: packages/core/src/agent/systemPrompt.ts
         isNew: false
-        change: "Add `discovery?: DiscoveryResult` to opts. Add `buildUserProfileSection(d)` helper that renders Role, Key relationships, Responsibilities, Communication style, Work patterns, Pain points — omitting empty sections. Insert the rendered section after the always-on prefix and before capability tool bullets."
+        change: "Add `discovery?: DiscoveryResult` to opts. Add
+          `buildUserProfileSection(d)` helper that renders Role, Key
+          relationships, Responsibilities, Communication style, Work patterns,
+          Pain points — omitting empty sections. Insert the rendered section
+          after the always-on prefix and before capability tool bullets."
     tests:
-      - "packages/core/tests/agent/system-prompt.test.ts"
-    verify: "bun --bun vitest run packages/core/tests/agent/system-prompt.test.ts"
-    mirror: "packages/core/src/agent/systemPrompt.ts"
-    context: |
-      // packages/core/src/agent/systemPrompt.ts (current state — already implemented)
+      - packages/core/tests/agent/system-prompt.test.ts
+    verify: bun --bun vitest run packages/core/tests/agent/system-prompt.test.ts
+    mirror: packages/core/src/agent/systemPrompt.ts
+    context: >
+      // packages/core/src/agent/systemPrompt.ts (current state — already
+      implemented)
+
       export function buildSystemPrompt(opts: {
         activeCapabilities: string[];
         toolNames: string[];
@@ -98,23 +132,45 @@ items:
           prompt += buildUserProfileSection(discovery);
         }
         // ── Capability tool bullets ───────────────────────────────────────────────
-    conventions: "ESM imports with .js extensions, type-only imports for types, named export, string concatenation with template literals, section dividers using box-drawing comments (── Section ──), opt-in section gating (only render if data present)"
-    proof: "Test that buildSystemPrompt with a discovery object containing inferredTitle, inferredDepartment, roleSummary, orgRelationships, responsibilities, communicationStyle, workPatterns, and painPoints includes a `User Profile:` section with the rendered Role line, `Key relationships:`, `Responsibilities:`, `Communication style:`, `Work patterns:`, and `Known pain points:` headers. Assert reports-to and direct-report relationships render before other relationship types. Assert responsibilities are grouped by timeHorizon (daily/weekly/monthly/quarterly/ongoing). Assert that without discovery, no `User Profile:` text appears. Assert User Profile appears AFTER the always-on prefix (after the tone-and-style block) and BEFORE capability tool bullets."
-    proof_type: "test"
-
-  - id: "2d"
-    intent: "Render old-schema discovery results gracefully — fall back to roleSummary alone when inferredTitle missing, render duties when responsibilities missing, skip orgRelationships when missing"
-    checked: true
+    conventions: ESM imports with .js extensions, type-only imports for types, named
+      export, string concatenation with template literals, section dividers
+      using box-drawing comments (── Section ──), opt-in section gating (only
+      render if data present)
+    proof: Test that buildSystemPrompt with a discovery object containing
+      inferredTitle, inferredDepartment, roleSummary, orgRelationships,
+      responsibilities, communicationStyle, workPatterns, and painPoints
+      includes a `User Profile:` section with the rendered Role line, `Key
+      relationships:`, `Responsibilities:`, `Communication style:`, `Work
+      patterns:`, and `Known pain points:` headers. Assert reports-to and
+      direct-report relationships render before other relationship types. Assert
+      responsibilities are grouped by timeHorizon
+      (daily/weekly/monthly/quarterly/ongoing). Assert that without discovery,
+      no `User Profile:` text appears. Assert User Profile appears AFTER the
+      always-on prefix (after the tone-and-style block) and BEFORE capability
+      tool bullets.
+    proof_type: test
+  - id: 2d
+    intent: Render old-schema discovery results gracefully — fall back to
+      roleSummary alone when inferredTitle missing, render duties when
+      responsibilities missing, skip orgRelationships when missing
+    checked: false
     files:
       - path: packages/core/src/agent/systemPrompt.ts
         isNew: false
-        change: "In buildUserProfileSection, gate Role line on `inferredTitle && inferredDepartment` separately from `roleSummary`. Cast to a type that includes optional `duties` field. When `responsibilities` is empty/undefined but `duties` array exists, render duties as a bulleted Responsibilities section. Skip Key relationships entirely when `orgRelationships` is missing or empty."
+        change: In buildUserProfileSection, gate Role line on `inferredTitle &&
+          inferredDepartment` separately from `roleSummary`. Cast to a type that
+          includes optional `duties` field. When `responsibilities` is
+          empty/undefined but `duties` array exists, render duties as a bulleted
+          Responsibilities section. Skip Key relationships entirely when
+          `orgRelationships` is missing or empty.
     tests:
-      - "packages/core/tests/agent/systemPrompt.test.ts"
-    verify: "bun --bun vitest run packages/core/tests/agent/systemPrompt.test.ts"
-    mirror: "packages/core/src/agent/systemPrompt.ts"
-    context: |
-      // packages/core/src/agent/systemPrompt.ts buildUserProfileSection (current state)
+      - packages/core/tests/agent/systemPrompt.test.ts
+    verify: bun --bun vitest run packages/core/tests/agent/systemPrompt.test.ts
+    mirror: packages/core/src/agent/systemPrompt.ts
+    context: >
+      // packages/core/src/agent/systemPrompt.ts buildUserProfileSection
+      (current state)
+
       function buildUserProfileSection(d: DiscoveryResult): string {
         const raw = d as DiscoveryResult & { duties?: string[]; contactCategories?: string[] };
         const lines: string[] = ["\n\nUser Profile:"];
@@ -138,6 +194,17 @@ items:
         }
         // ...
       }
-    conventions: "Type cast with intersection `DiscoveryResult & { duties?: string[] }` to handle legacy fields, nullish coalescing `?? []` for optional arrays, optional chaining `?.length` for guards, no throws on missing data"
-    proof: "Three test cases: (1) Old-schema discovery with only `roleSummary` (no inferredTitle, no inferredDepartment, no orgRelationships, no responsibilities) renders a User Profile section containing roleSummary but NO `Role: X — Y` line and NO `Key relationships:` section and NO `Responsibilities:` section. (2) Old-schema discovery with `duties: ['foo', 'bar']` and no `responsibilities` renders a `Responsibilities:` section containing `- foo` and `- bar`. (3) Discovery with empty `orgRelationships: []` does not emit `Key relationships:` header. None of these cases throw."
-    proof_type: "test"
+    conventions: "Type cast with intersection `DiscoveryResult & { duties?: string[]
+      }` to handle legacy fields, nullish coalescing `?? []` for optional
+      arrays, optional chaining `?.length` for guards, no throws on missing
+      data"
+    proof: "Three test cases: (1) Old-schema discovery with only `roleSummary` (no
+      inferredTitle, no inferredDepartment, no orgRelationships, no
+      responsibilities) renders a User Profile section containing roleSummary
+      but NO `Role: X — Y` line and NO `Key relationships:` section and NO
+      `Responsibilities:` section. (2) Old-schema discovery with `duties:
+      ['foo', 'bar']` and no `responsibilities` renders a `Responsibilities:`
+      section containing `- foo` and `- bar`. (3) Discovery with empty
+      `orgRelationships: []` does not emit `Key relationships:` header. None of
+      these cases throw."
+    proof_type: test
