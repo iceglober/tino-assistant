@@ -1,0 +1,188 @@
+# spec/wave_0.yaml — MCP Process Pool + Capability Module
+items:
+  - id: "0.1"
+    intent: "Create static registry of known MCP servers with type-safe catalog entries and lookup function"
+    checked: true
+    files:
+      - path: packages/core/src/mcp/catalog.ts
+        isNew: true
+        change: "New file defining McpServerEntry interface, MCP_CATALOG array (initially empty), and getServerEntry lookup function"
+    tests:
+      - "packages/core/tests/mcp/catalog.test.ts"
+    verify: "bun --bun vitest run tests/mcp/catalog.test.ts"
+    mirror: "packages/core/src/capabilities/types.ts"
+    context: |
+      // From capabilities/types.ts — CapField schema pattern used for console-side inputs:
+      export interface CapField {
+        key: string;
+        label: string;
+        target: string;
+        kind?: "string" | "string[]";
+        secret?: boolean;
+        placeholder?: string;
+        value?: string;
+      }
+      // MCP catalog fields[] follows a similar shape for credential entry UI
+    conventions: "ESM imports with .js extensions, named exports, TypeScript interfaces, no default exports"
+    proof: "getServerEntry returns the matching entry by id, returns undefined for unknown ids, MCP_CATALOG is an array of McpServerEntry"
+    proof_type: "test"
+
+  - id: "0.2"
+    intent: "Build MCP process pool that spawns stdio MCP server processes per (userId, serverId), caches tools, and reaps idle connections"
+    checked: true
+    files:
+      - path: packages/core/src/mcp/pool.ts
+        isNew: true
+        change: "New file implementing McpProcessPool interface: acquire (spawn/cache MCP clients via StdioClientTransport), kill, killUser, killAll, with 10-minute idle timeout and crash recovery"
+    tests:
+      - "packages/core/tests/mcp/pool.test.ts"
+    verify: "bun --bun vitest run tests/mcp/pool.test.ts"
+    mirror: "packages/core/src/capabilities/gmail.ts"
+    context: |
+      // From the plan — core spawn pattern:
+      import { createMCPClient } from "@ai-sdk/mcp";
+      import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio";
+
+      const transport = new StdioClientTransport({
+        command: "npx",
+        args: [entry.package, ...(entry.args ?? [])],
+        env: { ...getDefaultEnvironment(), ...userEnv },
+      });
+      const client = await createMCPClient({ transport });
+      const tools = await client.tools();
+
+      // Internal Map keyed by `${userId}:${serverId}` holding:
+      // { client: MCPClient; timer: NodeJS.Timeout; tools: ToolSet }
+    conventions: "ESM imports with .js extensions, named exports, ToolSet from 'ai', AppLogger for structured logging at info level"
+    proof: "acquire returns cached tools on second call without re-spawning; idle timeout triggers client.close and deletes entry; kill/killUser/killAll close correct entries; acquire handles process crash on startup gracefully"
+    proof_type: "test"
+
+  - id: "0.3"
+    intent: "Create MCP capability module that dynamically loads tools from all user-configured MCP servers via the process pool"
+    checked: false
+    files:
+      - path: packages/core/src/capabilities/mcp.ts
+        isNew: true
+        change: "New PrivateCapability with id 'mcp'. buildToolsForUser reads mcp.* keys from UserCapabilityStore, resolves catalog entries, acquires pool connections, and returns merged tools prefixed as mcp_{serverId}_{toolName}"
+      - path: packages/core/src/capabilities/types.ts
+        isNew: false
+        change: "Add optional userCapabilities?: UserCapabilityStore parameter to PrivateCapability.buildToolsForUser signature"
+    tests:
+      - "packages/core/tests/capabilities/mcp.test.ts"
+    verify: "bun --bun vitest run tests/capabilities/mcp.test.ts"
+    mirror: "packages/core/src/capabilities/gmail.ts"
+    context: |
+      // Current PrivateCapability.buildToolsForUser signature (types.ts:105-110):
+      buildToolsForUser(
+        tinoUserId: string,
+        config: CapabilityConfig | null,
+        configStore: ConfigStore,
+        logger: AppLogger,
+      ): Promise<ToolSet | null>;
+
+      // Gmail capability pattern (gmail.ts:42-67):
+      async buildToolsForUser(
+        _tinoUserId: string,
+        config: CapabilityConfig | null,
+        _configStore: ConfigStore,
+        logger: AppLogger,
+      ): Promise<ToolSet | null> {
+        if (!config) return null;
+        // ... build tools from credentials ...
+        return tools;
+      },
+
+      // UserCapabilityStore interface (persistence/user-capabilities.ts):
+      export interface UserCapabilityStore {
+        get(userId: string, capabilityId: string): Promise<CapabilityConfig | null>;
+        set(userId: string, capabilityId: string, config: CapabilityConfig): Promise<void>;
+        list(userId: string): Promise<Array<{ capabilityId: string; enabled: boolean }>>;
+        delete(userId: string, capabilityId: string): Promise<boolean>;
+      }
+    conventions: "ESM imports with .js extensions, named exports, PrivateCapability shape with id/displayName/scope/fieldSchema/buildToolsForUser, tool names use snake_case"
+    proof: "buildToolsForUser returns null when no MCP servers configured; returns merged toolset with mcp_{serverId}_{toolName} prefixed keys when servers are configured; handles pool.acquire failure for one server without breaking others; passes correct env vars resolved via catalog envMap"
+    proof_type: "test"
+
+  - id: "0.4"
+    intent: "Wire MCP capability into the registry and add pool lifecycle management"
+    checked: false
+    files:
+      - path: packages/core/src/capabilities/all.ts
+        isNew: false
+        change: "Import mcpCapability from './mcp.js' and add it to ALL_CAPABILITIES array"
+      - path: packages/core/src/capabilities/registry.ts
+        isNew: false
+        change: "Create McpProcessPool instance in initCapabilityRegistry, pass userCapabilities to buildToolsForUser calls for private capabilities, add pool.killAll() to stopAll()"
+    tests:
+      - "packages/core/tests/capabilities/registry.test.ts"
+    verify: "bun --bun vitest run tests/capabilities/registry.test.ts"
+    mirror: "packages/core/src/capabilities/all.ts"
+    context: |
+      // all.ts — current capability list (all.ts:18-26):
+      export const ALL_CAPABILITIES: CapabilityModule[] = [
+        calendarCapability,
+        cloudwatchCapability,
+        githubCapability,
+        gmailCapability,
+        linearCapability,
+        slackCapability,
+        slackPersonalCapability,
+      ];
+
+      // registry.ts — buildPrivateTools loop calling buildToolsForUser (registry.ts:242-243):
+      const tools = await cap.buildToolsForUser(tinoUserId, config, configStore, logger);
+
+      // registry.ts — stopAll (registry.ts:322-330):
+      stopAll() {
+        for (const stop of stopFns) {
+          try { stop(); } catch { /* ignore */ }
+        }
+      },
+
+      // registry.ts — initCapabilityRegistry signature (registry.ts:143-144):
+      export async function initCapabilityRegistry(opts: RegistryOptions): Promise<CapabilityRegistry>
+      const { configStore, logger, allowedUserId, dbPath, preferencesStore, taskStore, userCapabilities, onNewWork } = opts;
+    conventions: "ESM imports with .js extensions, ALL_CAPABILITIES sorted alphabetically by variable name, RegistryOptions uses optional fields for stores, stopAll calls close methods in try/catch"
+    proof: "mcpCapability appears in ALL_CAPABILITIES; buildPrivateTools passes userCapabilities to MCP capability's buildToolsForUser; stopAll invokes pool.killAll(); pool is created once in initCapabilityRegistry"
+    proof_type: "test"
+
+  - id: "0.5"
+    intent: "Add API routes for MCP catalog browsing and per-user server credential management"
+    checked: false
+    files:
+      - path: packages/core/src/server/routes/mcp.ts
+        isNew: true
+        change: "New route file with GET /catalog (public catalog shape), GET /servers (user's configured MCP servers from UserCapabilityStore), POST /servers/:id (save credentials), DELETE /servers/:id (remove config + kill pool entry)"
+      - path: packages/core/src/server/index.ts
+        isNew: false
+        change: "Import createMcpRoutes and mount at /api/mcp with app.route()"
+    tests:
+      - "packages/core/tests/server/routes/mcp.test.ts"
+    verify: "bun --bun vitest run tests/server/routes/mcp.test.ts"
+    mirror: "packages/core/src/server/routes/user-capabilities.ts"
+    context: |
+      // user-capabilities.ts route factory pattern (user-capabilities.ts:22-29):
+      export function createUserCapabilityRoutes(opts: {
+        config: ConfigStore;
+        logger: AppLogger;
+        auditLogger?: AuditLogger;
+        userCapabilities?: UserCapabilityStore;
+      }): Hono<{ Variables: AuthVariables }> {
+        const app = new Hono<{ Variables: AuthVariables }>();
+        const { config, logger, auditLogger, userCapabilities } = opts;
+
+      // Route mounting pattern (server/index.ts:213):
+      app.route("/api/user-capabilities", createUserCapabilityRoutes({ config, logger, auditLogger, userCapabilities }));
+
+      // Auth enforcement pattern (user-capabilities.ts:40-46):
+      const loggedInUser = c.get("user");
+      if (!loggedInUser) return c.json({ error: "unauthorized" }, 401);
+      if (loggedInUser.id !== userId) {
+        return c.json({ error: "Forbidden" }, 403);
+      }
+
+      // Server index imports (server/index.ts:26-42):
+      import { createUserCapabilityRoutes } from "./routes/user-capabilities.js";
+    conventions: "Hono route factory returning Hono<{ Variables: AuthVariables }>, auth via c.get('user'), decodeURIComponent for path params, JSON error responses with HTTP status codes, AuditLogger for config mutations"
+    proof: "GET /catalog returns catalog entries with only public fields (id, displayName, description, icon, fields); GET /servers returns user's configured servers scoped to authenticated user; POST /servers/:id saves credentials to UserCapabilityStore; DELETE /servers/:id removes config and calls pool.kill; all mutating endpoints enforce auth and audit-log"
+    proof_type: "test"
