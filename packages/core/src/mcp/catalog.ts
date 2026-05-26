@@ -47,6 +47,36 @@ export const MCP_CATALOG: McpServerEntry[] = [
     fields: [],
   },
   {
+    id: "ramp",
+    displayName: "Ramp",
+    envMap: {
+      clientId: "RAMP_CLIENT_ID",
+      clientSecret: "RAMP_CLIENT_SECRET",
+      env: "RAMP_ENV",
+    },
+    fields: [
+      {
+        key: "clientId",
+        label: "Client ID",
+        secret: true,
+        placeholder: "Enter your Ramp Client ID",
+      },
+      {
+        key: "clientSecret",
+        label: "Client Secret",
+        secret: true,
+        placeholder: "Enter your Ramp Client Secret",
+      },
+      {
+        key: "env",
+        label: "Environment (optional)",
+        placeholder: "demo or prd",
+      },
+    ],
+    description: "Connect to Ramp for spend management and employee expenses",
+    icon: "💳",
+  },
+  {
     id: "rippling",
     displayName: "Rippling",
     package: "rippling-mcp-server",

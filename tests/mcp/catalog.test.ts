@@ -64,4 +64,40 @@ describe("MCP Catalog", () => {
       expect(entry?.icon).toBeDefined();
     });
   });
+
+  describe("Ramp entry", () => {
+    it("should exist with id 'ramp'", () => {
+      const entry = getServerEntry("ramp");
+      expect(entry).toBeDefined();
+      expect(entry?.id).toBe("ramp");
+    });
+
+    it("should have correct displayName and description", () => {
+      const entry = getServerEntry("ramp");
+      expect(entry?.displayName).toBeDefined();
+      expect(entry?.description).toBeDefined();
+    });
+
+    it("should have envMap with RAMP_CLIENT_ID, RAMP_CLIENT_SECRET, and RAMP_ENV", () => {
+      const entry = getServerEntry("ramp");
+      expect(entry?.envMap).toBeDefined();
+      expect(entry?.envMap).toHaveProperty("clientId");
+      expect(entry?.envMap).toHaveProperty("clientSecret");
+      expect(entry?.envMap).toHaveProperty("env");
+    });
+
+    it("should have fields including secret fields", () => {
+      const entry = getServerEntry("ramp");
+      expect(entry?.fields).toBeDefined();
+      expect(Array.isArray(entry?.fields)).toBe(true);
+      expect(entry!.fields.length).toBeGreaterThanOrEqual(1);
+      const secretField = entry!.fields.find((f) => f.secret === true);
+      expect(secretField).toBeDefined();
+    });
+
+    it("should have an icon emoji", () => {
+      const entry = getServerEntry("ramp");
+      expect(entry?.icon).toBeDefined();
+    });
+  });
 });
