@@ -21,6 +21,8 @@ import type { AppLogger } from "../slack/app.js";
 import { updateDiscoveryTool } from "../tools/discovery.js";
 import { getPreferencesTool, setPreferenceTool } from "../tools/preferences.js";
 import { cancelTaskTool, listTasksTool, scheduleTaskTool } from "../tools/tasks.js";
+import { MCPPool } from "../mcp/pool.js";
+import { setMCPPool } from "./mcp.js";
 import { ALL_CAPABILITIES } from "./all.js";
 import type { CapabilityConfig, CapabilityRegistry, CapabilityRuntimeState, SharedCapability, PrivateCapability } from "./types.js";
 import { SYSTEM_USER_ID } from "../identity/types.js";
@@ -145,7 +147,7 @@ export async function initCapabilityRegistry(opts: RegistryOptions): Promise<Cap
   // Mutable buckets — the registry exposes `sharedTools` directly so callers can
   // share a stable reference across reloads (`reload()` mutates this in place).
   const sharedTools: ToolSet = {};
-  let stopFns: Array<() => void> = [];
+  let stopFns: Array<() => void | Promise<void>> = [];
   let state: Record<string, CapabilityRuntimeState> = {};
   let loadedCapabilityIds: string[] = [];
 
@@ -171,6 +173,14 @@ export async function initCapabilityRegistry(opts: RegistryOptions): Promise<Cap
   } catch (err) {
     logger.warn({ err: (err as Error).message }, "preferences tools disabled");
   }
+
+  // ── MCP Pool ──────────────────────────────────────────────────────────────
+  // Create pool once per registry instance and initialize MCP capability with it.
+  const pool = new MCPPool({ logger });
+  setMCPPool(pool);
+  stopFns.push(async () => {
+    await pool.killAll();
+  });
 
   /**
    * Build tools for a specific user from private capabilities.
@@ -240,7 +250,7 @@ export async function initCapabilityRegistry(opts: RegistryOptions): Promise<Cap
       }
 
       try {
-        const tools = await cap.buildToolsForUser(tinoUserId, config, configStore, logger);
+        const tools = await cap.buildToolsForUser(tinoUserId, config, configStore, logger, userCapabilities);
         if (tools !== null) {
           Object.assign(privateTools, tools);
         }
@@ -300,7 +310,7 @@ export async function initCapabilityRegistry(opts: RegistryOptions): Promise<Cap
       }
 
       try {
-        const tools = await cap.buildToolsForUser(tinoUserId, config, configStore, logger);
+        const tools = await cap.buildToolsForUser(tinoUserId, config, configStore, logger, userCapabilities);
         if (tools !== null) {
           active.push(cap.id);
         }
@@ -319,10 +329,10 @@ export async function initCapabilityRegistry(opts: RegistryOptions): Promise<Cap
     get capabilityIds() {
       return loadedCapabilityIds;
     },
-    stopAll() {
+    async stopAll() {
       for (const stop of stopFns) {
         try {
-          stop();
+          await stop();
         } catch {
           /* ignore */
         }
@@ -362,7 +372,7 @@ export async function initCapabilityRegistry(opts: RegistryOptions): Promise<Cap
         // could fire during the swap window.
         for (const stop of stopFns) {
           try {
-            stop();
+            await stop();
           } catch {
             /* ignore */
           }

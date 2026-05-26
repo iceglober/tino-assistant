@@ -66,9 +66,9 @@ describe("GET /api/user-capabilities/:userId", () => {
     const res = await app.request("/api/user-capabilities/U001?userId=U001");
     expect(res.status).toBe(200);
     const body = (await res.json()) as Array<{ id: string; enabled: boolean }>;
-    // Returns all declared private capabilities (gmail, calendar, slack-personal)
-    expect(body).toHaveLength(3);
-    expect(body.map((c) => c.id)).toEqual(["calendar", "gmail", "slack-personal"]);
+    // Returns all declared private capabilities (calendar, gmail, mcp, slack-personal)
+    expect(body).toHaveLength(4);
+    expect(body.map((c) => c.id)).toEqual(["calendar", "gmail", "mcp", "slack-personal"]);
     // Only the one with stored config is enabled
     expect(body.find((c) => c.id === "gmail")?.enabled).toBe(true);
     expect(body.find((c) => c.id === "calendar")?.enabled).toBe(false);
@@ -89,7 +89,7 @@ describe("GET /api/user-capabilities/:userId", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as Array<{ id: string; enabled: boolean }>;
     // All private capabilities returned (unconfigured)
-    expect(body).toHaveLength(3);
+    expect(body).toHaveLength(4);
     for (const cap of body) expect(cap.enabled).toBe(false);
   });
 
@@ -135,8 +135,8 @@ describe("GET /api/user-capabilities/:userId", () => {
     );
     expect(res.status).toBe(200);
     const body = (await res.json()) as Array<{ id: string; enabled: boolean }>;
-    // All 3 private capabilities returned; gmail is enabled from stored config
-    expect(body).toHaveLength(3);
+    // All 4 private capabilities returned; gmail is enabled from stored config
+    expect(body).toHaveLength(4);
     expect(body.find((c) => c.id === "gmail")?.enabled).toBe(true);
   });
 });

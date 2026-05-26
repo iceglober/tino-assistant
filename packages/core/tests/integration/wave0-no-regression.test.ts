@@ -12,6 +12,18 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
+// Mock MCPPool before importing modules that use registry
+vi.mock("../../src/mcp/pool.js", () => ({
+  MCPPool: vi.fn(function () {
+    return {
+      killAll: vi.fn(async () => {}),
+      kill: vi.fn(async () => {}),
+      killUser: vi.fn(async () => {}),
+      acquire: vi.fn(async () => ({})),
+    };
+  }),
+}));
 import { initCapabilityRegistry } from "../../src/capabilities/registry.js";
 import { createHistoryStore } from "../../src/agent/history.js";
 import * as runAgentModule from "../../src/agent/run.js";

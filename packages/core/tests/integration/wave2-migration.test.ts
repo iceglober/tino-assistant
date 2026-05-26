@@ -7,6 +7,18 @@
  */
 
 import { describe, expect, it, vi, beforeEach } from "vitest";
+
+// Mock MCPPool to avoid import errors
+vi.mock("../../src/mcp/pool.js", () => ({
+  MCPPool: vi.fn(function () {
+    return {
+      killAll: vi.fn(async () => {}),
+      kill: vi.fn(async () => {}),
+      killUser: vi.fn(async () => {}),
+      acquire: vi.fn(async () => ({})),
+    };
+  }),
+}));
 import { migrateCredentialsToUserPartitions } from "../../src/crypto/migration.js";
 import { createCryptoAdapter } from "../../src/crypto/factory.js";
 import type { ConfigStore } from "../../src/persistence/config.js";

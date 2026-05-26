@@ -131,8 +131,8 @@ export interface CapabilityRegistry {
    * shared ids + private ids whose buildToolsForUser returned non-null.
    */
   getActiveCapabilities(tinoUserId: string): Promise<string[]>;
-  /** Stop all findWork pollers. */
-  stopAll(): void;
+  /** Stop all findWork pollers and close all MCP connections. */
+  stopAll(): Promise<void>;
   /** Per-capability runtime state for the health endpoint. */
   getState(): Record<string, CapabilityRuntimeState>;
   /** Ordered list of shared capability IDs that were loaded. */

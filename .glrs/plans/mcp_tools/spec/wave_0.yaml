@@ -105,7 +105,7 @@ items:
 
   - id: "0.4"
     intent: "Wire MCP capability into the registry and add pool lifecycle management"
-    checked: false
+    checked: true
     files:
       - path: packages/core/src/capabilities/all.ts
         isNew: false

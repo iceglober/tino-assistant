@@ -9,6 +9,18 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
+// Mock MCPPool before importing registry
+vi.mock("../../src/mcp/pool.js", () => ({
+  MCPPool: vi.fn(function () {
+    return {
+      killAll: vi.fn(async () => {}),
+      kill: vi.fn(async () => {}),
+      killUser: vi.fn(async () => {}),
+      acquire: vi.fn(async () => ({})),
+    };
+  }),
+}));
 import { initCapabilityRegistry } from "../../src/capabilities/registry.js";
 import type { CapabilityConfig } from "../../src/capabilities/types.js";
 
