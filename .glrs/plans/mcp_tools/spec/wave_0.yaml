@@ -148,7 +148,7 @@ items:
 
   - id: "0.5"
     intent: "Add API routes for MCP catalog browsing and per-user server credential management"
-    checked: false
+    checked: true
     files:
       - path: packages/core/src/server/routes/mcp.ts
         isNew: true

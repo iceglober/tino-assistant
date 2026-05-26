@@ -41,6 +41,7 @@ import { createSlackOAuthRoutes } from "./routes/slack-oauth.js";
 import { createTaskRoutes } from "./routes/tasks.js";
 import { createUserCapabilityRoutes } from "./routes/user-capabilities.js";
 import { createUsersRoutes } from "./routes/users.js";
+import { createMcpRoutes } from "./routes/mcp.js";
 
 /**
  * Tino console HTTP server — Hono app on top of `@hono/node-server`.
@@ -51,6 +52,7 @@ import { createUsersRoutes } from "./routes/users.js";
  *   /api/config*             → protected (auth-gated) config CRUD
  *   /api/capabilities*       → protected capability config
  *   /api/user-capabilities/* → protected per-user capability config
+ *   /api/mcp/*               → protected MCP server catalog and credential management
  *   /api/compliance          → protected HIPAA snapshot
  *   /api/users/:id           → protected user deprovisioning
  *   /api/reload/*            → protected hot-reload
@@ -76,6 +78,7 @@ export interface StartServerOptions {
   userCapabilities?: import("../persistence/user-capabilities.js").UserCapabilityStore;
   taskStore?: import("../persistence/tasks.js").TaskStore;
   preferencesStore?: import("../persistence/preferences.js").PreferencesStore;
+  mcpPool?: import("../mcp/pool.js").MCPPool;
   model?: LanguageModel;
   mockPrivacy?: boolean;
 }
@@ -102,6 +105,7 @@ export async function startServer(opts: StartServerOptions): Promise<StartedServ
     userCapabilities,
     taskStore,
     preferencesStore,
+    mcpPool,
     model,
     mockPrivacy,
   } = opts;
@@ -211,6 +215,7 @@ export async function startServer(opts: StartServerOptions): Promise<StartedServ
   app.route("/api/config", createConfigRoutes({ config, logger, auditLogger }));
   app.route("/api/capabilities", createCapabilityRoutes({ config, logger }));
   app.route("/api/user-capabilities", createUserCapabilityRoutes({ config, logger, auditLogger, userCapabilities }));
+  app.route("/api/mcp", createMcpRoutes({ config, logger, auditLogger, userCapabilities, pool: mcpPool }));
   app.route("/api/compliance", createComplianceRoutes({ config, auditLogger }));
   app.route("/api/users", createUsersRoutes({ config, logger, auditLogger }));
   if (identities && users) {
