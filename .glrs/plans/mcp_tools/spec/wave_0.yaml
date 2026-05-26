@@ -59,7 +59,7 @@ items:
 
   - id: "0.3"
     intent: "Create MCP capability module that dynamically loads tools from all user-configured MCP servers via the process pool"
-    checked: false
+    checked: true
     files:
       - path: packages/core/src/capabilities/mcp.ts
         isNew: true

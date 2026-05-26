@@ -7,6 +7,7 @@
  */
 import type { ToolSet } from "ai";
 import type { ConfigStore } from "../persistence/config.js";
+import type { UserCapabilityStore } from "../persistence/user-capabilities.js";
 import type { AppLogger } from "../slack/app.js";
 
 /** Stored in the config table as a JSON blob under `capability.<id>`. */
@@ -107,6 +108,7 @@ export interface PrivateCapability extends BaseCapability {
     config: CapabilityConfig | null,
     configStore: ConfigStore,
     logger: AppLogger,
+    userCapabilities?: UserCapabilityStore,
   ): Promise<ToolSet | null>;
 }
 
