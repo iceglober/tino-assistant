@@ -1,0 +1,167 @@
+# spec/wave_1.yaml — Console UI: Catalog Browser + Credential Entry
+items:
+  - id: "1.1"
+    intent: "Add API client functions for MCP catalog browsing and server management"
+    checked: true
+    files:
+      - path: packages/core/src/console-app/lib/api.ts
+        isNew: false
+        change: "Add McpCatalogEntry and McpServerStatus interfaces, plus four fetch functions: getMcpCatalog, getMcpServers, saveMcpServer, removeMcpServer — following the existing unwrap/credentials pattern"
+    tests:
+      - "packages/core/tests/console-app/mcp-api.test.ts"
+    verify: "bun --bun vitest run tests/console-app/mcp-api.test.ts"
+    mirror: "packages/core/src/console-app/lib/api.ts"
+    context: |
+      // Existing fetch pattern (api.ts:59-66):
+      async function unwrap<T>(res: Response): Promise<T> {
+        if (res.status === 401) throw new UnauthorizedError();
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(text || `${res.status} ${res.statusText}`);
+        }
+        return res.json() as Promise<T>;
+      }
+
+      // Existing CRUD pattern — getUserCapabilities (api.ts:111-116):
+      export async function getUserCapabilities(userId: string): Promise<CapabilityEntry[]> {
+        const r = await fetch(`/api/user-capabilities/${encodeURIComponent(userId)}`, {
+          credentials: "include",
+        });
+        return unwrap<CapabilityEntry[]>(r);
+      }
+
+      // Existing DELETE pattern — deleteUserCapability (api.ts:132-141):
+      export async function deleteUserCapability(
+        userId: string,
+        capabilityId: string,
+      ): Promise<{ ok: true; userId: string; id: string }> {
+        const r = await fetch(`/api/user-capabilities/${encodeURIComponent(userId)}/${encodeURIComponent(capabilityId)}`, {
+          method: "DELETE",
+          credentials: "include",
+        });
+        return unwrap(r);
+      }
+    conventions: "ESM imports with .js extensions, named exports, credentials: 'include' on all fetches, unwrap<T> for response parsing, encodeURIComponent on path params, interfaces exported alongside functions"
+    proof: "getMcpCatalog calls GET /api/mcp/catalog and returns McpCatalogEntry[]; getMcpServers calls GET /api/mcp/servers and returns McpServerStatus[]; saveMcpServer calls POST /api/mcp/servers/:id with credentials body; removeMcpServer calls DELETE /api/mcp/servers/:id; all four use unwrap and credentials: 'include'"
+    proof_type: "test"
+
+  - id: "1.2"
+    intent: "Add MCP Tools section to the Tools tab on the Customize (Capabilities) page"
+    checked: false
+    files:
+      - path: packages/core/src/console-app/pages/Capabilities.tsx
+        isNew: false
+        change: "Add state for MCP catalog + servers, fetch both on mount, render an 'MCP Tools' section below the Integrations section inside the 'tools' TabPanel. Each catalog entry renders as a card showing connected/not-connected state. Clicking connect opens McpConnectModal; clicking disconnect calls removeMcpServer with confirmation."
+    tests:
+      - "packages/core/tests/console-app/mcp-section.test.ts"
+    verify: "bun --bun vitest run tests/console-app/mcp-section.test.ts"
+    mirror: "packages/core/src/console-app/components/CapabilityCard.tsx"
+    context: |
+      // Capabilities.tsx — Tools tab panel structure (Capabilities.tsx:139-203):
+      <TabPanel active={tab} id="tools">
+        <h2 className="section-label" style={{ marginTop: 0 }}>
+          Integrations
+        </h2>
+        <p className="section-hint">
+          manage your connected integrations. click the gear icon to configure settings and privacy.
+        </p>
+        {/* ... capability cards ... */}
+        {modalCap && (
+          <CapabilityModal cap={modalCap} userId={userId} open onClose={() => setModalCap(null)} onChanged={() => void loadCaps()} />
+        )}
+      </TabPanel>
+
+      // Existing state + fetch pattern (Capabilities.tsx:44-67):
+      const [caps, setCaps] = useState<CapabilityEntry[]>([]);
+      const [loaded, setLoaded] = useState(false);
+      const loadCaps = useCallback(async () => {
+        try {
+          const data = await getUserCapabilities(userId);
+          setCaps(data);
+        } catch { /* ignore */ }
+        finally { setLoaded(true); }
+      }, [userId]);
+      useEffect(() => { void loadCaps(); }, [loadCaps]);
+
+      // CapabilityCard status badge pattern (CapabilityCard.tsx:149-166):
+      const statusBadge: ReactNode =
+        typeof cap.connected === "boolean" ? (
+          cap.connected ? (
+            <span className="status-connected" style={{ color: "var(--ok)" }}>● on</span>
+          ) : enabled ? (
+            <span className="status-connected" style={{ color: "var(--err)" }}>● needs setup</span>
+          ) : (
+            <span style={{ fontSize: "0.714rem", color: "var(--text-dim)" }}>off</span>
+          )
+        ) : ...
+    conventions: "React functional components with JSX, useCallback for async loaders, useEffect for mount fetches, section-label/section-hint CSS classes for section headers, cap-grid class for card layout, CapCard subcomponent for card rendering"
+    proof: "The Tools tab renders an 'MCP Tools' heading with section-hint text below the Integrations section; catalog entries appear as cards; connected servers show a '● connected' badge; unconnected servers show a '+ connect' link; clicking '+ connect' opens McpConnectModal; the section shows a loading state before catalog fetches complete"
+    proof_type: "manual"
+
+  - id: "1.3"
+    intent: "Create McpConnectModal component for entering MCP server credentials"
+    checked: false
+    files:
+      - path: packages/core/src/console-app/components/McpConnectModal.tsx
+        isNew: true
+        change: "New component rendering the server's fields array as a form inside Modal. Secret fields use RevealInput, non-secret fields use plain text inputs. Save button calls saveMcpServer(id, credentials) and closes. Includes validation that all fields are filled before enabling save. Disconnect action with window.confirm prompt."
+    tests:
+      - "packages/core/tests/console-app/mcp-connect-modal.test.ts"
+    verify: "bun --bun vitest run tests/console-app/mcp-connect-modal.test.ts"
+    mirror: "packages/core/src/console-app/components/CapabilityModal.tsx"
+    context: |
+      // Modal component API (Modal.tsx:3-11):
+      export function Modal({
+        open, onClose, title, children,
+      }: {
+        open: boolean;
+        onClose: () => void;
+        title: string;
+        children: ReactNode;
+      }): JSX.Element | null {
+
+      // CapabilityModal field rendering pattern (CapabilityModal.tsx:136-151):
+      const fields: ReactNode = (cap.fields ?? []).map((f) => (
+        <div key={f.key} className="detail-section">
+          <div className="detail-label">{f.label ?? f.key}</div>
+          <div className="field-group" style={{ marginBottom: 4 }}>
+            <input
+              className="field-input"
+              type={f.secret ? "password" : "text"}
+              value={fieldValues[f.key] ?? ""}
+              onChange={(e) => setFieldValues((prev) => ({ ...prev, [f.key]: e.target.value }))}
+              placeholder={f.placeholder ?? ""}
+              autoComplete="off"
+              aria-label={f.label ?? f.key}
+            />
+          </div>
+        </div>
+      ));
+
+      // RevealInput API (RevealInput.tsx:8-26):
+      export function RevealInput({
+        value, onChange, placeholder, ariaLabel, ariaDescribedBy, invalid, onBlur, id: idProp,
+      }: { ... }): JSX.Element {
+
+      // SaveButton + useSaveState pattern (CapabilityModal.tsx:57):
+      const { state, run } = useSaveState();
+
+      // CapabilityModal disconnect pattern (CapabilityModal.tsx:120-134):
+      const onDisconnect = async (): Promise<void> => {
+        if (typeof window !== "undefined") {
+          const ok = window.confirm(`Disconnect ${cap.displayName ?? cap.id}?`);
+          if (!ok) return;
+        }
+        try {
+          await deleteUserCapability(userId, cap.id);
+          toast.show("Capability removed", "ok");
+          await reloadCapabilities();
+          onChanged();
+          onClose();
+        } catch (err) {
+          toast.show(`Could not delete: ${(err as Error).message}`, "err");
+        }
+      };
+    conventions: "Import Modal from './Modal.js', RevealInput from './RevealInput.js', SaveButton/useSaveState from './SaveButton.js', useToast from '../hooks/useToast.js'. useState for field values as Record<string, string>. Confirmation via window.confirm. Toast for success/error feedback. CSS classes: detail-section, detail-label, field-group, field-input, btn-row."
+    proof: "Modal renders with server displayName as title; each field in fields array renders as a labeled input; secret fields use RevealInput instead of plain input; save button is disabled when any field is empty; save calls saveMcpServer with the server id and collected credentials; disconnect shows confirmation prompt with server name; on confirmed disconnect, calls removeMcpServer and closes modal; toast shows on success and error"
+    proof_type: "test"

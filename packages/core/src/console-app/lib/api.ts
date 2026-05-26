@@ -36,6 +36,18 @@ export interface CapabilityEntry {
   updatedAt?: number;
 }
 
+export interface McpCatalogEntry {
+  id: string;
+  name: string;
+  description: string;
+}
+
+export interface McpServerStatus {
+  id: string;
+  name: string;
+  status: "ready" | "connecting" | "error" | "offline";
+}
+
 export interface HealthResponse {
   ok: boolean;
   authConfigured?: boolean;
@@ -134,6 +146,38 @@ export async function deleteUserCapability(
   capabilityId: string,
 ): Promise<{ ok: true; userId: string; id: string }> {
   const r = await fetch(`/api/user-capabilities/${encodeURIComponent(userId)}/${encodeURIComponent(capabilityId)}`, {
+    method: "DELETE",
+    credentials: "include",
+  });
+  return unwrap(r);
+}
+
+export async function getMcpCatalog(): Promise<McpCatalogEntry[]> {
+  const r = await fetch("/api/mcp/catalog", {
+    credentials: "include",
+  });
+  return unwrap<McpCatalogEntry[]>(r);
+}
+
+export async function getMcpServers(): Promise<McpServerStatus[]> {
+  const r = await fetch("/api/mcp/servers", {
+    credentials: "include",
+  });
+  return unwrap<McpServerStatus[]>(r);
+}
+
+export async function saveMcpServer(id: string, data: unknown): Promise<{ ok: true; id: string }> {
+  const r = await fetch(`/api/mcp/servers/${encodeURIComponent(id)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(data),
+  });
+  return unwrap(r);
+}
+
+export async function removeMcpServer(id: string): Promise<{ ok: true; id: string }> {
+  const r = await fetch(`/api/mcp/servers/${encodeURIComponent(id)}`, {
     method: "DELETE",
     credentials: "include",
   });

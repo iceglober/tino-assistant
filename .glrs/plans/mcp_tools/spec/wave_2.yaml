@@ -1,0 +1,94 @@
+# spec/wave_2.yaml — First Catalog Entries + Dockerfile
+items:
+  - id: "2.1"
+    intent: "Research and verify actual npm package names, env var conventions, and runtime requirements for Ramp and Rippling MCP servers"
+    checked: false
+    files: []
+    tests: []
+    verify: "manual verification — confirm package exists on npmjs.com and README documents expected env vars"
+    mirror: null
+    context: |
+      // From wave_0 catalog.ts — McpServerEntry shape (packages/core/src/mcp/catalog.ts):
+      // interface McpServerEntry {
+      //   id: string;
+      //   displayName: string;
+      //   package: string;          // npm package name for npx
+      //   envMap: Record<string, string>; // { fieldKey: "ENV_VAR_NAME" }
+      //   fields: CapField[];       // console UI inputs
+      //   description: string;
+      //   icon: string;
+      //   args?: string[];
+      // }
+    conventions: "Research step — no code output; document findings as comments in the catalog PR"
+    proof: "For each server: confirmed npm package name resolves on npmjs.com, documented expected env var names from the package README, confirmed Node.js runtime (not Python)"
+    proof_type: "manual"
+
+  - id: "2.2"
+    intent: "Add Ramp and Rippling entries to MCP_CATALOG array with verified package names and env var mappings"
+    checked: false
+    files:
+      - path: packages/core/src/mcp/catalog.ts
+        isNew: false
+        change: "Push Ramp and Rippling McpServerEntry objects into the MCP_CATALOG array with verified package names, envMap keys, fields arrays, descriptions, and icons"
+    tests:
+      - "packages/core/tests/mcp/catalog.test.ts"
+    verify: "bun --bun vitest run tests/mcp/catalog.test.ts"
+    mirror: "packages/core/src/capabilities/types.ts"
+    context: |
+      // From wave_0 — catalog.ts structure (packages/core/src/mcp/catalog.ts):
+      // export interface McpServerEntry { ... }
+      // export const MCP_CATALOG: McpServerEntry[] = [];
+      // export function getServerEntry(id: string): McpServerEntry | undefined {
+      //   return MCP_CATALOG.find((e) => e.id === id);
+      // }
+
+      // CapField shape used for fields[] (capabilities/types.ts:51-60):
+      export interface CapField {
+        key: string;
+        label: string;
+        target: string;
+        kind?: "string" | "string[]";
+        secret?: boolean;
+        placeholder?: string;
+        value?: string;
+      }
+    conventions: "ESM imports with .js extensions, named exports, entries sorted alphabetically by id, CapField-like shape for fields with key/label/secret/placeholder"
+    proof: "MCP_CATALOG contains entries with id 'ramp' and 'rippling'; getServerEntry('ramp') returns the Ramp entry with correct package, envMap, fields, description, and icon; getServerEntry('rippling') returns the Rippling entry; both entries have at least one field with secret: true"
+    proof_type: "test"
+
+  - id: "2.3"
+    intent: "Pre-install MCP server npm packages in the Docker image so npx resolves from disk at runtime"
+    checked: false
+    files:
+      - path: Dockerfile
+        isNew: false
+        change: "Add RUN lines in the runner stage (after COPY --from=deps) to globally install MCP server packages with npm install -g, so npx finds them without network access"
+    tests: []
+    verify: "docker build -t tino-test . && docker run --rm tino-test npx --yes <package-name> --version"
+    mirror: "Dockerfile"
+    context: |
+      // Dockerfile runner stage (lines 21-41):
+      FROM oven/bun:1 AS runner
+      WORKDIR /app
+      COPY --from=deps /app/node_modules ./node_modules
+      COPY --from=deps /app/packages/core/node_modules ./packages/core/node_modules
+      COPY --from=deps /app/packages/aws/node_modules ./packages/aws/node_modules
+      COPY package.json ./
+      COPY packages/core/package.json ./packages/core/
+      COPY packages/aws/package.json ./packages/aws/
+      COPY --from=builder /app/packages/core/dist ./packages/core/dist
+      COPY --from=builder /app/packages/aws/dist ./packages/aws/dist
+      COPY assets ./assets
+      COPY scripts ./scripts
+      COPY tino.deploy.json* ./
+
+      # Ensure workspace packages are resolvable via node_modules/@tino/*
+      RUN mkdir -p node_modules/@tino && \
+          ln -s /app/packages/core node_modules/@tino/core && \
+          ln -s /app/packages/aws node_modules/@tino/aws
+
+      ENV NODE_ENV=production
+      CMD ["bun", "run", "packages/core/dist/index.js"]
+    conventions: "Multi-stage build: deps → builder → runner. Runner base is oven/bun:1. npm not available in runner by default — may need apt-get install npm or use the deps stage. Use || true to tolerate packages that don't support --version flag"
+    proof: "Docker image builds successfully; npx <package-name> --version resolves from local cache inside the container without network access"
+    proof_type: "script"
