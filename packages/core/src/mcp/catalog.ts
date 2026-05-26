@@ -46,6 +46,30 @@ export const MCP_CATALOG: McpServerEntry[] = [
     description: "Sample MCP server for testing",
     fields: [],
   },
+  {
+    id: "rippling",
+    displayName: "Rippling",
+    package: "rippling-mcp-server",
+    envMap: {
+      apiToken: "RIPPLING_API_TOKEN",
+      baseUrl: "RIPPLING_BASE_URL",
+    },
+    fields: [
+      {
+        key: "apiToken",
+        label: "API Token",
+        secret: true,
+        placeholder: "Enter your Rippling API token",
+      },
+      {
+        key: "baseUrl",
+        label: "Base URL (optional)",
+        placeholder: "https://api.rippling.com/platform/api",
+      },
+    ],
+    description: "Connect to Rippling for employee and payroll management",
+    icon: "👥",
+  },
 ];
 
 export function getServerEntry(id: string): McpServerEntry | undefined {
