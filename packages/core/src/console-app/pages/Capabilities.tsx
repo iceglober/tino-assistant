@@ -4,8 +4,8 @@ import { Badge } from "../components/Badge.js";
 import { CapabilityModal } from "../components/CapabilityModal.js";
 import { TabPanel, Tabs } from "../components/Tabs.js";
 import { useToast } from "../hooks/useToast.js";
-import type { CapabilityEntry, DiscoveryProgress, DiscoveryResult, HealthResponse, Session } from "../lib/api.js";
-import { getDiscoveryResult, getUserCapabilities, getUserPreferences, reloadCapabilities, startDiscovery } from "../lib/api.js";
+import type { CapabilityEntry, DiscoveryProgress, DiscoveryResult, HealthResponse, Session, McpCatalogEntry, McpServerStatus } from "../lib/api.js";
+import { getDiscoveryResult, getMcpCatalog, getMcpServers, getUserCapabilities, getUserPreferences, reloadCapabilities, startDiscovery } from "../lib/api.js";
 
 const CAP_META: Record<string, { icon: string; name: string; desc: string }> = {
   github: { icon: "🐙", name: "GitHub", desc: "repos, issues, PRs" },
@@ -45,6 +45,10 @@ export function Capabilities(): JSX.Element {
   const [loaded, setLoaded] = useState(false);
   const [modalCap, setModalCap] = useState<CapabilityEntry | null>(null);
 
+  const [mcpCatalog, setMcpCatalog] = useState<McpCatalogEntry[]>([]);
+  const [mcpServers, setMcpServers] = useState<McpServerStatus[]>([]);
+  const [mcpLoaded, setMcpLoaded] = useState(false);
+
   const [discovery, setDiscovery] = useState<DiscoveryResult | null>(null);
   const [discoveryLoaded, setDiscoveryLoaded] = useState(false);
   const [rerunning, setRerunning] = useState(false);
@@ -75,6 +79,20 @@ export function Capabilities(): JSX.Element {
         /* no discovery */
       }
       setDiscoveryLoaded(true);
+    })();
+  }, []);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const [catalog, servers] = await Promise.all([getMcpCatalog(), getMcpServers()]);
+        setMcpCatalog(catalog);
+        setMcpServers(servers);
+      } catch {
+        /* no MCP available */
+      } finally {
+        setMcpLoaded(true);
+      }
     })();
   }, []);
 
@@ -184,6 +202,22 @@ export function Capabilities(): JSX.Element {
                 <div className="cap-grid">
                   {disabledCaps.map((cap) => (
                     <CapCard key={cap.id} cap={cap} onSettings={() => setModalCap(cap)} />
+                  ))}
+                </div>
+              </>
+            )}
+
+            {mcpLoaded && mcpCatalog.length > 0 && (
+              <>
+                <h2 className="section-label" style={{ marginTop: 24 }}>
+                  MCP Tools
+                </h2>
+                <p className="section-hint">
+                  manage your connected mcp servers. connect external tools and services.
+                </p>
+                <div className="cap-grid">
+                  {mcpCatalog.map((entry) => (
+                    <McpCard key={entry.id} entry={entry} servers={mcpServers} />
                   ))}
                 </div>
               </>
@@ -516,6 +550,33 @@ function CapCard({ cap, onSettings }: { cap: CapabilityEntry; onSettings: () => 
             <circle cx="8" cy="8" r="2.5" stroke="currentColor" strokeWidth="1.2" />
           </svg>
         </button>
+      </div>
+    </div>
+  );
+}
+
+function McpCard({ entry, servers }: { entry: McpCatalogEntry; servers: McpServerStatus[] }): JSX.Element {
+  const isConnected = servers.some((s) => s.id === entry.id && s.status === "ready");
+
+  return (
+    <div className="mcp-card cap-card cap-card-compact">
+      <div className="cap-card-header">
+        <span className="cap-card-icon">🔌</span>
+        <div className="cap-card-meta">
+          <div className="cap-card-name">{entry.name}</div>
+          <div className="cap-card-desc">{entry.description}</div>
+        </div>
+        <div className="cap-card-status">
+          {isConnected ? (
+            <span className="status-connected" style={{ color: "var(--ok)" }} data-testid={`mcp-status-${entry.id}`}>
+              ● connected
+            </span>
+          ) : (
+            <a href="#" className="mcp-connect-link" style={{ color: "var(--accent)", fontSize: "0.857rem" }}>
+              + connect
+            </a>
+          )}
+        </div>
       </div>
     </div>
   );

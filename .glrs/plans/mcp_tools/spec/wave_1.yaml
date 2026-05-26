@@ -47,7 +47,7 @@ items:
 
   - id: "1.2"
     intent: "Add MCP Tools section to the Tools tab on the Customize (Capabilities) page"
-    checked: false
+    checked: true
     files:
       - path: packages/core/src/console-app/pages/Capabilities.tsx
         isNew: false
