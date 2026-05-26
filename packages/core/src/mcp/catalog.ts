@@ -23,21 +23,20 @@ export interface McpServerEntry {
   icon?: string;
 }
 
-// Research findings (wave 2.1):
+// Research findings (wave 2.1 - verified 2026-05-25):
+// ✅ Both servers confirmed as Node.js npm packages on npmjs.com
 //
-// RIPPLING (✅ APPROVED — Node.js runtime):
-//   npm package: rippling-mcp-server@0.1.0 (https://github.com/bifrost-mcp/rippling-mcp)
-//   deps: @modelcontextprotocol/sdk ^1.26.0, zod ^3.23.0
+// RAMP:
+//   npm package: mcp-ramp (https://github.com/dragonkhoi/ramp-mcp)
+//   runtime: Node.js ✅
+//   env vars: RAMP_API_KEY (API key), RAMP_CLIENT_ID (client ID)
+//   installation: npx -y mcp-ramp
+//
+// RIPPLING:
+//   npm package: rippling-mcp-server (https://github.com/bifrost-mcp/rippling-mcp)
+//   runtime: Node.js 18+ ✅
 //   env vars: RIPPLING_API_TOKEN (required), RIPPLING_BASE_URL (optional, defaults to https://api.rippling.com/platform/api)
-//   installation: npx rippling-mcp-server
-//
-// RAMP (❌ BLOCKED — Python runtime, NOT Node.js):
-//   NOT an npm package; uses uv (Python package manager)
-//   repo: https://github.com/ramp-public/ramp-mcp (100% Python codebase)
-//   env vars: RAMP_CLIENT_ID, RAMP_CLIENT_SECRET, RAMP_ENV (optional: demo|prd)
-//   installation: uv run ramp-mcp
-//   CONSTRAINT VIOLATION: Requirement stated "confirmed Node.js runtime (not Python)"
-//   ACTION: Research alternative Ramp Node.js wrapper or defer Ramp until official npm package exists
+//   installation: npx -y rippling-mcp-server
 
 export const MCP_CATALOG: McpServerEntry[] = [
   {
