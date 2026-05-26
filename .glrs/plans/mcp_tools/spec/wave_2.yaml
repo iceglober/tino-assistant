@@ -2,7 +2,7 @@
 items:
   - id: "2.1"
     intent: "Research and verify actual npm package names, env var conventions, and runtime requirements for Ramp and Rippling MCP servers"
-    checked: false
+    checked: true
     files: []
     tests: []
     verify: "manual verification — confirm package exists on npmjs.com and README documents expected env vars"

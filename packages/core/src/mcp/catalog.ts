@@ -23,6 +23,22 @@ export interface McpServerEntry {
   icon?: string;
 }
 
+// Research findings (wave 2.1):
+//
+// RIPPLING (✅ APPROVED — Node.js runtime):
+//   npm package: rippling-mcp-server@0.1.0 (https://github.com/bifrost-mcp/rippling-mcp)
+//   deps: @modelcontextprotocol/sdk ^1.26.0, zod ^3.23.0
+//   env vars: RIPPLING_API_TOKEN (required), RIPPLING_BASE_URL (optional, defaults to https://api.rippling.com/platform/api)
+//   installation: npx rippling-mcp-server
+//
+// RAMP (❌ BLOCKED — Python runtime, NOT Node.js):
+//   NOT an npm package; uses uv (Python package manager)
+//   repo: https://github.com/ramp-public/ramp-mcp (100% Python codebase)
+//   env vars: RAMP_CLIENT_ID, RAMP_CLIENT_SECRET, RAMP_ENV (optional: demo|prd)
+//   installation: uv run ramp-mcp
+//   CONSTRAINT VIOLATION: Requirement stated "confirmed Node.js runtime (not Python)"
+//   ACTION: Research alternative Ramp Node.js wrapper or defer Ramp until official npm package exists
+
 export const MCP_CATALOG: McpServerEntry[] = [
   {
     id: "example-server",

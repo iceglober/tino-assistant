@@ -1,16 +1,16 @@
-# spec/main.yaml
-title: "Per-User MCP Tool Servers"
+title: Per-User MCP Tool Servers
 goal: >
   tino's capabilities are hardcoded TypeScript modules. Adding a new integration
-  (Ramp, Rippling, Notion, etc.) requires writing a capability module, tool wrappers,
-  and redeploying. Users can't connect their own tools. MCP is the standard for tool
-  servers. tino needs lifecycle management, per-user credential isolation, and a way
-  to surface MCP tools in the existing buildPrivateTools pipeline.
+  (Ramp, Rippling, Notion, etc.) requires writing a capability module, tool
+  wrappers, and redeploying. Users can't connect their own tools. MCP is the
+  standard for tool servers. tino needs lifecycle management, per-user
+  credential isolation, and a way to surface MCP tools in the existing
+  buildPrivateTools pipeline.
 constraints: null
 phases:
   - file: wave_0.yaml
     completed: false
   - file: wave_1.yaml
-    completed: false
+    completed: true
   - file: wave_2.yaml
     completed: false
