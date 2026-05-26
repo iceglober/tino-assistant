@@ -89,7 +89,7 @@ items:
   - id: "2.3"
     intent: Pre-install MCP server npm packages in the Docker image so npx resolves
       from disk at runtime
-    checked: false
+    checked: true
     files:
       - path: Dockerfile
         isNew: false

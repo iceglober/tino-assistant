@@ -6,6 +6,7 @@ COPY packages/core/package.json ./packages/core/
 COPY packages/aws/package.json ./packages/aws/
 COPY packages/cli/package.json ./packages/cli/
 RUN bun install && bun add @ai-sdk/mcp @modelcontextprotocol/sdk
+RUN npm install -g rippling-mcp-server || true
 
 FROM deps AS builder
 COPY packages/core/tsconfig.json packages/core/tsconfig.build.json packages/core/tsconfig.app.json packages/core/vite.config.ts ./packages/core/
@@ -18,11 +19,17 @@ RUN cd packages/core && \
     ./node_modules/.bin/vite build && \
     cd ../aws && ./node_modules/.bin/tsc -p tsconfig.build.json
 
-FROM oven/bun:1 AS runner
+FROM node:22-slim AS runtime-base
+RUN npm install -g bun
+
+FROM runtime-base AS runner
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/packages/core/node_modules ./packages/core/node_modules
 COPY --from=deps /app/packages/aws/node_modules ./packages/aws/node_modules
+COPY --from=deps /usr/local/bin /usr/local/bin
+COPY --from=deps /usr/local/lib/node_modules /usr/local/lib/node_modules
+COPY --from=deps /root/.npm /root/.npm
 COPY package.json ./
 COPY packages/core/package.json ./packages/core/
 COPY packages/aws/package.json ./packages/aws/
@@ -36,10 +43,6 @@ COPY tino.deploy.json* ./
 RUN mkdir -p node_modules/@tino && \
     ln -s /app/packages/core node_modules/@tino/core && \
     ln -s /app/packages/aws node_modules/@tino/aws
-
-# Install npm and pre-cache MCP server packages for npx resolution
-RUN apt-get update && apt-get install -y npm && rm -rf /var/lib/apt/lists/*
-RUN npm install -g rippling-mcp-server || true
 
 ENV NODE_ENV=production
 CMD ["bun", "run", "packages/core/dist/index.js"]
