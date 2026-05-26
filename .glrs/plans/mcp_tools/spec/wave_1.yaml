@@ -100,7 +100,7 @@ items:
 
   - id: "1.3"
     intent: "Create McpConnectModal component for entering MCP server credentials"
-    checked: false
+    checked: true
     files:
       - path: packages/core/src/console-app/components/McpConnectModal.tsx
         isNew: true
