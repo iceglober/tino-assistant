@@ -5,7 +5,7 @@ COPY package.json bun.lock* ./
 COPY packages/core/package.json ./packages/core/
 COPY packages/aws/package.json ./packages/aws/
 COPY packages/cli/package.json ./packages/cli/
-RUN bun install --frozen-lockfile
+RUN bun install && bun add @ai-sdk/mcp @modelcontextprotocol/sdk
 
 FROM deps AS builder
 COPY packages/core/tsconfig.json packages/core/tsconfig.build.json packages/core/tsconfig.app.json packages/core/vite.config.ts ./packages/core/
@@ -36,6 +36,10 @@ COPY tino.deploy.json* ./
 RUN mkdir -p node_modules/@tino && \
     ln -s /app/packages/core node_modules/@tino/core && \
     ln -s /app/packages/aws node_modules/@tino/aws
+
+# Install npm and pre-cache MCP server packages for npx resolution
+RUN apt-get update && apt-get install -y npm && rm -rf /var/lib/apt/lists/*
+RUN npm install -g rippling-mcp-server || true
 
 ENV NODE_ENV=production
 CMD ["bun", "run", "packages/core/dist/index.js"]

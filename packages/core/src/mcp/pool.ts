@@ -78,10 +78,9 @@ export class MCPPool {
       const transport = new StdioClientTransport({
         command: "npx",
         args: [entry.package ?? "", ...(entry.args ?? [])],
-        env: {
-          ...process.env,
-          // TODO: add userEnv from credentials if envMap is provided
-        },
+        env: Object.fromEntries(
+          Object.entries(process.env).filter(([, v]) => v !== undefined),
+        ) as Record<string, string>,
       });
 
       const client = await createMCPClient({ transport });
