@@ -5,8 +5,7 @@ COPY package.json bun.lock* ./
 COPY packages/core/package.json ./packages/core/
 COPY packages/aws/package.json ./packages/aws/
 COPY packages/cli/package.json ./packages/cli/
-RUN bun install && bun add @ai-sdk/mcp @modelcontextprotocol/sdk
-RUN npm install -g rippling-mcp-server || true
+RUN bun install --frozen-lockfile
 
 FROM deps AS builder
 COPY packages/core/tsconfig.json packages/core/tsconfig.build.json packages/core/tsconfig.app.json packages/core/vite.config.ts ./packages/core/
@@ -19,17 +18,13 @@ RUN cd packages/core && \
     ./node_modules/.bin/vite build && \
     cd ../aws && ./node_modules/.bin/tsc -p tsconfig.build.json
 
-FROM node:22-slim AS runtime-base
-RUN npm install -g bun
-
-FROM runtime-base AS runner
+FROM oven/bun:1 AS runner
 WORKDIR /app
+# Node.js needed for npx to spawn MCP stdio servers
+RUN apt-get update && apt-get install -y --no-install-recommends nodejs npm && rm -rf /var/lib/apt/lists/*
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/packages/core/node_modules ./packages/core/node_modules
 COPY --from=deps /app/packages/aws/node_modules ./packages/aws/node_modules
-COPY --from=deps /usr/local/bin /usr/local/bin
-COPY --from=deps /usr/local/lib/node_modules /usr/local/lib/node_modules
-COPY --from=deps /root/.npm /root/.npm
 COPY package.json ./
 COPY packages/core/package.json ./packages/core/
 COPY packages/aws/package.json ./packages/aws/

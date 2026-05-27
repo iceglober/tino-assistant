@@ -16,6 +16,7 @@ export interface McpServerEntry {
     label: string;
     secret?: boolean;
     placeholder?: string;
+    optional?: boolean;
   }>;
   /** Short description for the catalog UI */
   description?: string;
@@ -40,14 +41,9 @@ export interface McpServerEntry {
 
 export const MCP_CATALOG: McpServerEntry[] = [
   {
-    id: "example-server",
-    displayName: "Example MCP Server",
-    description: "Sample MCP server for testing",
-    fields: [],
-  },
-  {
     id: "ramp",
     displayName: "Ramp",
+    package: "mcp-ramp",
     envMap: {
       clientId: "RAMP_CLIENT_ID",
       clientSecret: "RAMP_CLIENT_SECRET",
@@ -68,8 +64,9 @@ export const MCP_CATALOG: McpServerEntry[] = [
       },
       {
         key: "env",
-        label: "Environment (optional)",
+        label: "Environment",
         placeholder: "demo or prd",
+        optional: true,
       },
     ],
     description: "Connect to Ramp for spend management and employee expenses",
@@ -92,8 +89,9 @@ export const MCP_CATALOG: McpServerEntry[] = [
       },
       {
         key: "baseUrl",
-        label: "Base URL (optional)",
+        label: "Base URL",
         placeholder: "https://api.rippling.com/platform/api",
+        optional: true,
       },
     ],
     description: "Connect to Rippling for employee and payroll management",

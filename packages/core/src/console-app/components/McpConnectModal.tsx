@@ -24,7 +24,9 @@ export function McpConnectModal({
   for (const f of server.fields ?? []) initialFields[f.key] = "";
   const [fieldValues, setFieldValues] = useState<Record<string, string>>(initialFields);
 
-  const allFieldsFilled = server.fields.every((f) => (fieldValues[f.key] ?? "").trim() !== "");
+  const allFieldsFilled = server.fields
+    .filter((f) => !f.optional)
+    .every((f) => (fieldValues[f.key] ?? "").trim() !== "");
 
   const onSave = async (): Promise<void> => {
     const ok = await run(async () => {

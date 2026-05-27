@@ -70,7 +70,7 @@ export const mcpCapability: PrivateCapability = {
           continue;
         }
 
-        const serverTools = await pool.acquire(tinoUserId, serverId, entry);
+        const serverTools = await pool.acquire(tinoUserId, serverId, entry, config.credentials);
 
         // Prefix tool names with mcp_{serverId}_
         for (const [toolName, toolDef] of Object.entries(serverTools)) {

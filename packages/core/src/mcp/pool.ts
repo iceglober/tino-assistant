@@ -65,6 +65,7 @@ export class MCPPool {
     userId: string,
     serverId: string,
     entry: McpServerEntry,
+    credentials?: Record<string, string>,
   ): Promise<ToolSet> {
     const key = this.getKey(userId, serverId);
     const cached = this.pool.get(key);
@@ -74,13 +75,30 @@ export class MCPPool {
       return cached.tools;
     }
 
+    const pkg = entry.package;
+    if (!pkg) {
+      throw new Error(`MCP catalog entry "${serverId}" has no package defined`);
+    }
+
+    // Map user credentials to env vars using the catalog's envMap
+    const userEnv: Record<string, string> = {};
+    if (credentials && entry.envMap) {
+      for (const [credKey, envVar] of Object.entries(entry.envMap)) {
+        if (credentials[credKey]) {
+          userEnv[envVar] = credentials[credKey];
+        }
+      }
+    }
+
     try {
+      const baseEnv = Object.fromEntries(
+        Object.entries(process.env).filter(([, v]) => v !== undefined),
+      ) as Record<string, string>;
+
       const transport = new StdioClientTransport({
         command: "npx",
-        args: [entry.package ?? "", ...(entry.args ?? [])],
-        env: Object.fromEntries(
-          Object.entries(process.env).filter(([, v]) => v !== undefined),
-        ) as Record<string, string>,
+        args: ["-y", pkg, ...(entry.args ?? [])],
+        env: { ...baseEnv, ...userEnv },
       });
 
       const client = await createMCPClient({ transport });
