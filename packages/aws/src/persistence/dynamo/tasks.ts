@@ -18,7 +18,7 @@ export function createDynamoTaskStore(table: TinoTable): TaskStore {
   const entity = createTaskEntity(table);
 
   return {
-    async create(userId: string, description: string, scheduledAtEpochSec: number): Promise<Task> {
+    async create(userId: string, description: string, scheduledAtEpochSec: number, recurring?: { intervalSec: number; expiresAt: number }): Promise<Task> {
       const id = crypto.randomUUID();
       const now = Math.floor(Date.now() / 1000);
 
@@ -36,6 +36,7 @@ export function createDynamoTaskStore(table: TinoTable): TaskStore {
           status: "pending",
           createdAt: now,
           updatedAt: now,
+          ...(recurring ? { intervalSec: recurring.intervalSec, expiresAt: recurring.expiresAt } : {}),
         })
         .send();
 
@@ -48,6 +49,8 @@ export function createDynamoTaskStore(table: TinoTable): TaskStore {
         result: null,
         createdAt: now,
         updatedAt: now,
+        intervalSec: recurring?.intervalSec ?? null,
+        expiresAt: recurring?.expiresAt ?? null,
       };
     },
 
@@ -151,6 +154,8 @@ interface TaskItem {
   result?: string;
   createdAt: number;
   updatedAt: number;
+  intervalSec?: number;
+  expiresAt?: number;
 }
 
 function itemToTask(item: TaskItem): Task {
@@ -163,6 +168,8 @@ function itemToTask(item: TaskItem): Task {
     result: item.result ?? null,
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
+    intervalSec: item.intervalSec ?? null,
+    expiresAt: item.expiresAt ?? null,
   };
 }
 

@@ -41,6 +41,20 @@ export function startScheduler(deps: SchedulerDeps): () => void {
         await taskStore.updateStatus(task.id, "completed", result);
         await postResult(task.userId, `📋 *Scheduled task completed:*\n\n_${task.description}_\n\n${result}`);
         logger.info({ taskId: task.id }, "scheduled task completed");
+
+        // Recurring tasks: schedule the next occurrence if not expired
+        if (task.intervalSec && task.expiresAt) {
+          const nextAt = now + task.intervalSec;
+          if (nextAt <= task.expiresAt) {
+            await taskStore.create(task.userId, task.description, nextAt, {
+              intervalSec: task.intervalSec,
+              expiresAt: task.expiresAt,
+            });
+            logger.info({ taskId: task.id, nextAt }, "recurring task rescheduled");
+          } else {
+            logger.info({ taskId: task.id }, "recurring task expired, not rescheduling");
+          }
+        }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         await taskStore.updateStatus(task.id, "failed", msg);

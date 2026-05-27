@@ -56,6 +56,8 @@ export function createTaskEntity(table: TinoTable) {
       result: string().optional(),
       createdAt: number(),
       updatedAt: number(),
+      intervalSec: number().optional(),
+      expiresAt: number().optional(),
     }),
     timestamps: false,
   });

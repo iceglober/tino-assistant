@@ -22,6 +22,24 @@ const scheduleInputSchema = z.object({
       "ISO-8601 datetime for when to execute. Use the owner's timezone from preferences if known. " +
         "Example: '2026-05-13T09:00:00-05:00'.",
     ),
+  intervalMinutes: z
+    .number()
+    .min(1)
+    .max(1440)
+    .optional()
+    .describe(
+      "For recurring tasks: how often to repeat, in minutes. " +
+        "Example: 5 means run every 5 minutes. Must also set forHours.",
+    ),
+  forHours: z
+    .number()
+    .min(0.1)
+    .max(72)
+    .optional()
+    .describe(
+      "For recurring tasks: how long to keep recurring, in hours. " +
+        "Example: 3 means repeat for 3 hours then stop. Must also set intervalMinutes.",
+    ),
 });
 
 export function scheduleTaskTool(taskStore: TaskStore, userId: string) {
@@ -29,15 +47,22 @@ export function scheduleTaskTool(taskStore: TaskStore, userId: string) {
     description:
       "Schedule a task for tino to execute at a future time. " +
       "The description should be a complete, self-contained prompt — when the task fires, tino runs it with fresh context (no conversation history from now). " +
-      "Be specific: include all context needed to complete the task without referring back to this conversation.",
+      "Be specific: include all context needed to complete the task without referring back to this conversation. " +
+      "For recurring tasks, set intervalMinutes and forHours — the task will repeat at that interval until the duration expires or the user cancels.",
     inputSchema: scheduleInputSchema,
-    execute: async ({ description, scheduledAtIso }) => {
+    execute: async ({ description, scheduledAtIso, intervalMinutes, forHours }) => {
       const ms = new Date(scheduledAtIso).getTime();
       if (Number.isNaN(ms)) {
         return { error: "invalid_date", message: `Could not parse scheduledAtIso: ${scheduledAtIso}` };
       }
+      if ((intervalMinutes && !forHours) || (!intervalMinutes && forHours)) {
+        return { error: "invalid_recurring", message: "Both intervalMinutes and forHours must be set for recurring tasks." };
+      }
       const scheduledAtEpochSec = Math.floor(ms / 1000);
-      const task = await taskStore.create(userId, description, scheduledAtEpochSec);
+      const recurring = intervalMinutes && forHours
+        ? { intervalSec: Math.round(intervalMinutes * 60), expiresAt: scheduledAtEpochSec + Math.round(forHours * 3600) }
+        : undefined;
+      const task = await taskStore.create(userId, description, scheduledAtEpochSec, recurring);
       const nowSec = Math.floor(Date.now() / 1000);
       const deltaSec = scheduledAtEpochSec - nowSec;
       return {
@@ -46,6 +71,12 @@ export function scheduleTaskTool(taskStore: TaskStore, userId: string) {
         scheduledAt: new Date(task.scheduledAt * 1000).toISOString(),
         scheduledInMinutes: Math.round(deltaSec / 60),
         status: task.status,
+        ...(recurring ? {
+          recurring: true,
+          intervalMinutes: intervalMinutes,
+          forHours: forHours,
+          expiresAt: new Date(recurring.expiresAt * 1000).toISOString(),
+        } : {}),
       };
     },
   });

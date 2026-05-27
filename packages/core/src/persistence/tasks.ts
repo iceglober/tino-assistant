@@ -19,10 +19,12 @@ export interface Task {
   result: string | null;
   createdAt: number;
   updatedAt: number;
+  intervalSec: number | null; // seconds between recurring executions (null = one-shot)
+  expiresAt: number | null; // epoch seconds when recurrence stops (null = no recurrence)
 }
 
 export interface TaskStore {
-  create(userId: string, description: string, scheduledAtEpochSec: number): Promise<Task>;
+  create(userId: string, description: string, scheduledAtEpochSec: number, recurring?: { intervalSec: number; expiresAt: number }): Promise<Task>;
   getById(id: string): Promise<Task | null>;
   listByUser(userId: string, status?: string): Promise<Task[]>;
   listPending(nowEpochSec: number): Promise<Task[]>; // scheduled_at <= now AND status = 'pending'
@@ -30,7 +32,6 @@ export interface TaskStore {
   cancel(id: string): Promise<boolean>; // returns false if task not found or not pending
 }
 
-// Row shape returned by bun:sqlite (snake_case columns)
 interface TaskRow {
   id: string;
   user_id: string;
@@ -40,6 +41,8 @@ interface TaskRow {
   result: string | null;
   created_at: number;
   updated_at: number;
+  interval_sec: number | null;
+  expires_at: number | null;
 }
 
 function rowToTask(row: TaskRow): Task {
@@ -52,6 +55,8 @@ function rowToTask(row: TaskRow): Task {
     result: row.result,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    intervalSec: row.interval_sec,
+    expiresAt: row.expires_at,
   };
 }
 
@@ -66,7 +71,9 @@ export function createTaskStore({ dbPath }: { dbPath: string }): TaskStore {
     status TEXT NOT NULL DEFAULT 'pending',
     result TEXT,
     created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL
+    updated_at INTEGER NOT NULL,
+    interval_sec INTEGER,
+    expires_at INTEGER
   )`);
 
   // Recover tasks that were mid-execution when the process was killed.
@@ -82,8 +89,8 @@ export function createTaskStore({ dbPath }: { dbPath: string }): TaskStore {
   }
 
   const stmtInsert = db.query(
-    `INSERT INTO tasks (id, user_id, description, scheduled_at, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO tasks (id, user_id, description, scheduled_at, created_at, updated_at, interval_sec, expires_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   );
 
   const stmtGetById = db.query("SELECT * FROM tasks WHERE id = ?");
@@ -105,10 +112,10 @@ export function createTaskStore({ dbPath }: { dbPath: string }): TaskStore {
   );
 
   return {
-    create(userId: string, description: string, scheduledAtEpochSec: number): Promise<Task> {
+    create(userId: string, description: string, scheduledAtEpochSec: number, recurring?: { intervalSec: number; expiresAt: number }): Promise<Task> {
       const id = crypto.randomUUID();
       const now = Math.floor(Date.now() / 1000);
-      stmtInsert.run(id, userId, description, scheduledAtEpochSec, now, now);
+      stmtInsert.run(id, userId, description, scheduledAtEpochSec, now, now, recurring?.intervalSec ?? null, recurring?.expiresAt ?? null);
       return Promise.resolve({
         id,
         userId,
@@ -118,6 +125,8 @@ export function createTaskStore({ dbPath }: { dbPath: string }): TaskStore {
         result: null,
         createdAt: now,
         updatedAt: now,
+        intervalSec: recurring?.intervalSec ?? null,
+        expiresAt: recurring?.expiresAt ?? null,
       });
     },
 
