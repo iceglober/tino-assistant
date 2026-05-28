@@ -200,8 +200,34 @@ export function createSlackApp(opts: CreateSlackAppOpts): App {
       const placeholder = await say({ text: "thinking...", thread_ts: event.ts });
       const placeholderTs = (placeholder as { ts?: string })?.ts;
 
+      // Fetch recent conversation context so tino understands what "this" refers to
+      let contextPrefix = "";
+      try {
+        const threadTs = (event as { thread_ts?: string }).thread_ts;
+        const historyResult = threadTs
+          ? await app.client.conversations.replies({ channel: event.channel, ts: threadTs, limit: 30 })
+          : await app.client.conversations.history({ channel: event.channel, latest: event.ts, limit: 20, inclusive: false });
+
+        const msgs = (historyResult.messages ?? [])
+          .filter((msg) => msg.ts !== event.ts && msg.text)
+          .slice(-20);
+
+        if (msgs.length > 0) {
+          const lines = msgs.map((msg) => {
+            const who = msg.user ?? "unknown";
+            return `<@${who}>: ${msg.text}`;
+          });
+          contextPrefix =
+            "[Channel conversation context — the user is referring to this when they say \"this\" or similar:\n" +
+            lines.join("\n") +
+            "\n]\n\n";
+        }
+      } catch (histErr) {
+        logger.warn({ err: histErr, channel: event.channel }, "failed to fetch channel context for mention");
+      }
+
       const start = Date.now();
-      const reply = await onDm(tinoUserId, text);
+      const reply = await onDm(tinoUserId, contextPrefix + text);
       const formatted = toSlackMrkdwn(reply);
 
       if (placeholderTs) {
