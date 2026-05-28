@@ -1,4 +1,5 @@
 import { App, LogLevel } from "@slack/bolt";
+import type { WebClient } from "@slack/web-api";
 import type { HistoryStore } from "../agent/history.js";
 import type { AuditLogger } from "../audit/logger.js";
 import type { ConfigStore } from "../persistence/config.js";
@@ -24,6 +25,7 @@ export async function handleDmMessage(params: {
   message: Partial<DmMessageEvent>;
   onDm: DmHandler;
   say: (args: { text: string }) => Promise<unknown>;
+  client: WebClient;
   logger: AppLogger;
   identityResolver: IdentityResolver;
   users: UserStore;
@@ -32,7 +34,7 @@ export async function handleDmMessage(params: {
   auditLogger?: AuditLogger;
   seenUsers?: Set<string>;
 }): Promise<void> {
-  const { message: m, onDm, say, logger, identityResolver, users, identities, configStore, auditLogger, seenUsers } = params;
+  const { message: m, onDm, say, client, logger, identityResolver, users, identities, configStore, auditLogger, seenUsers } = params;
 
   if (m.subtype !== undefined) {
     logger.debug({ subtype: m.subtype }, "ignored message with subtype");
@@ -77,17 +79,25 @@ export async function handleDmMessage(params: {
       });
     }
 
+    const placeholder = await say({ text: "thinking..." });
+    const placeholderTs = (placeholder as { ts?: string })?.ts;
+
     const start = Date.now();
     const reply = await onDm(tinoUserId, m.text);
     const formatted = toSlackMrkdwn(reply);
-    await say({ text: formatted });
+
+    if (placeholderTs && m.channel) {
+      await client.chat.update({ channel: m.channel, ts: placeholderTs, text: formatted });
+    } else {
+      await say({ text: formatted });
+    }
     logger.info(
       { user: m.user, tinoUserId, channel: m.channel, replyLen: formatted.length, durationMs: Date.now() - start },
       "DM handled",
     );
   } catch (err) {
     logger.error({ err }, "handler threw");
-    await say({ text: "Something went wrong. Check the logs." });
+    await say({ text: "something went wrong — check the logs." });
   }
 }
 
@@ -148,6 +158,7 @@ export function createSlackApp(opts: CreateSlackAppOpts): App {
       message: message as Partial<DmMessageEvent>,
       onDm,
       say,
+      client: app.client,
       logger,
       identityResolver,
       users,
@@ -186,17 +197,25 @@ export function createSlackApp(opts: CreateSlackAppOpts): App {
 
     try {
       logger.info({ user: event.user, tinoUserId, channel: event.channel, textLen: text.length }, "channel mention received");
+      const placeholder = await say({ text: "thinking...", thread_ts: event.ts });
+      const placeholderTs = (placeholder as { ts?: string })?.ts;
+
       const start = Date.now();
       const reply = await onDm(tinoUserId, text);
       const formatted = toSlackMrkdwn(reply);
-      await say({ text: formatted, thread_ts: event.ts });
+
+      if (placeholderTs) {
+        await app.client.chat.update({ channel: event.channel, ts: placeholderTs, text: formatted });
+      } else {
+        await say({ text: formatted, thread_ts: event.ts });
+      }
       logger.info(
         { user: event.user, tinoUserId, channel: event.channel, replyLen: formatted.length, durationMs: Date.now() - start },
         "channel mention handled",
       );
     } catch (err) {
       logger.error({ err }, "channel mention handler threw");
-      await say({ text: "Something went wrong. Check the logs.", thread_ts: event.ts });
+      await say({ text: "something went wrong — check the logs.", thread_ts: event.ts });
     }
   });
 

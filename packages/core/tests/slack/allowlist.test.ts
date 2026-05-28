@@ -1,5 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
 import { handleDmMessage } from "../../src/slack/app.js";
+import type { WebClient } from "@slack/web-api";
 import type { DmMessageEvent } from "../../src/slack/types.js";
 import type { IdentityResolver } from "../../src/identity/resolver.js";
 import type { IdentityStore, UserStore } from "../../src/identity/store.js";
@@ -11,6 +12,10 @@ const makeLogger = () => ({
   warn: vi.fn(),
   error: vi.fn(),
 });
+
+const makeClient = () => ({
+  chat: { update: vi.fn().mockResolvedValue({ ok: true }) },
+}) as unknown as WebClient;
 
 const knownUser = {
   id: "tino-uuid-owner",
@@ -63,13 +68,15 @@ const baseMessage: Partial<DmMessageEvent> = {
 describe("handleDmMessage", () => {
   test("known user DM → handler called, reply sent", async () => {
     const onDm = vi.fn().mockResolvedValue("echoed: hello");
-    const say = vi.fn().mockResolvedValue(undefined);
+    const say = vi.fn().mockResolvedValue({ ts: "1234567890.000200", channel: "D123" });
     const logger = makeLogger();
+    const client = makeClient();
 
     await handleDmMessage({
       message: baseMessage,
       onDm,
       say,
+      client,
       logger: logger as unknown as Parameters<typeof handleDmMessage>[0]["logger"],
       identityResolver: makeIdentityResolver(),
       users: makeUsers(),
@@ -79,8 +86,12 @@ describe("handleDmMessage", () => {
 
     expect(onDm).toHaveBeenCalledOnce();
     expect(onDm).toHaveBeenCalledWith("tino-uuid-owner", "hello");
-    expect(say).toHaveBeenCalledOnce();
-    expect(say).toHaveBeenCalledWith({ text: "echoed: hello" });
+    expect(say).toHaveBeenCalledWith({ text: "thinking..." });
+    expect((client.chat.update as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith({
+      channel: "D123",
+      ts: "1234567890.000200",
+      text: "echoed: hello",
+    });
   });
 
   test("unknown user DM in allowlist mode → dropped via resolver", async () => {
@@ -94,6 +105,7 @@ describe("handleDmMessage", () => {
       message: { ...baseMessage, user: "U_OTHER" },
       onDm,
       say,
+      client: makeClient(),
       logger: logger as unknown as Parameters<typeof handleDmMessage>[0]["logger"],
       identityResolver: resolver,
       users: makeUsers(),
@@ -114,6 +126,7 @@ describe("handleDmMessage", () => {
       message: { ...baseMessage, channel_type: "channel" },
       onDm,
       say,
+      client: makeClient(),
       logger: logger as unknown as Parameters<typeof handleDmMessage>[0]["logger"],
       identityResolver: makeIdentityResolver(),
       users: makeUsers(),
@@ -135,6 +148,7 @@ describe("handleDmMessage", () => {
       message: { ...baseMessage, subtype: "thread_broadcast" },
       onDm,
       say,
+      client: makeClient(),
       logger: logger as unknown as Parameters<typeof handleDmMessage>[0]["logger"],
       identityResolver: makeIdentityResolver(),
       users: makeUsers(),
@@ -156,6 +170,7 @@ describe("handleDmMessage", () => {
       message: { ...baseMessage, subtype: "bot_message" },
       onDm,
       say,
+      client: makeClient(),
       logger: logger as unknown as Parameters<typeof handleDmMessage>[0]["logger"],
       identityResolver: makeIdentityResolver(),
       users: makeUsers(),

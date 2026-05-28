@@ -2,14 +2,12 @@
  * MCP process pool that manages stdio MCP server processes per (userId, serverId).
  * Caches client connections and tools, with idle timeout reaping.
  */
-import { createMCPClient } from "@ai-sdk/mcp";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio";
 import type { ToolSet } from "ai";
 import type { AppLogger } from "../slack/app.js";
 import type { McpServerEntry } from "./catalog.js";
 
 interface PoolEntry {
-  client: Awaited<ReturnType<typeof createMCPClient>>;
+  client: { close: () => Promise<void> };
   timer: NodeJS.Timeout;
   tools: ToolSet;
 }
@@ -91,6 +89,11 @@ export class MCPPool {
     }
 
     try {
+      // Dynamic imports — these packages may not resolve under Bun's module
+      // system, so we defer loading until someone actually uses MCP.
+      const { createMCPClient } = await import("@ai-sdk/mcp");
+      const { StdioClientTransport } = await import("@modelcontextprotocol/sdk/client/stdio");
+
       const baseEnv = Object.fromEntries(
         Object.entries(process.env).filter(([, v]) => v !== undefined),
       ) as Record<string, string>;
