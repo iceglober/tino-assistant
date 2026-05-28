@@ -212,6 +212,13 @@ export function createSlackApp(opts: CreateSlackAppOpts): App {
           .filter((msg) => msg.ts !== event.ts && msg.text)
           .slice(-20);
 
+        const privacyRule =
+          "IMPORTANT: Your response will be visible to EVERYONE in this channel. " +
+          "Do NOT include private information from the user's emails, DMs, calendar, or other personal tools in your response. " +
+          "You may use private tools to inform your understanding (e.g., to look up context), but your reply must only contain information " +
+          "that is appropriate for the audience in this channel. If fulfilling the request requires sharing private details, " +
+          "tell the user to DM you instead.";
+
         if (msgs.length > 0) {
           const lines = msgs.map((msg) => {
             const who = msg.user ?? "unknown";
@@ -221,19 +228,24 @@ export function createSlackApp(opts: CreateSlackAppOpts): App {
             "[You were @mentioned in a Slack channel. Below are the most recent messages from the conversation for context. " +
             "When the user says \"this\" or references something discussed, use this context to understand what they mean. " +
             "If you need more context than what's shown here, use your Slack tools (slack_search_messages, slack_read_channel, slack_read_channel_thread) " +
-            "to find related messages, and any other tools (gmail, calendar, linear) that would help you fulfill the request.\n\n" +
+            "to find related messages, and any other tools (gmail, calendar, linear) that would help you fulfill the request. " +
+            privacyRule + "\n\n" +
             lines.join("\n") +
             "\n]\n\n";
         } else {
           contextPrefix =
             "[You were @mentioned in a Slack channel but no prior messages were available. " +
-            "If you need context, use your Slack and other tools to search for related information.]\n\n";
+            "If you need context, use your Slack and other tools to search for related information. " +
+            privacyRule + "]\n\n";
         }
       } catch (histErr) {
         logger.warn({ err: histErr, channel: event.channel }, "failed to fetch channel context for mention");
         contextPrefix =
           "[You were @mentioned in a Slack channel but couldn't read the conversation history. " +
-          "Use your Slack tools (slack_search_messages, slack_read_channel) and other tools to find context for what the user is referring to.]\n\n";
+          "Use your Slack tools (slack_search_messages, slack_read_channel) and other tools to find context for what the user is referring to. " +
+          "IMPORTANT: Your response will be visible to EVERYONE in this channel. " +
+          "Do NOT include private information from emails, DMs, calendar, or other personal tools in your response. " +
+          "If fulfilling the request requires sharing private details, tell the user to DM you instead.]\n\n";
       }
 
       const start = Date.now();
