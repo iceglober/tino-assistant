@@ -218,12 +218,22 @@ export function createSlackApp(opts: CreateSlackAppOpts): App {
             return `<@${who}>: ${msg.text}`;
           });
           contextPrefix =
-            "[Channel conversation context — the user is referring to this when they say \"this\" or similar:\n" +
+            "[You were @mentioned in a Slack channel. Below are the most recent messages from the conversation for context. " +
+            "When the user says \"this\" or references something discussed, use this context to understand what they mean. " +
+            "If you need more context than what's shown here, use your Slack tools (slack_search_messages, slack_read_channel, slack_read_channel_thread) " +
+            "to find related messages, and any other tools (gmail, calendar, linear) that would help you fulfill the request.\n\n" +
             lines.join("\n") +
             "\n]\n\n";
+        } else {
+          contextPrefix =
+            "[You were @mentioned in a Slack channel but no prior messages were available. " +
+            "If you need context, use your Slack and other tools to search for related information.]\n\n";
         }
       } catch (histErr) {
         logger.warn({ err: histErr, channel: event.channel }, "failed to fetch channel context for mention");
+        contextPrefix =
+          "[You were @mentioned in a Slack channel but couldn't read the conversation history. " +
+          "Use your Slack tools (slack_search_messages, slack_read_channel) and other tools to find context for what the user is referring to.]\n\n";
       }
 
       const start = Date.now();
