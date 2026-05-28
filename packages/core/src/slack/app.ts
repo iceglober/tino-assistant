@@ -158,5 +158,47 @@ export function createSlackApp(opts: CreateSlackAppOpts): App {
     });
   });
 
+  // Channel @mentions — reply in-thread
+  app.event("app_mention", async ({ event, say }) => {
+    const ts = event.ts;
+    if (seen.has(ts)) return;
+    seen.add(ts);
+
+    if (!event.user || !event.text) return;
+
+    // Strip the @tino mention from the text
+    const text = event.text.replace(/<@[A-Z0-9]+>/g, "").trim();
+    if (!text) {
+      await say({ text: "hey — what can I help with?", thread_ts: event.ts });
+      return;
+    }
+
+    const tinoUserId = await resolveDmSender(event.user, {
+      identityResolver,
+      users,
+      identities,
+      configStore,
+      say: async (args) => { await say({ ...args, thread_ts: event.ts }); },
+      auditLogger,
+      logger,
+    });
+    if (!tinoUserId) return;
+
+    try {
+      logger.info({ user: event.user, tinoUserId, channel: event.channel, textLen: text.length }, "channel mention received");
+      const start = Date.now();
+      const reply = await onDm(tinoUserId, text);
+      const formatted = toSlackMrkdwn(reply);
+      await say({ text: formatted, thread_ts: event.ts });
+      logger.info(
+        { user: event.user, tinoUserId, channel: event.channel, replyLen: formatted.length, durationMs: Date.now() - start },
+        "channel mention handled",
+      );
+    } catch (err) {
+      logger.error({ err }, "channel mention handler threw");
+      await say({ text: "Something went wrong. Check the logs.", thread_ts: event.ts });
+    }
+  });
+
   return app;
 }
