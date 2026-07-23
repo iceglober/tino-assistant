@@ -86,7 +86,7 @@ The GitHub capability accepts either a PAT or a GitHub App ID, installation ID, 
 }
 ```
 
-Dispatch rejects any repository, workflow, ref, input name, or input value absent from this policy. It does not provide repository checkout, arbitrary shell execution, direct file mutation, approval, or merge operations.
+Dispatch rejects any repository, workflow, ref, input name, or input value absent from this policy. Every input named in a policy must also be supplied on dispatch — an allowlisted input cannot be omitted, since GitHub would otherwise substitute the workflow's own default value (which the policy never allowlisted). It does not provide repository checkout, arbitrary shell execution, direct file mutation, approval, or merge operations.
 
 ## hot-reload semantics
 

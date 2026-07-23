@@ -88,11 +88,15 @@ export const githubCapability: SharedCapability = {
       defaultRepo = parseRepoSpec(defaultRepoRaw) ?? undefined;
     }
 
+    // Parse the dispatch policies BEFORE mutating the shared tools object. A malformed
+    // policy throws here, leaving the toolset untouched, rather than half-registering the
+    // read tools and reporting the capability disabled with an inconsistent live toolset.
+    const dispatchPolicies = z.array(workflowDispatchPolicySchema).parse(config.settings.workflowDispatches ?? []);
+
     tools.github_search_code = githubSearchCodeTool({ octokit, defaultRepo, allowedRepos });
     tools.github_get_file = githubGetFileTool({ octokit, defaultRepo, allowedRepos });
     tools.github_list_workflow_runs = githubListWorkflowRunsTool({ octokit, defaultRepo, allowedRepos });
     tools.github_get_workflow_run_logs = githubGetWorkflowRunLogsTool({ octokit, defaultRepo, allowedRepos });
-    const dispatchPolicies = z.array(workflowDispatchPolicySchema).parse(config.settings.workflowDispatches ?? []);
     if (dispatchPolicies.length > 0) {
       tools.github_dispatch_workflow = githubDispatchWorkflowTool({
         octokit,

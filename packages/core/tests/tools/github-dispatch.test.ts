@@ -54,4 +54,34 @@ describe("GitHub workflow dispatch", () => {
     await expect(executeWorkflowDispatch(configured, input)).resolves.toEqual({ error });
     expect(configured.octokit.actions.createWorkflowDispatch).not.toHaveBeenCalled();
   });
+
+  it("rejects a dispatch that omits an allowlisted input (would run the workflow default)", async () => {
+    const configured = deps();
+    await expect(
+      executeWorkflowDispatch(configured, {
+        owner: "kn-eng",
+        repo: "kn-eng",
+        workflow: "docs-agent.yml",
+        ref: "main",
+        inputs: {},
+      }),
+    ).resolves.toEqual({ error: "workflow_required_input_missing" });
+    expect(configured.octokit.actions.createWorkflowDispatch).not.toHaveBeenCalled();
+  });
+
+  it("dispatches with the policy's workflow name, not the agent's case-variant string", async () => {
+    const configured = deps();
+    await expect(
+      executeWorkflowDispatch(configured, {
+        owner: "KN-ENG",
+        repo: "kn-eng",
+        workflow: "Docs-Agent.YML",
+        ref: "main",
+        inputs: { operation: "inventory" },
+      }),
+    ).resolves.toEqual({ dispatched: true });
+    expect(configured.octokit.actions.createWorkflowDispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ workflow_id: "docs-agent.yml" }),
+    );
+  });
 });

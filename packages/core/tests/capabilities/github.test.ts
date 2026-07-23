@@ -72,6 +72,26 @@ describe("githubCapability.registerTools", () => {
     expect(Object.keys(tools)).toContain("github_list_workflow_runs");
   });
 
+  it("rejects a malformed workflowDispatches policy without registering any tools", async () => {
+    const tools: ToolSet = {};
+    await expect(
+      githubCapability.registerTools(
+        {
+          ...GOOD_CONFIG,
+          // refs: [] violates .min(1); parse must throw before the shared toolset is mutated.
+          settings: {
+            repos: ["owner/repo"],
+            workflowDispatches: [{ owner: "o", repo: "r", workflow: "w.yml", refs: [] }],
+          },
+        },
+        makeConfigStore(),
+        makeLogger(),
+        tools,
+      ),
+    ).rejects.toThrow();
+    expect(Object.keys(tools)).toHaveLength(0);
+  });
+
   it("rejects a malformed GitHub App installation ID", async () => {
     await expect(
       githubCapability.registerTools(

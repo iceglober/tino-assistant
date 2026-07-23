@@ -55,6 +55,10 @@ function validateInputs(policy: WorkflowDispatchPolicy, inputs: Record<string, s
   const actual = Object.keys(inputs).sort();
   const allowed = Object.keys(policy.inputs).sort();
   if (actual.some((key) => !allowed.includes(key))) return "workflow_input_not_allowlisted";
+  // Every allowlisted input must be present. Otherwise the agent can omit a constrained
+  // input and GitHub substitutes the workflow's own YAML default — a value the policy
+  // never allowlisted — silently escaping the value constraint.
+  if (allowed.some((key) => !actual.includes(key))) return "workflow_required_input_missing";
   for (const [key, value] of Object.entries(inputs)) {
     const values = policy.inputs[key];
     if (!values?.includes(value)) return "workflow_input_value_not_allowlisted";
@@ -74,7 +78,10 @@ export async function executeWorkflowDispatch(
   await deps.octokit.actions.createWorkflowDispatch({
     owner: input.owner,
     repo: input.repo,
-    workflow_id: input.workflow,
+    // Use the policy's allowlisted workflow, not the agent's raw string. GitHub resolves
+    // workflow_id by case-sensitive path, but matchingPolicy compares case-insensitively;
+    // dispatching policy.workflow guarantees the exact file the operator allowlisted runs.
+    workflow_id: policy.workflow,
     ref: input.ref,
     inputs: input.inputs,
   });
