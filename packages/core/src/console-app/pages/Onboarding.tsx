@@ -124,7 +124,7 @@ export function Onboarding({ session, onComplete }: { session: Session; onComple
     pollRef.current = setInterval(async () => {
       try {
         const me = await getMe();
-        if (me.slackUserId) {
+        if (me?.slackUserId) {
           if (pollRef.current) clearInterval(pollRef.current);
           pollRef.current = null;
           void advanceToSlackConnect();

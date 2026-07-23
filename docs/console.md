@@ -65,6 +65,29 @@ Uptime, tool count, last reload timestamp.
 - **`bedrock.modelId`** — full Bedrock model ID (e.g. `global.anthropic.claude-sonnet-4-6`). Validated on save.
 - **`<capability>.<key>`** — capability-specific config. See each capability's schema in [`packages/core/src/capabilities/`](../packages/core/src/capabilities).
 
+### GitHub App workflow dispatch
+
+The GitHub capability accepts either a PAT or a GitHub App ID, installation ID, and private key. App authentication mints short-lived installation tokens automatically. Configure write access with an explicit `workflowDispatches` allowlist in the raw `capability.github` object:
+
+```json
+{
+  "settings": {
+    "repos": ["owner/repository"],
+    "workflowDispatches": [
+      {
+        "owner": "owner",
+        "repo": "repository",
+        "workflow": "docs-agent.yml",
+        "refs": ["main"],
+        "inputs": { "operation": ["inventory", "hygiene"] }
+      }
+    ]
+  }
+}
+```
+
+Dispatch rejects any repository, workflow, ref, input name, or input value absent from this policy. Every input named in a policy must also be supplied on dispatch — an allowlisted input cannot be omitted, since GitHub would otherwise substitute the workflow's own default value (which the policy never allowlisted). It does not provide repository checkout, arbitrary shell execution, direct file mutation, approval, or merge operations.
+
 ## hot-reload semantics
 
 Changes take effect on the next request — no container restart needed.

@@ -22,6 +22,7 @@ import { makeConfigStore, makeLogger } from "./_helpers.js";
 vi.mock("@octokit/rest", () => ({
   Octokit: class FakeOctokit {},
 }));
+vi.mock("@octokit/auth-app", () => ({ createAppAuth: vi.fn() }));
 
 const GOOD_CONFIG: CapabilityConfig = {
   enabled: true,
@@ -55,5 +56,53 @@ describe("githubCapability.registerTools", () => {
     );
     // No tools should have been registered before the throw.
     expect(Object.keys(tools)).toHaveLength(0);
+  });
+
+  it("accepts complete GitHub App credentials", async () => {
+    const tools: ToolSet = {};
+    await githubCapability.registerTools(
+      {
+        ...GOOD_CONFIG,
+        credentials: { appId: "1", installationId: "2", privateKey: "key" },
+      },
+      makeConfigStore(),
+      makeLogger(),
+      tools,
+    );
+    expect(Object.keys(tools)).toContain("github_list_workflow_runs");
+  });
+
+  it("rejects a malformed workflowDispatches policy without registering any tools", async () => {
+    const tools: ToolSet = {};
+    await expect(
+      githubCapability.registerTools(
+        {
+          ...GOOD_CONFIG,
+          // refs: [] violates .min(1); parse must throw before the shared toolset is mutated.
+          settings: {
+            repos: ["owner/repo"],
+            workflowDispatches: [{ owner: "o", repo: "r", workflow: "w.yml", refs: [] }],
+          },
+        },
+        makeConfigStore(),
+        makeLogger(),
+        tools,
+      ),
+    ).rejects.toThrow();
+    expect(Object.keys(tools)).toHaveLength(0);
+  });
+
+  it("rejects a malformed GitHub App installation ID", async () => {
+    await expect(
+      githubCapability.registerTools(
+        {
+          ...GOOD_CONFIG,
+          credentials: { appId: "1", installationId: "not-a-number", privateKey: "key" },
+        },
+        makeConfigStore(),
+        makeLogger(),
+        {},
+      ),
+    ).rejects.toThrow(/installationId/);
   });
 });

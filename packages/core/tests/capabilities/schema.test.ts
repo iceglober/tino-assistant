@@ -14,7 +14,13 @@ describe("buildCapabilityView", () => {
     const view = buildCapabilityView(githubCapability, null, undefined);
     expect(view.id).toBe("github");
     expect(view.enabled).toBe(false);
-    expect(view.fields.map((f) => f.key).sort()).toEqual(["clientId", "clientSecret"]);
+    expect(view.fields.map((f) => f.key).sort()).toEqual([
+      "appId",
+      "clientId",
+      "clientSecret",
+      "installationId",
+      "privateKey",
+    ]);
     for (const f of view.fields) expect(f.value).toBe("");
   });
 
@@ -27,11 +33,11 @@ describe("buildCapabilityView", () => {
     const view = buildCapabilityView(githubCapability, stored, 1234);
     expect(view.enabled).toBe(true);
     expect(view.updatedAt).toBe(1234);
-    const idField = view.fields.find((f) => f.key === "clientId")!;
-    expect(idField.value).toBe("Iv1.abc123");
-    const secretField = view.fields.find((f) => f.key === "clientSecret")!;
-    expect(secretField.value).toBe("secret_xyz");
-    expect(secretField.secret).toBe(true);
+    const idField = view.fields.find((f) => f.key === "clientId");
+    expect(idField?.value).toBe("Iv1.abc123");
+    const secretField = view.fields.find((f) => f.key === "clientSecret");
+    expect(secretField?.value).toBe("secret_xyz");
+    expect(secretField?.secret).toBe(true);
   });
 });
 
