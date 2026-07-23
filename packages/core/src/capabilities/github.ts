@@ -8,11 +8,18 @@
  * findWork: stub (not yet implemented — enabled=false by default).
  */
 
+import { createAppAuth } from "@octokit/auth-app";
 import { Octokit } from "@octokit/rest";
 import type { ToolSet } from "ai";
+import { z } from "zod";
 import type { ConfigStore } from "../persistence/config.js";
 import type { AppLogger } from "../slack/app.js";
 import { parseRepoSpec, type RepoSpec } from "../tools/github/allowlist.js";
+import {
+  githubDispatchWorkflowTool,
+  githubGetWorkflowRunTool,
+  workflowDispatchPolicySchema,
+} from "../tools/github/dispatch.js";
 import { githubGetFileTool } from "../tools/github/getFile.js";
 import { githubSearchCodeTool } from "../tools/github/search.js";
 import { githubGetWorkflowRunLogsTool, githubListWorkflowRunsTool } from "../tools/github/workflows.js";
@@ -36,6 +43,9 @@ export const githubCapability: SharedCapability = {
       target: "credentials.clientSecret",
       secret: true,
     },
+    { key: "appId", label: "GitHub App ID", target: "credentials.appId" },
+    { key: "installationId", label: "GitHub App Installation ID", target: "credentials.installationId" },
+    { key: "privateKey", label: "GitHub App Private Key", target: "credentials.privateKey", secret: true },
   ],
 
   async registerTools(
@@ -45,11 +55,24 @@ export const githubCapability: SharedCapability = {
     tools: ToolSet,
   ): Promise<void> {
     const token = config.credentials.token;
-    if (!token) {
-      throw new Error("GitHub capability: credentials.token is not set");
+    const appId = config.credentials.appId;
+    const installationId = config.credentials.installationId;
+    const privateKey = config.credentials.privateKey;
+    let octokit: Octokit;
+    if (token) {
+      octokit = new Octokit({ auth: token, userAgent: "tino/0.1" });
+    } else if (appId && installationId && privateKey) {
+      const parsedInstallationId = Number(installationId);
+      if (!Number.isSafeInteger(parsedInstallationId) || parsedInstallationId <= 0)
+        throw new Error("GitHub capability: installationId must be a positive integer");
+      octokit = new Octokit({
+        authStrategy: createAppAuth,
+        auth: { appId, installationId: parsedInstallationId, privateKey },
+        userAgent: "tino/0.1",
+      });
+    } else {
+      throw new Error("GitHub capability: credentials.token or complete GitHub App credentials are required");
     }
-
-    const octokit = new Octokit({ auth: token, userAgent: "tino/0.1" });
 
     // Resolve allowlist from capability settings
     const reposRaw = (config.settings.repos as string[] | undefined) ?? [];
@@ -69,6 +92,15 @@ export const githubCapability: SharedCapability = {
     tools.github_get_file = githubGetFileTool({ octokit, defaultRepo, allowedRepos });
     tools.github_list_workflow_runs = githubListWorkflowRunsTool({ octokit, defaultRepo, allowedRepos });
     tools.github_get_workflow_run_logs = githubGetWorkflowRunLogsTool({ octokit, defaultRepo, allowedRepos });
+    const dispatchPolicies = z.array(workflowDispatchPolicySchema).parse(config.settings.workflowDispatches ?? []);
+    if (dispatchPolicies.length > 0) {
+      tools.github_dispatch_workflow = githubDispatchWorkflowTool({
+        octokit,
+        allowedRepos,
+        policies: dispatchPolicies,
+      });
+      tools.github_get_workflow_run = githubGetWorkflowRunTool({ octokit, allowedRepos });
+    }
 
     logger.info(
       {
