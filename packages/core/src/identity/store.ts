@@ -1,5 +1,16 @@
-import { Database, SQLiteError } from "bun:sqlite";
+import { createRequire } from "node:module";
 import type { Identity, IdentityProvider, TinoUser } from "./types.js";
+
+// Lazily resolve bun:sqlite. Importing this module for its types or for
+// `IdentityLinkConflictError` must NOT eagerly load the `bun:` builtin — the
+// Pulumi infra program pulls this module in via `@tino/aws` under plain Node,
+// where `bun:sqlite` is unresolvable (ERR_UNSUPPORTED_ESM_URL_SCHEME). The
+// sqlite factories below are only ever called under the Bun runtime, so the
+// require happens there, never at import time.
+const nodeRequire = createRequire(import.meta.url);
+function bunSqlite(): typeof import("bun:sqlite") {
+  return nodeRequire("bun:sqlite");
+}
 
 /**
  * Per-user record store. Mirrors the factory pattern used by
@@ -105,6 +116,7 @@ function rowToIdentity(row: IdentityRow): Identity {
  * Schema is `CREATE TABLE IF NOT EXISTS` — rerunning is safe.
  */
 export function createSqliteUserStore({ dbPath }: { dbPath: string }): UserStore {
+  const { Database } = bunSqlite();
   const db = new Database(dbPath);
 
   db.exec(`
@@ -205,6 +217,7 @@ export function createSqliteUserStore({ dbPath }: { dbPath: string }): UserStore
  * case without parsing error text.
  */
 export function createSqliteIdentityStore({ dbPath }: { dbPath: string }): IdentityStore {
+  const { Database, SQLiteError } = bunSqlite();
   const db = new Database(dbPath);
 
   db.exec(`
