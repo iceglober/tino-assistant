@@ -5,54 +5,89 @@ import { useToast } from "../hooks/useToast.js";
 import { getConfig, putConfig, reloadSlack } from "../lib/api.js";
 
 /**
- * One-screen setup: the three things Tino needs to run.
- *   - Slack: bot + app tokens (so it can receive DMs / @mentions).
- *   - Azure OpenAI: the model that powers replies.
- *   - Google (optional): OAuth client so users can connect Gmail + Calendar.
- *
- * Writes the exact config keys the backend reads, then hot-reloads Slack (which
- * also rebuilds the Azure model) so edits take effect without a restart.
+ * One-screen setup: Slack tokens, the model provider + model, and (optionally)
+ * Google OAuth. Writes the exact config keys the backend reads, then hot-reloads
+ * Slack (which also rebuilds the model) so edits take effect without a restart.
  */
+
+interface ProviderField {
+  key: string;
+  label: string;
+  placeholder?: string;
+  hint?: string;
+  secret?: boolean;
+  optional?: boolean;
+}
+
+const PROVIDERS: Record<string, { label: string; note?: string; fields: ProviderField[] }> = {
+  azure: {
+    label: "Azure OpenAI",
+    fields: [
+      { key: "azure.apiKey", label: "API Key", secret: true, placeholder: "your Azure OpenAI key" },
+      { key: "azure.resourceName", label: "Resource Name", placeholder: "my-openai-resource", hint: "From your endpoint: https://<name>.openai.azure.com" },
+      { key: "azure.deployment", label: "Deployment (model)", placeholder: "gpt-4o", hint: "The deployment name you created, not the base model id." },
+      { key: "azure.apiVersion", label: "API Version", placeholder: "leave blank for the default", optional: true },
+    ],
+  },
+  openai: {
+    label: "OpenAI",
+    fields: [
+      { key: "openai.apiKey", label: "API Key", secret: true, placeholder: "sk-…" },
+      { key: "openai.model", label: "Model", placeholder: "gpt-4o" },
+    ],
+  },
+  anthropic: {
+    label: "Anthropic",
+    fields: [
+      { key: "anthropic.apiKey", label: "API Key", secret: true, placeholder: "sk-ant-…" },
+      { key: "anthropic.model", label: "Model", placeholder: "claude-sonnet-4-5" },
+    ],
+  },
+  bedrock: {
+    label: "Amazon Bedrock",
+    note: "Authenticates via the server's AWS IAM role — no key needed. Only works when Tino runs on AWS.",
+    fields: [
+      { key: "bedrock.region", label: "Region", placeholder: "us-east-1" },
+      { key: "bedrock.modelId", label: "Model ID", placeholder: "us.anthropic.claude-sonnet-4-5-20250929-v1:0" },
+    ],
+  },
+};
+const PROVIDER_IDS = Object.keys(PROVIDERS);
+
+const SLACK_FIELDS: ProviderField[] = [
+  { key: "slack.botToken", label: "Bot Token", secret: true, placeholder: "xoxb-…", hint: "Slack → your app → OAuth & Permissions → Bot User OAuth Token" },
+  { key: "slack.appToken", label: "App Token", secret: true, placeholder: "xapp-…", hint: "Slack → your app → Basic Information → App-Level Tokens (connections:write)" },
+];
+const GOOGLE_FIELDS: ProviderField[] = [
+  { key: "google.oauth.clientId", label: "OAuth Client ID", placeholder: "…apps.googleusercontent.com", hint: "Needed so you can connect Gmail + Calendar from the chat.", optional: true },
+  { key: "google.oauth.clientSecret", label: "OAuth Client Secret", secret: true, optional: true },
+];
+
 export function Setup({ onComplete }: { onComplete: () => void }): JSX.Element {
   const toast = useToast();
   const save = useSaveState();
   const [loaded, setLoaded] = useState(false);
-
-  // Slack
-  const [botToken, setBotToken] = useState("");
-  const [appToken, setAppToken] = useState("");
-  // Azure OpenAI
-  const [azureApiKey, setAzureApiKey] = useState("");
-  const [azureResource, setAzureResource] = useState("");
-  const [azureDeployment, setAzureDeployment] = useState("");
-  const [azureApiVersion, setAzureApiVersion] = useState("");
-  // Google OAuth (optional)
-  const [googleClientId, setGoogleClientId] = useState("");
-  const [googleClientSecret, setGoogleClientSecret] = useState("");
-
+  const [provider, setProvider] = useState<string>("azure");
+  const [values, setValues] = useState<Record<string, string>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
+
+  const val = (key: string): string => values[key] ?? "";
+  const setVal = (key: string, v: string): void => setValues((prev) => ({ ...prev, [key]: v }));
 
   useEffect(() => {
     void (async () => {
       try {
         const entries = await getConfig();
-        const get = (k: string): string => {
-          const e = entries.find((x) => x.key === k);
-          if (!e) return "";
+        const parsed: Record<string, string> = {};
+        for (const e of entries) {
           try {
-            return String(JSON.parse(e.value));
+            parsed[e.key] = String(JSON.parse(e.value));
           } catch {
-            return e.value;
+            parsed[e.key] = e.value;
           }
-        };
-        setBotToken(get("slack.botToken"));
-        setAppToken(get("slack.appToken"));
-        setAzureApiKey(get("azure.apiKey"));
-        setAzureResource(get("azure.resourceName"));
-        setAzureDeployment(get("azure.deployment"));
-        setAzureApiVersion(get("azure.apiVersion"));
-        setGoogleClientId(get("google.oauth.clientId"));
-        setGoogleClientSecret(get("google.oauth.clientSecret"));
+        }
+        setValues(parsed);
+        if (parsed["model.provider"] && PROVIDERS[parsed["model.provider"]]) setProvider(parsed["model.provider"]);
       } catch {
         /* first boot — empty form */
       }
@@ -62,13 +97,13 @@ export function Setup({ onComplete }: { onComplete: () => void }): JSX.Element {
 
   const validate = (): boolean => {
     const e: Record<string, string> = {};
-    if (!botToken.trim()) e.botToken = "Bot token is required.";
-    else if (!botToken.trim().startsWith("xoxb-")) e.botToken = "Must start with xoxb-";
-    if (!appToken.trim()) e.appToken = "App token is required.";
-    else if (!appToken.trim().startsWith("xapp-")) e.appToken = "Must start with xapp-";
-    if (!azureApiKey.trim()) e.azureApiKey = "API key is required.";
-    if (!azureResource.trim()) e.azureResource = "Resource name is required.";
-    if (!azureDeployment.trim()) e.azureDeployment = "Deployment name is required.";
+    if (!val("slack.botToken").trim()) e["slack.botToken"] = "Bot token is required.";
+    else if (!val("slack.botToken").trim().startsWith("xoxb-")) e["slack.botToken"] = "Must start with xoxb-";
+    if (!val("slack.appToken").trim()) e["slack.appToken"] = "App token is required.";
+    else if (!val("slack.appToken").trim().startsWith("xapp-")) e["slack.appToken"] = "Must start with xapp-";
+    for (const f of PROVIDERS[provider].fields) {
+      if (!f.optional && !val(f.key).trim()) e[f.key] = `${f.label} is required.`;
+    }
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -77,14 +112,15 @@ export function Setup({ onComplete }: { onComplete: () => void }): JSX.Element {
     if (!validate()) return;
 
     const ok = await save.run(async () => {
-      await putConfig("slack.botToken", botToken.trim());
-      await putConfig("slack.appToken", appToken.trim());
-      await putConfig("azure.apiKey", azureApiKey.trim());
-      await putConfig("azure.resourceName", azureResource.trim());
-      await putConfig("azure.deployment", azureDeployment.trim());
-      if (azureApiVersion.trim()) await putConfig("azure.apiVersion", azureApiVersion.trim());
-      if (googleClientId.trim()) await putConfig("google.oauth.clientId", googleClientId.trim());
-      if (googleClientSecret.trim()) await putConfig("google.oauth.clientSecret", googleClientSecret.trim());
+      await putConfig("slack.botToken", val("slack.botToken").trim());
+      await putConfig("slack.appToken", val("slack.appToken").trim());
+      await putConfig("model.provider", provider);
+      for (const f of PROVIDERS[provider].fields) {
+        if (val(f.key).trim()) await putConfig(f.key, val(f.key).trim());
+      }
+      for (const f of GOOGLE_FIELDS) {
+        if (val(f.key).trim()) await putConfig(f.key, val(f.key).trim());
+      }
     });
 
     if (!ok) {
@@ -92,11 +128,36 @@ export function Setup({ onComplete }: { onComplete: () => void }): JSX.Element {
       return;
     }
     const reload = await reloadSlack();
-    if (!reload.ok) {
-      toast.show(`Saved, but Slack connect failed: ${reload.error ?? "unknown"}`, "err");
-    }
+    if (!reload.ok) toast.show(`Saved, but Slack connect failed: ${reload.error ?? "unknown"}`, "err");
     setTimeout(() => onComplete(), 600);
   };
+
+  const renderField = (f: ProviderField): JSX.Element => (
+    <div className="field-group" key={f.key}>
+      <label className="field-label" htmlFor={f.key}>
+        {f.label}
+        {f.optional ? <span className="field-label-mono"> optional</span> : null}
+      </label>
+      {f.secret ? (
+        <RevealInput id={f.key} value={val(f.key)} onChange={(v) => setVal(f.key, v)} placeholder={f.placeholder} ariaLabel={f.label} invalid={!!errors[f.key]} />
+      ) : (
+        <input
+          id={f.key}
+          className="field-input"
+          type="text"
+          value={val(f.key)}
+          onChange={(e) => setVal(f.key, e.target.value)}
+          placeholder={f.placeholder}
+          autoComplete="off"
+          aria-invalid={errors[f.key] ? "true" : undefined}
+        />
+      )}
+      {f.hint ? <div className="field-hint">{f.hint}</div> : null}
+      <div className={`field-error${errors[f.key] ? " visible" : ""}`} role="alert" aria-live="polite">
+        {errors[f.key] ?? ""}
+      </div>
+    </div>
+  );
 
   if (!loaded) {
     return (
@@ -110,38 +171,6 @@ export function Setup({ onComplete }: { onComplete: () => void }): JSX.Element {
     );
   }
 
-  const field = (
-    id: string,
-    label: string,
-    value: string,
-    onChange: (v: string) => void,
-    opts: { placeholder?: string; hint?: string; secret?: boolean } = {},
-  ): JSX.Element => (
-    <div className="field-group">
-      <label className="field-label" htmlFor={id}>
-        {label}
-      </label>
-      {opts.secret ? (
-        <RevealInput id={id} value={value} onChange={onChange} placeholder={opts.placeholder} ariaLabel={label} invalid={!!errors[id]} />
-      ) : (
-        <input
-          id={id}
-          className="field-input"
-          type="text"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={opts.placeholder}
-          autoComplete="off"
-          aria-invalid={errors[id] ? "true" : undefined}
-        />
-      )}
-      {opts.hint ? <div className="field-hint">{opts.hint}</div> : null}
-      <div className={`field-error${errors[id] ? " visible" : ""}`} role="alert" aria-live="polite">
-        {errors[id] ?? ""}
-      </div>
-    </div>
-  );
-
   return (
     <div className="page">
       <div className="logo-block">
@@ -151,46 +180,37 @@ export function Setup({ onComplete }: { onComplete: () => void }): JSX.Element {
 
       <div className="setup-screen">
         <h1 className="setup-heading">set up tino.</h1>
-        <p className="setup-lead">three things to get running: a Slack app, an Azure OpenAI model, and (optionally) Google.</p>
+        <p className="setup-lead">connect Slack, pick a model provider, and (optionally) Google.</p>
 
         <h2 className="setup-section">Slack</h2>
-        {field("botToken", "Bot Token", botToken, setBotToken, {
-          placeholder: "xoxb-…",
-          hint: "Slack → your app → OAuth & Permissions → Bot User OAuth Token",
-          secret: true,
-        })}
-        {field("appToken", "App Token", appToken, setAppToken, {
-          placeholder: "xapp-…",
-          hint: "Slack → your app → Basic Information → App-Level Tokens (connections:write)",
-          secret: true,
-        })}
+        {SLACK_FIELDS.map(renderField)}
 
-        <h2 className="setup-section">Azure OpenAI</h2>
-        {field("azureApiKey", "API Key", azureApiKey, setAzureApiKey, {
-          placeholder: "your Azure OpenAI key",
-          hint: "Azure portal → your OpenAI resource → Keys and Endpoint",
-          secret: true,
-        })}
-        {field("azureResource", "Resource Name", azureResource, setAzureResource, {
-          placeholder: "my-openai-resource",
-          hint: "The resource name in your endpoint: https://<name>.openai.azure.com",
-        })}
-        {field("azureDeployment", "Deployment Name", azureDeployment, setAzureDeployment, {
-          placeholder: "gpt-4o",
-          hint: "The deployment you created for the model, not the model id.",
-        })}
-        {field("azureApiVersion", "API Version (optional)", azureApiVersion, setAzureApiVersion, {
-          placeholder: "leave blank for the default",
-        })}
+        <h2 className="setup-section">Model</h2>
+        <div className="field-group">
+          <label className="field-label" htmlFor="model-provider">
+            Provider
+          </label>
+          <select
+            id="model-provider"
+            className="field-input"
+            value={provider}
+            onChange={(e) => {
+              setProvider(e.target.value);
+              setErrors({});
+            }}
+          >
+            {PROVIDER_IDS.map((id) => (
+              <option key={id} value={id}>
+                {PROVIDERS[id].label}
+              </option>
+            ))}
+          </select>
+          {PROVIDERS[provider].note ? <div className="field-hint">{PROVIDERS[provider].note}</div> : null}
+        </div>
+        {PROVIDERS[provider].fields.map(renderField)}
 
         <h2 className="setup-section">Google (optional)</h2>
-        {field("googleClientId", "OAuth Client ID", googleClientId, setGoogleClientId, {
-          placeholder: "…apps.googleusercontent.com",
-          hint: "Needed so you can connect Gmail + Calendar from the chat.",
-        })}
-        {field("googleClientSecret", "OAuth Client Secret", googleClientSecret, setGoogleClientSecret, {
-          secret: true,
-        })}
+        {GOOGLE_FIELDS.map(renderField)}
 
         <div className="btn-row">
           <SaveButton

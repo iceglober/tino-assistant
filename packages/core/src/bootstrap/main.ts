@@ -3,7 +3,7 @@ import { WebClient } from "@slack/web-api";
 import { createAssistant } from "../application/assistant.js";
 import { createSenderResolver } from "../application/sender.js";
 import { loadEnv } from "../env.js";
-import { createAzureChatModel } from "../infrastructure/driven/model/azure.js";
+import { buildChatModel, resolveModelConfig } from "../infrastructure/driven/model/index.js";
 import { createCryptoAdapter } from "../infrastructure/driven/crypto/factory.js";
 import { createIdentityResolver } from "../infrastructure/driven/identity/resolver.js";
 import { createPersistence } from "../infrastructure/driven/persistence/factory.js";
@@ -42,18 +42,24 @@ function parseConfigValue(raw: string | null): string | undefined {
 let assistant: Assistant | null = null;
 
 async function refreshRuntime(): Promise<void> {
-  const apiKey = parseConfigValue(await config.get("azure.apiKey")) ?? process.env.AZURE_API_KEY;
-  const deployment = parseConfigValue(await config.get("azure.deployment")) ?? process.env.AZURE_DEPLOYMENT;
-  const resourceName = parseConfigValue(await config.get("azure.resourceName")) ?? process.env.AZURE_RESOURCE_NAME;
-  const baseURL = parseConfigValue(await config.get("azure.baseURL")) ?? process.env.AZURE_BASE_URL;
-  const apiVersion = parseConfigValue(await config.get("azure.apiVersion")) ?? process.env.AZURE_API_VERSION;
+  // Read every config key once, falling back to env (dot key → UPPER_SNAKE).
+  const entries = await config.list();
+  const cfgMap = new Map(entries.map((e) => [e.key, parseConfigValue(e.value)]));
+  // Env fallback: dot + camelCase key → UPPER_SNAKE (azure.apiKey → AZURE_API_KEY).
+  const envName = (key: string): string =>
+    key
+      .replace(/\./g, "_")
+      .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+      .toUpperCase();
+  const get = (key: string): string | undefined => cfgMap.get(key) ?? process.env[envName(key)];
 
+  const settings = resolveModelConfig(get);
   let model: ChatModel | null = null;
-  if (apiKey && deployment && (resourceName || baseURL)) {
-    model = createAzureChatModel({ apiKey, deployment, resourceName, baseURL, apiVersion });
-    logger.info({ deployment }, "azure model configured");
+  if (settings) {
+    model = buildChatModel(settings);
+    logger.info({ provider: settings.provider }, "model configured");
   } else {
-    logger.warn("azure model not configured — set azure.apiKey, azure.deployment, and azure.resourceName in Setup");
+    logger.warn(`model not configured (provider=${get("model.provider") ?? "azure"}) — configure it in Setup`);
   }
 
   const slackTools = await buildSlackTools(config, logger);

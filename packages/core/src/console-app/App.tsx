@@ -23,8 +23,18 @@ async function determinePhase(): Promise<Phase> {
       }
     };
     const hasSlack = !!(get("slack.botToken") && get("slack.appToken"));
-    const hasAzure = !!(get("azure.apiKey") && get("azure.deployment") && (get("azure.resourceName") || get("azure.baseURL")));
-    return hasSlack && hasAzure ? "ready" : "setup";
+    const provider = get("model.provider") || "azure";
+    const hasModel =
+      provider === "azure"
+        ? !!(get("azure.apiKey") && get("azure.deployment") && (get("azure.resourceName") || get("azure.baseURL")))
+        : provider === "openai"
+          ? !!(get("openai.apiKey") && get("openai.model"))
+          : provider === "anthropic"
+            ? !!(get("anthropic.apiKey") && get("anthropic.model"))
+            : provider === "bedrock"
+              ? !!(get("bedrock.region") && get("bedrock.modelId"))
+              : false;
+    return hasSlack && hasModel ? "ready" : "setup";
   } catch {
     return "setup";
   }
