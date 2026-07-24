@@ -24,6 +24,8 @@ export interface CapabilityField {
   secret?: boolean;
   placeholder?: string;
   value?: string;
+  /** Secret fields only: whether a value is currently stored (the value itself is never sent). */
+  hasValue?: boolean;
 }
 
 export interface CapabilityEntry {

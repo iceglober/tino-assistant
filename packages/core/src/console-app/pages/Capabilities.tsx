@@ -1,7 +1,7 @@
 import { type JSX, useCallback, useEffect, useRef, useState } from "react";
 import { useOutletContext } from "react-router-dom";
-import { Badge } from "../components/Badge.js";
-import { CapabilityModal } from "../components/CapabilityModal.js";
+import { CapabilityDetail } from "../components/CapabilityDetail.js";
+import { McpServersDetail } from "../components/McpServersDetail.js";
 import { TabPanel, Tabs } from "../components/Tabs.js";
 import { useToast } from "../hooks/useToast.js";
 import type {
@@ -9,29 +9,20 @@ import type {
   DiscoveryProgress,
   DiscoveryResult,
   HealthResponse,
-  McpCatalogEntry,
   McpServer,
   Session,
 } from "../lib/api.js";
 import {
   getDiscoveryResult,
-  getMcpCatalog,
   getMcpServers,
   getUserCapabilities,
   getUserPreferences,
   reloadCapabilities,
   startDiscovery,
 } from "../lib/api.js";
+import { CAP_META } from "../lib/capabilityMeta.js";
 
-const CAP_META: Record<string, { icon: string; name: string; desc: string }> = {
-  github: { icon: "🐙", name: "GitHub", desc: "repos, issues, PRs" },
-  calendar: { icon: "📅", name: "Calendar", desc: "Google Calendar events" },
-  gmail: { icon: "✉️", name: "Gmail", desc: "search and read email" },
-  linear: { icon: "📐", name: "Linear", desc: "issues and projects" },
-  cloudwatch: { icon: "☁️", name: "CloudWatch", desc: "AWS logs and metrics" },
-  slack: { icon: "💬", name: "Slack", desc: "public channels and content" },
-  "slack-personal": { icon: "🔒", name: "Slack (personal)", desc: "DMs, search, and private messages" },
-};
+type Selected = { kind: "cap"; id: string } | { kind: "mcp" } | null;
 
 const RELATIONSHIP_LABELS: Record<string, string> = {
   "reports-to": "reports to",
@@ -59,9 +50,9 @@ export function Capabilities(): JSX.Element {
   const [tab, setTab] = useState("tools");
   const [caps, setCaps] = useState<CapabilityEntry[]>([]);
   const [loaded, setLoaded] = useState(false);
-  const [modalCap, setModalCap] = useState<CapabilityEntry | null>(null);
+  const [loadError, setLoadError] = useState(false);
+  const [selected, setSelected] = useState<Selected>(null);
 
-  const [mcpCatalog, setMcpCatalog] = useState<McpCatalogEntry[]>([]);
   const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
   const [mcpLoaded, setMcpLoaded] = useState(false);
 
@@ -75,16 +66,31 @@ export function Capabilities(): JSX.Element {
     try {
       const data = await getUserCapabilities(userId);
       setCaps(data);
+      setLoadError(false);
     } catch {
-      /* ignore */
+      setLoadError(true);
     } finally {
       setLoaded(true);
     }
   }, [userId]);
 
+  const loadMcp = useCallback(async () => {
+    try {
+      setMcpServers(await getMcpServers());
+    } catch {
+      /* MCP unavailable — leave list empty */
+    } finally {
+      setMcpLoaded(true);
+    }
+  }, []);
+
   useEffect(() => {
     void loadCaps();
   }, [loadCaps]);
+
+  useEffect(() => {
+    void loadMcp();
+  }, [loadMcp]);
 
   useEffect(() => {
     void (async () => {
@@ -95,20 +101,6 @@ export function Capabilities(): JSX.Element {
         /* no discovery */
       }
       setDiscoveryLoaded(true);
-    })();
-  }, []);
-
-  useEffect(() => {
-    void (async () => {
-      try {
-        const [catalog, servers] = await Promise.all([getMcpCatalog(), getMcpServers()]);
-        setMcpCatalog(catalog);
-        setMcpServers(servers);
-      } catch {
-        /* no MCP available */
-      } finally {
-        setMcpLoaded(true);
-      }
     })();
   }, []);
 
@@ -162,9 +154,9 @@ export function Capabilities(): JSX.Element {
 
   useEffect(() => () => abortRef.current?.abort(), []);
 
-  const enabledCaps = caps.filter((c) => c.enabled);
-  const disabledCaps = caps.filter((c) => !c.enabled);
-  const hasGoogleCap = caps.some((c) => (c.id === "gmail" || c.id === "calendar") && c.enabled);
+  // Active capabilities first, then available — one grid, no separate sections.
+  const orderedCaps = [...caps].sort((a, b) => Number(b.enabled) - Number(a.enabled));
+  const selectedCap = selected?.kind === "cap" ? caps.find((c) => c.id === selected.id) : undefined;
 
   return (
     <div>
@@ -172,81 +164,94 @@ export function Capabilities(): JSX.Element {
 
       <TabPanel active={tab} id="tools">
         <h2 className="section-label" style={{ marginTop: 0 }}>
-          Integrations
+          Capabilities
         </h2>
         <p className="section-hint">
-          manage your connected integrations. click the gear icon to configure settings and privacy.
+          Each card is one thing tino can do. Select one to configure it and see the tools it grants.
         </p>
 
         {!loaded ? (
           <p className="empty">loading capabilities…</p>
+        ) : loadError ? (
+          <div
+            className="cap-req"
+            style={{ borderColor: "var(--err-border)", background: "var(--err-bg)", maxWidth: 480 }}
+          >
+            <div className="cap-req__t">
+              <b style={{ color: "var(--err)" }}>Couldn't load capabilities</b>
+              <small>This is a load failure, not an empty list. Check the server and retry.</small>
+            </div>
+            <button type="button" className="btn" onClick={() => void loadCaps()}>
+              Retry
+            </button>
+          </div>
         ) : (
-          <>
-            {enabledCaps.length > 0 && (
-              <div className="cap-grid">
-                {enabledCaps.map((cap) => (
-                  <CapCard key={cap.id} cap={cap} onSettings={() => setModalCap(cap)} />
-                ))}
-              </div>
-            )}
-
-            {!hasGoogleCap && (
-              <a
-                href="/api/oauth/google/authorize"
-                className="cap-card add-cap-card"
-                style={{ textDecoration: "none", color: "inherit", display: "block", marginTop: 12, maxWidth: 360 }}
-              >
-                <div className="cap-card-header">
-                  <span className="cap-card-icon" style={{ opacity: 0.5 }}>
-                    +
-                  </span>
-                  <div className="cap-card-meta">
-                    <div className="cap-card-name" style={{ color: "var(--accent)" }}>
-                      connect Google
+          <div className={`md ${selected ? "is-split" : ""}`}>
+            <div className="md__master">
+              {orderedCaps.map((cap) => {
+                const meta = CAP_META[cap.id] ?? { icon: "⚙️", name: cap.displayName ?? cap.id, desc: "" };
+                const isSel = selected?.kind === "cap" && selected.id === cap.id;
+                return (
+                  <button
+                    key={cap.id}
+                    type="button"
+                    className={`md-card ${isSel ? "is-selected" : ""}`}
+                    onClick={() => setSelected({ kind: "cap", id: cap.id })}
+                  >
+                    <div className="md-card__ic">{meta.icon}</div>
+                    <div className="md-card__body">
+                      <div className="md-card__name">{meta.name}</div>
+                      <div className="md-card__desc">{meta.desc}</div>
+                      <div className="md-card__foot">
+                        <span className={`cap-badge ${cap.enabled ? "is-active" : "is-avail"}`}>
+                          <span className="cap-badge__d" />
+                          {cap.enabled ? "Active" : "Available"}
+                        </span>
+                      </div>
                     </div>
-                    <div className="cap-card-desc">Gmail, Calendar — read-only access</div>
+                  </button>
+                );
+              })}
+              {mcpLoaded && (
+                <button
+                  type="button"
+                  className={`md-card ${selected?.kind === "mcp" ? "is-selected" : ""}`}
+                  onClick={() => setSelected({ kind: "mcp" })}
+                >
+                  <div className="md-card__ic">◆</div>
+                  <div className="md-card__body">
+                    <div className="md-card__name">MCP Tools</div>
+                    <div className="md-card__desc">Bring your own tool servers — remote or local.</div>
+                    <div className="md-card__foot">
+                      <span className="cap-badge is-active">
+                        <span className="cap-badge__d" />
+                        {mcpServers.length} server{mcpServers.length === 1 ? "" : "s"}
+                      </span>
+                    </div>
                   </div>
-                </div>
-              </a>
-            )}
+                </button>
+              )}
+            </div>
 
-            {disabledCaps.length > 0 && (
-              <>
-                <div className="section-label" style={{ marginTop: 24 }}>
-                  available
-                </div>
-                <div className="cap-grid">
-                  {disabledCaps.map((cap) => (
-                    <CapCard key={cap.id} cap={cap} onSettings={() => setModalCap(cap)} />
-                  ))}
-                </div>
-              </>
-            )}
-
-            {mcpLoaded && mcpCatalog.length > 0 && (
-              <>
-                <h2 className="section-label" style={{ marginTop: 24 }}>
-                  MCP Tools
-                </h2>
-                <p className="section-hint">manage your connected mcp servers. connect external tools and services.</p>
-                <div className="cap-grid">
-                  {mcpCatalog.map((entry) => (
-                    <McpCard key={entry.id} entry={entry} servers={mcpServers} />
-                  ))}
-                </div>
-              </>
-            )}
-          </>
-        )}
-
-        {modalCap && (
-          <CapabilityModal
-            cap={modalCap}
-            userId={userId}
-            open
-            onClose={() => setModalCap(null)}
-            onChanged={() => void loadCaps()}
-          />
+            <div className="md__detail">
+              {selectedCap && (
+                <CapabilityDetail
+                  key={selectedCap.id}
+                  cap={selectedCap}
+                  userId={userId}
+                  onChanged={() => void loadCaps()}
+                  onClose={() => setSelected(null)}
+                />
+              )}
+              {selected?.kind === "mcp" && (
+                <McpServersDetail
+                  servers={mcpServers}
+                  onChanged={() => void loadMcp()}
+                  onClose={() => setSelected(null)}
+                />
+              )}
+            </div>
+          </div>
         )}
       </TabPanel>
 
@@ -542,83 +547,6 @@ function MemoryPanel(): JSX.Element {
           ))}
         </tbody>
       </table>
-    </div>
-  );
-}
-
-function CapCard({ cap, onSettings }: { cap: CapabilityEntry; onSettings: () => void }): JSX.Element {
-  const meta = CAP_META[cap.id] ?? { icon: "⚙️", name: cap.displayName ?? cap.id, desc: "" };
-
-  return (
-    <div className="cap-card cap-card-compact">
-      <div className="cap-card-header">
-        <span className="cap-card-icon">{meta.icon}</span>
-        <div className="cap-card-meta">
-          <div className="cap-card-name">
-            {meta.name}
-            <Badge variant={cap.scope === "private" ? "private" : "shared"}>
-              {cap.scope === "private" ? "Private" : "Shared"}
-            </Badge>
-          </div>
-          <div className="cap-card-desc">{meta.desc}</div>
-        </div>
-        <div className="cap-card-status">
-          {cap.enabled ? (
-            <span className="status-connected" style={{ color: "var(--ok)" }}>
-              ● on
-            </span>
-          ) : (
-            <span style={{ fontSize: "0.714rem", color: "var(--text-dim)" }}>off</span>
-          )}
-        </div>
-        <button
-          type="button"
-          className="cap-settings-btn"
-          onClick={(e) => {
-            e.stopPropagation();
-            onSettings();
-          }}
-          aria-label={`Configure ${meta.name}`}
-          title="Settings"
-        >
-          <svg viewBox="0 0 16 16" fill="none" width="16" height="16" aria-hidden="true">
-            <path
-              d="M6.5 1.5h3l.5 2 1.5.7 1.8-1 2.1 2.1-1 1.8.7 1.5 2 .5v3l-2 .5-0.7 1.5 1 1.8-2.1 2.1-1.8-1-1.5.7-.5 2h-3l-.5-2-1.5-.7-1.8 1-2.1-2.1 1-1.8-.7-1.5-2-.5v-3l2-.5.7-1.5-1-1.8 2.1-2.1 1.8 1 1.5-.7.5-2z"
-              stroke="currentColor"
-              strokeWidth="1.2"
-              strokeLinejoin="round"
-            />
-            <circle cx="8" cy="8" r="2.5" stroke="currentColor" strokeWidth="1.2" />
-          </svg>
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function McpCard({ entry, servers }: { entry: McpCatalogEntry; servers: McpServer[] }): JSX.Element {
-  const isConnected = servers.some((s) => s.serverId === entry.id && s.enabled);
-
-  return (
-    <div className="mcp-card cap-card cap-card-compact">
-      <div className="cap-card-header">
-        <span className="cap-card-icon">🔌</span>
-        <div className="cap-card-meta">
-          <div className="cap-card-name">{entry.name}</div>
-          <div className="cap-card-desc">{entry.description}</div>
-        </div>
-        <div className="cap-card-status">
-          {isConnected ? (
-            <span className="status-connected" style={{ color: "var(--ok)" }} data-testid={`mcp-status-${entry.id}`}>
-              ● connected
-            </span>
-          ) : (
-            <a href="#" className="mcp-connect-link" style={{ color: "var(--accent)", fontSize: "0.857rem" }}>
-              + connect
-            </a>
-          )}
-        </div>
-      </div>
     </div>
   );
 }
