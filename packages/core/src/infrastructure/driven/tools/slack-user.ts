@@ -9,6 +9,7 @@ import { readUserCredentials } from "./credentials.js";
 import {
   slackListMyConversationsTool,
   slackReadMyConversationTool,
+  slackReadMyThreadTool,
   slackSearchMyMessagesTool,
 } from "./slack/personal.js";
 
@@ -27,6 +28,7 @@ export async function buildSlackUserTools(
   return {
     slack_search_my_messages: slackSearchMyMessagesTool(client),
     slack_read_my_conversation: slackReadMyConversationTool(client),
+    slack_read_my_thread: slackReadMyThreadTool(client),
     slack_list_my_conversations: slackListMyConversationsTool(client),
   };
 }

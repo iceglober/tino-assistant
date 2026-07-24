@@ -31,6 +31,7 @@ describe("buildSlackUserTools", () => {
     expect(Object.keys(tools).sort()).toEqual([
       "slack_list_my_conversations",
       "slack_read_my_conversation",
+      "slack_read_my_thread",
       "slack_search_my_messages",
     ]);
   });

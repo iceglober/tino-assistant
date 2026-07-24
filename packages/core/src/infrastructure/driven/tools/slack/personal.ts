@@ -30,6 +30,15 @@ const historySchema = z.object({
   limit: z.number().int().min(1).max(50).default(20).describe("Max messages to return (1–50, default 20)."),
 });
 
+const threadSchema = z.object({
+  channel: z.string().min(1).describe("Conversation/DM ID the thread lives in (e.g. D01ABC123). From slack_search_my_messages `channelId`."),
+  ts: z
+    .string()
+    .min(1)
+    .describe("Timestamp of any message in the thread (the `ts` from a search match) — Slack returns the whole thread."),
+  limit: z.number().int().min(1).max(100).default(50).describe("Max replies to return (1–100, default 50)."),
+});
+
 const listSchema = z.object({
   types: z
     .string()
@@ -51,7 +60,10 @@ export function slackSearchMyMessagesTool(client: webApi.WebClient) {
         const matches = (res.messages?.matches ?? []).map((m) => ({
           text: m.text,
           user: m.username ?? m.user,
-          channel: m.channel?.name ?? m.channel?.id,
+          // channelId is what slack_read_my_thread / slack_read_my_conversation need;
+          // channelName is often empty for DMs, so never collapse the two.
+          channelId: m.channel?.id,
+          channelName: m.channel?.name,
           ts: m.ts,
           permalink: m.permalink,
         }));
@@ -74,6 +86,34 @@ export function slackReadMyConversationTool(client: webApi.WebClient) {
         const res = await client.conversations.history({ channel, limit });
         const messages = (res.messages ?? []).map((m) => ({ user: m.user, text: m.text, ts: m.ts }));
         return { messages };
+      } catch (err) {
+        return slackError(err);
+      }
+    },
+  });
+}
+
+/**
+ * Read a full thread the user can see — including in a private DM, which the bot
+ * token can never reach. Slack returns the whole thread for any `ts` in it.
+ */
+export function slackReadMyThreadTool(client: webApi.WebClient) {
+  return tool({
+    description:
+      "Read all replies in a thread from one of the CURRENT USER's conversations, including private DMs and group DMs. " +
+      "Pass the conversation id and the timestamp of any message in the thread (e.g. a slack_search_my_messages hit) " +
+      "to get the full back-and-forth.",
+    inputSchema: threadSchema,
+    execute: async ({ channel, ts, limit }) => {
+      try {
+        const res = await client.conversations.replies({ channel, ts, limit });
+        const messages = (res.messages ?? []).map((m) => ({
+          user: m.user,
+          text: m.text,
+          ts: m.ts,
+          threadTs: m.thread_ts,
+        }));
+        return { messages, hasMore: res.has_more ?? false };
       } catch (err) {
         return slackError(err);
       }

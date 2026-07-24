@@ -53,7 +53,7 @@ Tone:
       prompt += `\n- slack channels: \`slack_list_channels\`, \`slack_read_channel\`, \`slack_read_channel_thread\` to read workspace channels the bot is in.`;
     }
     if (hasSlackUser) {
-      prompt += `\n- slack (this user's own messages): \`slack_search_my_messages\` to search their DMs + channels, \`slack_list_my_conversations\` to find a DM/channel id, then \`slack_read_my_conversation\` to read it. These use the user's own token — only THIS user's private messages, and only when they've connected Slack. If a slack tool returns an auth error, tell them to DM you "connect".`;
+      prompt += `\n- slack (this user's own messages): \`slack_search_my_messages\` to search their DMs + channels — each hit has a \`channelId\` and \`ts\`. To get the full discussion behind a hit, call \`slack_read_my_thread\` with that channelId + ts (works in private DMs); use \`slack_read_my_conversation\` for recent messages in a conversation and \`slack_list_my_conversations\` to find an id. Don't stop at search snippets when the user asks what a discussion was about — read the thread. These use the user's own token, so only THIS user's private messages, and only when they've connected Slack. If a slack tool returns an auth error, tell them to DM you "connect".`;
     }
   }
 
