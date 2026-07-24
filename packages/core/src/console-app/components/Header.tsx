@@ -4,7 +4,7 @@ import type { Session } from "../lib/api.js";
 
 const NAV_ITEMS = [
   { path: "/", label: "Home" },
-  { path: "/capabilities", label: "Customize" },
+  { path: "/capabilities", label: "Capabilities" },
   { path: "/work", label: "Work" },
   { path: "/workspace", label: "Workspace" },
 ];
@@ -30,12 +30,18 @@ export function Header({
           ? "unreachable"
           : "checking…";
 
-  const isActive = (path: string) =>
-    path === "/" ? location.pathname === "/" : location.pathname === path;
+  const isActive = (path: string) => (path === "/" ? location.pathname === "/" : location.pathname === path);
 
   return (
     <header className="header">
-      <a href="/" onClick={(e) => { e.preventDefault(); navigate("/"); }} className="header-brand">
+      <a
+        href="/"
+        onClick={(e) => {
+          e.preventDefault();
+          navigate("/");
+        }}
+        className="header-brand"
+      >
         <img src="/assets/tino-logo.png" alt="tino" className="header-logo" />
         <div>
           <div className="header-wordmark">tino</div>

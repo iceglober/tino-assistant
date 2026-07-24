@@ -1,4 +1,4 @@
-import { type JSX, useCallback, useEffect, useRef, useState } from "react";
+import { type JSX, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { CapabilityDetail } from "../components/CapabilityDetail.js";
 import { McpServersDetail } from "../components/McpServersDetail.js";
@@ -37,9 +37,9 @@ const RELATIONSHIP_LABELS: Record<string, string> = {
 const TIME_HORIZON_ORDER = ["daily", "weekly", "monthly", "quarterly", "ongoing"] as const;
 
 const PAGE_TABS = [
-  { id: "tools", label: "Tools" },
-  { id: "preferences", label: "Preferences" },
-  { id: "memory", label: "Memory" },
+  { id: "tools", label: "Capabilities" },
+  { id: "preferences", label: "Your profile" },
+  { id: "memory", label: "What tino remembers" },
 ];
 
 export function Capabilities(): JSX.Element {
@@ -154,6 +154,34 @@ export function Capabilities(): JSX.Element {
 
   useEffect(() => () => abortRef.current?.abort(), []);
 
+  // FLIP: when the grid collapses into the rail (or expands back), animate each
+  // card from its previous position to its new one so they slide rather than jump.
+  const masterRef = useRef<HTMLDivElement>(null);
+  const prevRects = useRef<Map<string, DOMRect>>(new Map());
+  useLayoutEffect(() => {
+    const el = masterRef.current;
+    if (!el) return;
+    const reduce = typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    const next = new Map<string, DOMRect>();
+    for (const card of el.querySelectorAll<HTMLElement>("[data-cap-card]")) {
+      const id = card.dataset.capCard ?? "";
+      const rect = card.getBoundingClientRect();
+      next.set(id, rect);
+      const prev = prevRects.current.get(id);
+      if (prev && !reduce) {
+        const dx = prev.left - rect.left;
+        const dy = prev.top - rect.top;
+        if (dx || dy) {
+          card.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "translate(0, 0)" }], {
+            duration: 340,
+            easing: "cubic-bezier(0.22, 0.61, 0.24, 1)",
+          });
+        }
+      }
+    }
+    prevRects.current = next;
+  });
+
   // Active capabilities first, then available — one grid, no separate sections.
   const orderedCaps = [...caps].sort((a, b) => Number(b.enabled) - Number(a.enabled));
   const selectedCap = selected?.kind === "cap" ? caps.find((c) => c.id === selected.id) : undefined;
@@ -187,7 +215,7 @@ export function Capabilities(): JSX.Element {
           </div>
         ) : (
           <div className={`md ${selected ? "is-split" : ""}`}>
-            <div className="md__master">
+            <div className="md__master" ref={masterRef}>
               {orderedCaps.map((cap) => {
                 const meta = CAP_META[cap.id] ?? { icon: "⚙️", name: cap.displayName ?? cap.id, desc: "" };
                 const isSel = selected?.kind === "cap" && selected.id === cap.id;
@@ -195,6 +223,7 @@ export function Capabilities(): JSX.Element {
                   <button
                     key={cap.id}
                     type="button"
+                    data-cap-card={cap.id}
                     className={`md-card ${isSel ? "is-selected" : ""}`}
                     onClick={() => setSelected({ kind: "cap", id: cap.id })}
                   >
@@ -215,6 +244,7 @@ export function Capabilities(): JSX.Element {
               {mcpLoaded && (
                 <button
                   type="button"
+                  data-cap-card="__mcp__"
                   className={`md-card ${selected?.kind === "mcp" ? "is-selected" : ""}`}
                   onClick={() => setSelected({ kind: "mcp" })}
                 >
