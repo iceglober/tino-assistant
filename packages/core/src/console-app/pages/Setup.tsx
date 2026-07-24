@@ -57,6 +57,8 @@ const PROVIDER_IDS = Object.keys(PROVIDERS);
 const SLACK_FIELDS: ProviderField[] = [
   { key: "slack.botToken", label: "Bot Token", secret: true, placeholder: "xoxb-…", hint: "Slack → your app → OAuth & Permissions → Bot User OAuth Token" },
   { key: "slack.appToken", label: "App Token", secret: true, placeholder: "xapp-…", hint: "Slack → your app → Basic Information → App-Level Tokens (connections:write)" },
+  { key: "slack.clientId", label: "OAuth Client ID", placeholder: "1234.5678", optional: true, hint: "For per-user connect: Basic Information → App Credentials. Add redirect URL <your-url>/api/oauth/slack/callback + User Token Scopes (im/mpim/groups/channels history+read, search:read)." },
+  { key: "slack.clientSecret", label: "OAuth Client Secret", secret: true, optional: true },
 ];
 const GOOGLE_FIELDS: ProviderField[] = [
   { key: "google.oauth.clientId", label: "OAuth Client ID", placeholder: "…apps.googleusercontent.com", hint: "Needed so you can connect Gmail + Calendar from the chat.", optional: true },

@@ -12,12 +12,14 @@ import type {
   UserCapabilityStore,
   UserStore,
 } from "../../../ports/outbound.js";
+import type { ConnectTokens } from "../../security/connect-token.js";
 import { type AuthVariables, buildAuthMiddleware, createAuth } from "./auth.js";
 import { createChatRoutes } from "./routes/chat.js";
 import { createConfigRoutes } from "./routes/config.js";
 import { createGoogleOAuthRoutes } from "./routes/google-oauth.js";
 import { createHealthRoutes } from "./routes/health.js";
 import { createReloadRoutes } from "./routes/reload.js";
+import { createSlackOAuthRoutes } from "./routes/slack-oauth.js";
 
 /**
  * Tino console HTTP server — Hono on `@hono/node-server`.
@@ -44,6 +46,8 @@ export interface StartServerOptions {
   userCapabilities?: UserCapabilityStore;
   /** The assistant port — powers the web chat box. */
   assistant: Assistant;
+  /** Signs/verifies the connect tokens carried by the bot-DM'd Slack OAuth link. */
+  connectTokens?: ConnectTokens;
 }
 
 export interface StartedServer {
@@ -52,7 +56,8 @@ export interface StartedServer {
 }
 
 export async function startServer(opts: StartServerOptions): Promise<StartedServer> {
-  const { config, logger, reconnectSlack, sessionStore, identities, users, userCapabilities, assistant } = opts;
+  const { config, logger, reconnectSlack, sessionStore, identities, users, userCapabilities, assistant, connectTokens } =
+    opts;
   const port = opts.port ?? 3001;
   const startTime = Date.now();
 
@@ -145,6 +150,12 @@ export async function startServer(opts: StartServerOptions): Promise<StartedServ
     createReloadRoutes({ reconnectSlack, reloadAuth, isAuthConfigured: () => !!authRef.current, logger }),
   );
   app.route("/api/oauth/google", createGoogleOAuthRoutes({ config, userCapabilities, logger, baseUrl }));
+  if (connectTokens) {
+    app.route(
+      "/api/oauth/slack",
+      createSlackOAuthRoutes({ config, userCapabilities, identities, connectTokens, logger, baseUrl }),
+    );
+  }
 
   // ── Logo asset ────────────────────────────────────────────────────────────
   app.get("/assets/tino-logo.png", (c) => {

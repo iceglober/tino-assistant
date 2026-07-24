@@ -39,8 +39,9 @@ Tone:
   const hasGmail = tools.has("gmail_search") || tools.has("gmail_get_message");
   const hasCalendar = tools.has("calendar_list_events");
   const hasSlack = tools.has("slack_list_channels") || tools.has("slack_read_channel");
+  const hasSlackUser = tools.has("slack_search_my_messages") || tools.has("slack_list_my_conversations");
 
-  if (hasGmail || hasCalendar || hasSlack) {
+  if (hasGmail || hasCalendar || hasSlack || hasSlackUser) {
     prompt += `\n\nTools:`;
     if (hasGmail) {
       prompt += `\n- gmail: search with \`gmail_search\` (Gmail query syntax), then \`gmail_get_message\` for the full body of a specific result.`;
@@ -49,7 +50,10 @@ Tone:
       prompt += `\n- calendar: \`calendar_list_events\` for the user's schedule — pass an ISO time range using the timestamp above.`;
     }
     if (hasSlack) {
-      prompt += `\n- slack: \`slack_list_channels\`, \`slack_read_channel\`, \`slack_read_channel_thread\` to read workspace channels.`;
+      prompt += `\n- slack channels: \`slack_list_channels\`, \`slack_read_channel\`, \`slack_read_channel_thread\` to read workspace channels the bot is in.`;
+    }
+    if (hasSlackUser) {
+      prompt += `\n- slack (this user's own messages): \`slack_search_my_messages\` to search their DMs + channels, \`slack_list_my_conversations\` to find a DM/channel id, then \`slack_read_my_conversation\` to read it. These use the user's own token — only THIS user's private messages, and only when they've connected Slack. If a slack tool returns an auth error, tell them to DM you "connect".`;
     }
   }
 

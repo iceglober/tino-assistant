@@ -15,10 +15,12 @@ export interface CreateSlackAppOpts {
   assistant: Assistant;
   senderResolver: SenderResolver;
   logger: Logger;
+  /** Build the personal Slack OAuth connect link for a user (enables the `connect` command). */
+  connectLink?: (userId: string) => string;
 }
 
 export function createSlackApp(opts: CreateSlackAppOpts): App {
-  const { env, assistant, senderResolver, logger } = opts;
+  const { env, assistant, senderResolver, logger, connectLink } = opts;
 
   const app = new App({
     token: env.SLACK_BOT_TOKEN,
@@ -55,9 +57,17 @@ export function createSlackApp(opts: CreateSlackAppOpts): App {
     const userId = res.userId;
 
     try {
+      const cmd = m.text.trim().toLowerCase();
       // Bare "reset" (not "/reset" — Slack intercepts slash commands client-side).
-      if (m.text.trim().toLowerCase() === "reset" && (await assistant.reset(userId))) {
+      if (cmd === "reset" && (await assistant.reset(userId))) {
         await say({ text: "History cleared." });
+        return;
+      }
+      // "connect" — grant tino a personal Slack token to read your own messages.
+      if ((cmd === "connect" || cmd === "connect slack") && connectLink) {
+        await say({
+          text: `connect your Slack so I can read your own messages (DMs, private channels, search) on your behalf:\n${connectLink(userId)}\n\nthe link is personal and expires in 15 minutes.`,
+        });
         return;
       }
 

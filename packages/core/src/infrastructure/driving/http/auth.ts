@@ -181,7 +181,14 @@ export function buildAuthMiddleware(opts: {
   return async (c, next) => {
     const url = c.req.path;
 
-    if (url.startsWith("/api/auth/") || url === "/api/health" || url.startsWith("/assets/")) {
+    // Slack OAuth is authorized by its own signed connect token, not a console
+    // session — a workspace member connects without logging into the console.
+    if (
+      url.startsWith("/api/auth/") ||
+      url === "/api/health" ||
+      url.startsWith("/assets/") ||
+      url.startsWith("/api/oauth/slack/")
+    ) {
       await next();
       return;
     }

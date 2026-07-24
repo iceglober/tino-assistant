@@ -1,4 +1,5 @@
 import "dotenv/config";
+import crypto from "node:crypto";
 import { WebClient } from "@slack/web-api";
 import { createAssistant } from "../application/assistant.js";
 import { createSenderResolver } from "../application/sender.js";
@@ -9,9 +10,11 @@ import { createIdentityResolver } from "../infrastructure/driven/identity/resolv
 import { createPersistence } from "../infrastructure/driven/persistence/factory.js";
 import { buildGoogleTools } from "../infrastructure/driven/tools/google.js";
 import { buildSlackTools } from "../infrastructure/driven/tools/slack.js";
+import { buildSlackUserTools } from "../infrastructure/driven/tools/slack-user.js";
 import { createToolProvider } from "../infrastructure/driven/tools/provider.js";
 import { createSlackApp } from "../infrastructure/driving/slack/slack.js";
 import { startServer } from "../infrastructure/driving/http/server.js";
+import { createConnectTokens } from "../infrastructure/security/connect-token.js";
 import { createLogger } from "../logging.js";
 import type { Assistant, SenderResolver } from "../ports/inbound.js";
 import type { ChatModel } from "../ports/outbound.js";
@@ -36,6 +39,20 @@ function parseConfigValue(raw: string | null): string | undefined {
     return raw;
   }
 }
+
+const baseUrl = process.env.CONSOLE_BASE_URL ?? "http://localhost:3001";
+
+// Connect-token signer for the bot-DM'd Slack OAuth link. Uses a dedicated
+// secret persisted to the config store so it survives restarts and doesn't
+// depend on better-auth's init timing.
+let connectSecret = parseConfigValue(await config.get("connect.secret")) ?? process.env.CONNECT_SECRET;
+if (!connectSecret) {
+  connectSecret = crypto.randomBytes(32).toString("hex");
+  await config.set("connect.secret", connectSecret);
+}
+const connectTokens = createConnectTokens(connectSecret);
+const slackConnectLink = (userId: string): string =>
+  `${baseUrl}/api/oauth/slack/authorize?state=${encodeURIComponent(connectTokens.issue(userId))}`;
 
 // ── Runtime that depends on config the console can change (model + tools).
 //    Rebuilt at startup and on reconnect so Setup edits take effect live. ──────
@@ -66,6 +83,7 @@ async function refreshRuntime(): Promise<void> {
   const tools = createToolProvider({
     slackTools,
     buildGoogle: (userId) => buildGoogleTools(userId, config, userCapabilities, logger),
+    buildSlackUser: (userId) => buildSlackUserTools(userId, config, userCapabilities, logger),
   });
 
   assistant = model ? createAssistant({ model, tools, history, users, logger }) : null;
@@ -112,6 +130,7 @@ async function reconnectSlack(): Promise<{ ok: boolean; error?: string }> {
       assistant: assistantFacade,
       senderResolver,
       logger,
+      connectLink: slackConnectLink,
     });
     await nextApp.start();
     app = nextApp;
@@ -154,6 +173,7 @@ const consoleServer = await startServer({
   users,
   userCapabilities,
   assistant: assistantFacade,
+  connectTokens,
 });
 
 const hasSlack = Boolean(

@@ -4,32 +4,10 @@
  */
 import type { ToolSet } from "ai";
 import { google } from "googleapis";
-import type { CapabilityConfig } from "../../../domain/types.js";
 import type { ConfigStore, Logger, UserCapabilityStore } from "../../../ports/outbound.js";
+import { readUserCredentials } from "./credentials.js";
 import { calendarListEventsTool } from "./google/calendar.js";
 import { gmailGetMessageTool, gmailSearchTool } from "./google/gmail.js";
-
-/** Read a user's stored capability config (encrypted store first, flat config fallback). */
-async function readUserCredentials(
-  userId: string,
-  capabilityId: string,
-  configStore: ConfigStore,
-  userCapabilities: UserCapabilityStore,
-): Promise<CapabilityConfig | null> {
-  try {
-    const stored = await userCapabilities.get(userId, capabilityId);
-    if (stored) return stored;
-  } catch {
-    /* fall through to config-store fallback */
-  }
-  const raw = await configStore.get(`user.${userId}.capability.${capabilityId}`);
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw) as CapabilityConfig;
-  } catch {
-    return null;
-  }
-}
 
 export async function buildGoogleTools(
   userId: string,
