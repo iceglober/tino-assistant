@@ -1,7 +1,6 @@
 /**
- * Single source of capability display metadata (icon / name / description).
- * Previously copy-pasted across Capabilities.tsx, CapabilityCard.tsx, and
- * CapabilityModal.tsx — consolidated here so they can't drift.
+ * Single source of capability display metadata (icon / name / short description).
+ * The one source — do not re-declare per page.
  */
 export interface CapMeta {
   icon: string;
@@ -10,11 +9,12 @@ export interface CapMeta {
 }
 
 export const CAP_META: Record<string, CapMeta> = {
-  github: { icon: "🐙", name: "GitHub", desc: "Repos, issues, pull requests, and workflow dispatch." },
-  calendar: { icon: "📅", name: "Calendar", desc: "Read your Google Calendar so tino knows your schedule." },
-  gmail: { icon: "✉️", name: "Gmail", desc: "Search, read, and draft email on your behalf." },
-  linear: { icon: "📐", name: "Linear", desc: "Issues and projects — triage, update, comment." },
-  cloudwatch: { icon: "☁️", name: "CloudWatch", desc: "AWS logs and metrics." },
-  slack: { icon: "💬", name: "Slack", desc: "Public channels and content." },
-  "slack-personal": { icon: "🔒", name: "Slack (personal)", desc: "DMs, search, and private messages as you." },
+  github: { icon: "🐙", name: "GitHub", desc: "Repos, issues, and workflows" },
+  calendar: { icon: "📅", name: "Calendar", desc: "Your Google Calendar" },
+  gmail: { icon: "✉️", name: "Gmail", desc: "Read and draft email" },
+  linear: { icon: "📐", name: "Linear", desc: "Issues and projects" },
+  cloudwatch: { icon: "☁️", name: "CloudWatch", desc: "AWS logs and metrics" },
+  slack: { icon: "💬", name: "Slack", desc: "Public channels" },
+  "slack-personal": { icon: "🔒", name: "Slack (personal)", desc: "DMs and search as you" },
+  mcp: { icon: "◆", name: "MCP Tools", desc: "Your own tool servers" },
 };

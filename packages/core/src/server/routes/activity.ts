@@ -8,17 +8,28 @@ export interface ActivityRoutesOpts {
   logger: AppLogger;
 }
 
+const CAP_NAMES: Record<string, string> = {
+  gmail: "Gmail",
+  calendar: "Calendar",
+  github: "GitHub",
+  linear: "Linear",
+  slack: "Slack",
+  "slack-personal": "Slack (personal)",
+  cloudwatch: "CloudWatch",
+  mcp: "MCP Tools",
+};
+
 const ACTION_LABELS: Record<string, (entry: { toolName?: string; metadata?: Record<string, unknown> }) => string> = {
-  tool_call: (e) => e.toolName ? `Used ${e.toolName}` : "Tool call",
+  tool_call: (e) => (e.toolName ? `Used ${e.toolName}` : "Tool call"),
   config_change: (e) => {
     const key = e.metadata?.key;
     return key ? `Updated ${key}` : "Updated configuration";
   },
   login: () => "Signed in",
   capability_toggle: (e) => {
-    const cap = e.metadata?.capabilityId ?? "capability";
-    const enabled = e.metadata?.enabled;
-    return enabled ? `Enabled ${cap}` : `Disabled ${cap}`;
+    const raw = String(e.metadata?.capabilityId ?? "capability");
+    const cap = CAP_NAMES[raw] ?? raw;
+    return e.metadata?.enabled ? `Enabled ${cap}` : `Disabled ${cap}`;
   },
   task_scheduled: (e) => {
     const desc = e.metadata?.description;
@@ -54,12 +65,14 @@ export function createActivityRoutes(opts: ActivityRoutesOpts): Hono<{ Variables
     const items = entries.map((e, i) => {
       const labeler = ACTION_LABELS[e.action];
       const summary = labeler ? labeler(e) : e.action.replace(/_/g, " ");
+      const taskId = e.metadata?.taskId;
       return {
         id: `${e.timestamp}-${i}`,
         type: e.action,
         summary,
         status: e.status,
         timestamp: e.timestamp,
+        ...(typeof taskId === "string" ? { taskId } : {}),
       };
     });
 

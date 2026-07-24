@@ -72,19 +72,19 @@ export function createUserCapabilityRoutes(opts: {
       let parsed: CapabilityConfig | null = null;
       try {
         parsed = JSON.parse(e.value) as CapabilityConfig;
-      } catch { /* malformed JSON */ }
+      } catch {
+        /* malformed JSON */
+      }
       stored.set(id, { config: parsed, updatedAt: e.updatedAt });
     }
 
     // Return one entry per private capability module (in declaration order).
     // Shows all available private capabilities so users can see what's connectable,
     // with stored config merged in for already-configured ones.
-    const views = ALL_CAPABILITIES
-      .filter((cap) => cap.scope === "private")
-      .map((cap) => {
-        const s = stored.get(cap.id);
-        return buildCapabilityView(cap, s?.config ?? null, s?.updatedAt);
-      });
+    const views = ALL_CAPABILITIES.filter((cap) => cap.scope === "private").map((cap) => {
+      const s = stored.get(cap.id);
+      return buildCapabilityView(cap, s?.config ?? null, s?.updatedAt);
+    });
 
     return c.json(views);
   });
@@ -134,13 +134,14 @@ export function createUserCapabilityRoutes(opts: {
     const key = `user.${userId}.capability.${capabilityId}`;
     await config.set(key, next);
 
-    // Audit
+    // Audit — a capability_toggle so the activity feed reads "Enabled Gmail" etc.
     if (auditLogger) {
       await auditLogger.log({
         userId: loggedInUser.email,
-        action: "config_change",
+        action: "capability_toggle",
         toolName: capabilityId,
         status: "success",
+        metadata: { capabilityId, enabled: next.enabled },
       });
     }
 

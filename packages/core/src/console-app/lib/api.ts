@@ -468,6 +468,8 @@ export interface ActivityItem {
   summary: string;
   status: "success" | "error" | "denied";
   timestamp: number;
+  /** Present on task_* events — links the item to the task in Work. */
+  taskId?: string;
 }
 
 export async function getRecentActivity(limit = 50): Promise<ActivityItem[]> {

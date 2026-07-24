@@ -2354,3 +2354,213 @@ body {
 .ws-section:first-child {
   margin-top: 0;
 }
+
+/* ============================================================
+   Capabilities — simple list (replaces the master-detail)
+   ============================================================ */
+.cap-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+.cap-row {
+  background: var(--bg-base);
+  border: 1px solid var(--border-sub);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+.cap-row.is-open {
+  border-color: var(--border);
+}
+.cap-row__head {
+  display: flex;
+  align-items: center;
+  gap: var(--s4);
+  padding: var(--s4) var(--s5);
+}
+.cap-row__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--s4);
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+  padding: 0;
+}
+.cap-row__ic {
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border-radius: 11px;
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  display: grid;
+  place-items: center;
+  font-size: 18px;
+}
+.cap-row__m {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.cap-row__m b {
+  font-weight: 600;
+  font-size: var(--t-base);
+}
+.cap-row__m small {
+  color: var(--text-sec);
+  font-size: var(--t-sm);
+}
+.cap-row__control {
+  flex: none;
+}
+.cap-row__chev {
+  flex: none;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-dim);
+  font-size: 18px;
+  padding: 4px;
+  transition: transform 0.2s var(--ease-out);
+}
+.cap-row.is-open .cap-row__chev {
+  transform: rotate(90deg);
+}
+.cap-row__body {
+  padding: var(--s2) var(--s5) var(--s5);
+  border-top: 1px solid var(--border-sub);
+}
+.cap-row__hint {
+  color: var(--text-dim);
+  font-size: var(--t-sm);
+  margin: var(--s4) 0;
+}
+.cap-row__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s4);
+  margin-top: var(--s3);
+}
+.cap-row__disconnect {
+  color: var(--err);
+  font-size: var(--t-sm);
+  padding: 0;
+}
+.cap-row__body .cap-field:first-child {
+  margin-top: var(--s4);
+}
+
+/* ============================================================
+   Your profile — scannable, structured (replaces the wall of text)
+   ============================================================ */
+.profile-head {
+  margin-bottom: var(--s6);
+}
+.profile-head .p-title {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  flex-wrap: wrap;
+  margin-bottom: var(--s3);
+}
+.profile-head .p-role {
+  font-size: var(--t-lg);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.profile-head .p-dept {
+  color: var(--text-dim);
+  font-size: var(--t-sm);
+}
+.profile-head .p-summary {
+  color: var(--text-sec);
+  margin: 0;
+  max-width: 62ch;
+}
+.profile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--s4);
+}
+.profile-card {
+  background: var(--bg-base);
+  border: 1px solid var(--border-sub);
+  border-radius: var(--radius-lg);
+  padding: var(--s5);
+}
+.profile-card h4 {
+  margin: 0 0 var(--s4);
+  font-size: var(--t-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  font-weight: 600;
+}
+.p-item {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s3);
+  padding: var(--s2) 0;
+  border-top: 1px solid var(--border-sub);
+}
+.p-item:first-of-type {
+  border-top: none;
+  padding-top: 0;
+}
+.p-item b {
+  font-weight: 600;
+  font-size: var(--t-sm);
+  flex: 1;
+  min-width: 0;
+}
+.p-item .p-tag {
+  font-family: var(--mono);
+  font-size: var(--t-xs);
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.p-item .p-ctx {
+  color: var(--text-sec);
+  font-size: var(--t-sm);
+}
+.p-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+}
+.p-meter {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  padding: var(--s2) 0;
+  font-size: var(--t-sm);
+}
+.p-meter .p-bar {
+  flex: 1;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--bg-inset);
+  overflow: hidden;
+}
+.p-meter .p-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+.p-meter .p-cat {
+  width: 96px;
+  color: var(--text-sec);
+  text-transform: capitalize;
+}
+.p-meter .p-pct {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+  width: 34px;
+  text-align: right;
+}

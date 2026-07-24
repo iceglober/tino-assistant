@@ -14,16 +14,9 @@ function slugify(name: string): string {
   );
 }
 
-/** Inline detail pane for the MCP Tools capability — server list + add-server wizard. */
-export function McpServersDetail({
-  servers,
-  onChanged,
-  onClose,
-}: {
-  servers: McpServer[];
-  onChanged: () => void;
-  onClose: () => void;
-}): JSX.Element {
+/** MCP Tools capability body — server list + add-server wizard. Rendered inline
+ *  inside the capability row. */
+export function McpServersDetail({ servers, onChanged }: { servers: McpServer[]; onChanged: () => void }): JSX.Element {
   const toast = useToast();
   const [adding, setAdding] = useState(false);
 
@@ -41,76 +34,53 @@ export function McpServersDetail({
   const remoteServers = servers.filter((s) => s.transport !== "stdio");
 
   return (
-    <div className="md-detail">
-      <div className="md-detail__head">
-        <div className="md-detail__ic">◆</div>
-        <div className="md-detail__title">
-          <h2>MCP Tools</h2>
-          <span className="cap-badge is-active">
-            <span className="cap-badge__d" />
-            {servers.length} server{servers.length === 1 ? "" : "s"}
-          </span>
-        </div>
-        <button type="button" className="md-detail__close" onClick={onClose} aria-label="Close detail">
-          ✕
-        </button>
-      </div>
-      <div className="md-detail__body">
-        <p className="md-detail__lead">
-          Point tino at any Model Context Protocol server — each one you add carries its own connection, and its tools
-          join the roster namespaced as{" "}
-          <code style={{ fontFamily: "var(--mono)", color: "var(--accent)" }}>mcp_&lt;server&gt;_&lt;tool&gt;</code>.
-        </p>
+    <div className="mcp-body">
+      {remoteServers.length === 0 && !adding && (
+        <p className="cap-row__hint">Add a Streamable-HTTP or SSE endpoint. Its tools become tino's.</p>
+      )}
 
-        {remoteServers.length === 0 && !adding && (
-          <p style={{ color: "var(--text-dim)", fontSize: "var(--t-sm)", marginBottom: "var(--s4)" }}>
-            No custom servers yet. Add a Streamable-HTTP or SSE endpoint below.
-          </p>
-        )}
-
-        {remoteServers.map((s) => (
-          <div className="mcp-server" key={s.serverId}>
-            <div className="mcp-server__ic">◆</div>
-            <div className="mcp-server__m">
-              <b>{s.displayName}</b>
-              <span className="mcp-server__u">{s.url}</span>
-            </div>
-            <span className="mcp-chip">{s.transport === "streamable-http" ? "http" : s.transport}</span>
-            <span className="mcp-chip">{s.auth.kind}</span>
-            <span className={`cap-badge ${s.enabled ? "is-active" : "is-avail"}`}>
-              <span className="cap-badge__d" />
-              {s.enabled ? "on" : "off"}
-            </span>
-            <button
-              type="button"
-              className="btn-ghost"
-              style={{ color: "var(--err)", fontSize: "var(--t-sm)", padding: "0 4px" }}
-              onClick={() => void remove(s.serverId)}
-            >
-              remove
-            </button>
+      {remoteServers.map((s) => (
+        <div className="mcp-server" key={s.serverId}>
+          <div className="mcp-server__ic">◆</div>
+          <div className="mcp-server__m">
+            <b>{s.displayName}</b>
+            <span className="mcp-server__u">{s.url}</span>
           </div>
-        ))}
-
-        {adding ? (
-          <AddServerWizard
-            onCancel={() => setAdding(false)}
-            onDone={() => {
-              setAdding(false);
-              onChanged();
-            }}
-          />
-        ) : (
+          <span className="mcp-chip">{s.transport === "streamable-http" ? "http" : s.transport}</span>
+          <span className="mcp-chip">{s.auth.kind}</span>
+          <span className={`cap-badge ${s.enabled ? "is-active" : "is-avail"}`}>
+            <span className="cap-badge__d" />
+            {s.enabled ? "on" : "off"}
+          </span>
           <button
             type="button"
-            className="btn btn-setup"
-            style={{ marginTop: "var(--s2)" }}
-            onClick={() => setAdding(true)}
+            className="btn-ghost"
+            style={{ color: "var(--err)", fontSize: "var(--t-sm)", padding: "0 4px" }}
+            onClick={() => void remove(s.serverId)}
           >
-            ＋ Add a server
+            remove
           </button>
-        )}
-      </div>
+        </div>
+      ))}
+
+      {adding ? (
+        <AddServerWizard
+          onCancel={() => setAdding(false)}
+          onDone={() => {
+            setAdding(false);
+            onChanged();
+          }}
+        />
+      ) : (
+        <button
+          type="button"
+          className="btn btn-setup"
+          style={{ marginTop: "var(--s2)" }}
+          onClick={() => setAdding(true)}
+        >
+          ＋ Add a server
+        </button>
+      )}
     </div>
   );
 }

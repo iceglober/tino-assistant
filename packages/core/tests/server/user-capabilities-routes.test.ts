@@ -18,12 +18,12 @@
  *   - Empty lists when no capabilities configured
  */
 
-import { Hono, type Context } from "hono";
-import { describe, expect, it, beforeEach, vi } from "vitest";
+import { type Context, Hono } from "hono";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createMemoryAuditLogger } from "../../src/audit/memory.js";
+import type { AuthVariables } from "../../src/server/middleware/auth.js";
 import { createUserCapabilityRoutes } from "../../src/server/routes/user-capabilities.js";
 import { makeConfigStore, noopLogger } from "./_helpers.js";
-import type { AuthVariables } from "../../src/server/middleware/auth.js";
 
 function mountUserCapabilities(
   opts: Parameters<typeof createUserCapabilityRoutes>[0],
@@ -130,9 +130,7 @@ describe("GET /api/user-capabilities/:userId", () => {
     const app = mountUserCapabilities({ config, logger: noopLogger() });
 
     const encoded = encodeURIComponent("user@example.com");
-    const res = await app.request(
-      `/api/user-capabilities/${encoded}?userId=${encoded}`,
-    );
+    const res = await app.request(`/api/user-capabilities/${encoded}?userId=${encoded}`);
     expect(res.status).toBe(200);
     const body = (await res.json()) as Array<{ id: string; enabled: boolean }>;
     // All 4 private capabilities returned; gmail is enabled from stored config
@@ -152,14 +150,11 @@ describe("PUT /api/user-capabilities/:userId/:capabilityId", () => {
       fields: [{ key: "token", value: "ghp_abc123" }],
     };
 
-    const res = await app.request(
-      "/api/user-capabilities/U001/github?userId=U001",
-      {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      },
-    );
+    const res = await app.request("/api/user-capabilities/U001/github?userId=U001", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
 
     expect(res.status).toBe(200);
     const body = (await res.json()) as { ok: boolean };
@@ -188,14 +183,11 @@ describe("PUT /api/user-capabilities/:userId/:capabilityId", () => {
       fields: [{ key: "clientId", value: "new_id" }],
     };
 
-    const res = await app.request(
-      "/api/user-capabilities/U001/gmail?userId=U001",
-      {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      },
-    );
+    const res = await app.request("/api/user-capabilities/U001/gmail?userId=U001", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
 
     expect(res.status).toBe(200);
 
@@ -214,37 +206,34 @@ describe("PUT /api/user-capabilities/:userId/:capabilityId", () => {
     const app = mountUserCapabilities({ config, logger: noopLogger(), auditLogger: audit });
 
     const payload = { enabled: true, fields: [] };
-    const res = await app.request(
-      "/api/user-capabilities/U001/github?userId=U001",
-      {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      },
-    );
+    const res = await app.request("/api/user-capabilities/U001/github?userId=U001", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
 
     expect(res.status).toBe(200);
 
-    const entries = await audit.query({ action: "config_change" });
+    // Capability saves log a capability_toggle carrying the cap id + enabled state,
+    // so the activity feed can render "Enabled GitHub".
+    const entries = await audit.query({ action: "capability_toggle" });
     expect(entries.length).toBeGreaterThan(0);
     const entry = entries.find((e) => e.toolName === "github");
     expect(entry).toBeDefined();
     expect(entry?.userId).toBe("U001@example.com");
     expect(entry?.status).toBe("success");
+    expect(entry?.metadata).toMatchObject({ capabilityId: "github", enabled: true });
   });
 
   it("rejects cross-user modification with 403", async () => {
     const config = makeConfigStore({});
     const app = mountUserCapabilities({ config, logger: noopLogger() });
 
-    const res = await app.request(
-      "/api/user-capabilities/U001/github?userId=U002",
-      {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ enabled: true, fields: [] }),
-      },
-    );
+    const res = await app.request("/api/user-capabilities/U001/github?userId=U002", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled: true, fields: [] }),
+    });
 
     expect(res.status).toBe(403);
   });
@@ -253,14 +242,11 @@ describe("PUT /api/user-capabilities/:userId/:capabilityId", () => {
     const config = makeConfigStore({});
     const app = mountUserCapabilities({ config, logger: noopLogger() });
 
-    const res = await app.request(
-      "/api/user-capabilities/U001/nonexistent?userId=U001",
-      {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ enabled: true, fields: [] }),
-      },
-    );
+    const res = await app.request("/api/user-capabilities/U001/nonexistent?userId=U001", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled: true, fields: [] }),
+    });
 
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: string };
@@ -271,14 +257,11 @@ describe("PUT /api/user-capabilities/:userId/:capabilityId", () => {
     const config = makeConfigStore({});
     const app = mountUserCapabilities({ config, logger: noopLogger() });
 
-    const res = await app.request(
-      "/api/user-capabilities/U001/github?userId=U001",
-      {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: "not json",
-      },
-    );
+    const res = await app.request("/api/user-capabilities/U001/github?userId=U001", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: "not json",
+    });
 
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: string };
@@ -290,14 +273,11 @@ describe("PUT /api/user-capabilities/:userId/:capabilityId", () => {
     const app = mountUserCapabilities({ config, logger: noopLogger() });
 
     const payload = { enabled: true, fields: [] };
-    const res = await app.request(
-      `/api/user-capabilities/U001/${encodeURIComponent("github")}?userId=U001`,
-      {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      },
-    );
+    const res = await app.request(`/api/user-capabilities/U001/${encodeURIComponent("github")}?userId=U001`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
 
     expect(res.status).toBe(200);
   });
@@ -421,12 +401,9 @@ describe("DELETE /api/user-capabilities/:userId/:capabilityId", () => {
 
     const userId = encodeURIComponent("user@example.com");
     const capId = encodeURIComponent("github");
-    const res = await app.request(
-      `/api/user-capabilities/${userId}/${capId}?userId=${decodeURIComponent(userId)}`,
-      {
-        method: "DELETE",
-      },
-    );
+    const res = await app.request(`/api/user-capabilities/${userId}/${capId}?userId=${decodeURIComponent(userId)}`, {
+      method: "DELETE",
+    });
 
     expect(res.status).toBe(200);
     expect(await config.get("user.user@example.com.capability.github")).toBeNull();

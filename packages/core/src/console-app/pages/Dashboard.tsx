@@ -3,21 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { Badge } from "../components/Badge.js";
 import { useToast } from "../hooks/useToast.js";
 import type { ActivityItem, CapabilityEntry, Session } from "../lib/api.js";
-import {
-  getRecentActivity,
-  getUserCapabilities,
-  reloadCapabilities,
-} from "../lib/api.js";
-
-const CAP_META: Record<string, { icon: string; name: string; desc: string }> = {
-  github: { icon: "🐙", name: "GitHub", desc: "repos, issues, PRs" },
-  calendar: { icon: "📅", name: "Calendar", desc: "Google Calendar events" },
-  gmail: { icon: "✉️", name: "Gmail", desc: "search and read email" },
-  linear: { icon: "📐", name: "Linear", desc: "issues and projects" },
-  cloudwatch: { icon: "☁️", name: "CloudWatch", desc: "AWS logs and metrics" },
-  slack: { icon: "💬", name: "Slack", desc: "public channels and content" },
-  "slack-personal": { icon: "🔒", name: "Slack (personal)", desc: "DMs, search, and private messages" },
-};
+import { getRecentActivity, getUserCapabilities, reloadCapabilities } from "../lib/api.js";
+import { CAP_META } from "../lib/capabilityMeta.js";
 
 export function Dashboard({
   session,
@@ -42,19 +29,27 @@ export function Dashboard({
     try {
       const data = await getUserCapabilities(userId);
       setCaps(data);
-    } catch { /* ignore */ }
-    finally { setCapsLoaded(true); }
+    } catch {
+      /* ignore */
+    } finally {
+      setCapsLoaded(true);
+    }
   }, [userId]);
 
-  useEffect(() => { void loadCaps(); }, [loadCaps]);
+  useEffect(() => {
+    void loadCaps();
+  }, [loadCaps]);
 
   useEffect(() => {
     void (async () => {
       try {
         const items = await getRecentActivity(20);
         setActivity(items);
-      } catch { /* ignore — activity is non-critical */ }
-      finally { setActivityLoaded(true); }
+      } catch {
+        /* ignore — activity is non-critical */
+      } finally {
+        setActivityLoaded(true);
+      }
     })();
   }, []);
 
@@ -74,7 +69,10 @@ export function Dashboard({
     } else if (oauth === "denied") {
       toast.show("Google OAuth consent was denied", "err");
     } else if (oauth === "no_refresh_token") {
-      toast.show("Google did not return a refresh token — revoke access at myaccount.google.com/permissions and try again", "err");
+      toast.show(
+        "Google did not return a refresh token — revoke access at myaccount.google.com/permissions and try again",
+        "err",
+      );
     } else if (oauth === "expired" || oauth === "mismatch") {
       toast.show("OAuth session expired — try again", "err");
     } else if (oauth === "error") {
@@ -88,18 +86,18 @@ export function Dashboard({
 
   return (
     <div>
-      {/* ── Capabilities grid ─────────────────────────────────────── */}
-      <div className="section-label" style={{ marginTop: 0 }}>capabilities</div>
-      <p className="section-hint">
-        your connected integrations.{" "}
+      {/* ── Capabilities ──────────────────────────────────────────── */}
+      <div className="section-label" style={{ marginTop: 0, display: "flex", alignItems: "baseline", gap: 12 }}>
+        Capabilities
         <button
           type="button"
           className="link-btn"
+          style={{ fontWeight: 400 }}
           onClick={() => navigate("/capabilities")}
         >
           manage →
         </button>
-      </p>
+      </div>
 
       <div className="cap-grid">
         {!capsLoaded ? (
@@ -130,7 +128,9 @@ export function Dashboard({
                     <div className="cap-card-desc">{meta.desc}</div>
                   </div>
                   <div className="cap-card-status">
-                    <span className="status-connected" style={{ color: "var(--ok)" }}>● on</span>
+                    <span className="status-connected" style={{ color: "var(--ok)" }}>
+                      ● on
+                    </span>
                   </div>
                 </div>
               </button>
@@ -145,9 +145,13 @@ export function Dashboard({
             style={{ textDecoration: "none", color: "inherit" }}
           >
             <div className="cap-card-header">
-              <span className="cap-card-icon" style={{ opacity: 0.5 }}>+</span>
+              <span className="cap-card-icon" style={{ opacity: 0.5 }}>
+                +
+              </span>
               <div className="cap-card-meta">
-                <div className="cap-card-name" style={{ color: "var(--accent)" }}>connect Google</div>
+                <div className="cap-card-name" style={{ color: "var(--accent)" }}>
+                  connect Google
+                </div>
                 <div className="cap-card-desc">Gmail, Calendar — read-only access</div>
               </div>
             </div>
@@ -156,7 +160,9 @@ export function Dashboard({
       </div>
 
       {/* ── Activity feed ─────────────────────────────────────────── */}
-      <div className="section-label" style={{ marginTop: 28 }}>recent activity</div>
+      <div className="section-label" style={{ marginTop: 28 }}>
+        Activity
+      </div>
       <div className="activity-feed">
         {!activityLoaded ? (
           <p className="empty">loading…</p>
@@ -169,7 +175,19 @@ export function Dashboard({
             <div key={item.id} className="activity-item">
               <div className="activity-dot" data-status={item.status} />
               <div className="activity-body">
-                <span className="activity-summary">{item.summary}</span>
+                <span className="activity-summary">
+                  {item.summary}
+                  {item.taskId && (
+                    <button
+                      type="button"
+                      className="link-btn"
+                      style={{ marginLeft: 8 }}
+                      onClick={() => navigate("/work")}
+                    >
+                      view task →
+                    </button>
+                  )}
+                </span>
                 <span className="activity-time">{formatRelative(item.timestamp)}</span>
               </div>
             </div>
@@ -185,11 +203,8 @@ export function Dashboard({
             style={{ color: "var(--accent)", padding: 0, fontSize: "0.857rem" }}
             onClick={() => navigate("/workspace")}
           >
-            workspace settings →
+            Workspace settings →
           </button>
-          <p style={{ fontSize: "0.786rem", color: "var(--text-dim)", marginTop: 4 }}>
-            Slack tokens, model config, shared capabilities, users
-          </p>
         </div>
       )}
     </div>
