@@ -39,6 +39,35 @@
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   --radius: 6px;
   --radius-sm: 4px;
+  --radius-lg: 12px;
+
+  /* Spacing scale (3:4 proportional) — documented in the header comment above but
+     never tokenized. Now the single source so inline values stop drifting. */
+  --s1: 4px;
+  --s2: 6px;
+  --s3: 8px;
+  --s4: 12px;
+  --s5: 16px;
+  --s6: 21px;
+  --s7: 28px;
+  --s8: 37px;
+
+  /* Type scale (body 14px): 11 / 12 / 14 / 19 / 25px expressed as rem. */
+  --t-xs: 0.786rem; /* 11px */
+  --t-sm: 0.857rem; /* 12px */
+  --t-base: 1rem; /* 14px */
+  --t-lg: 1.357rem; /* 19px */
+  --t-xl: 1.786rem; /* 25px */
+
+  /* Aliases for tokens referenced across pages but never declared — previously
+     fell back to invalid/off-brand values (e.g. an indigo that clashed with the
+     amber accent). Pointed at the real brand tokens. */
+  --text-sub: var(--text-sec);
+  --font-mono: var(--mono);
+  --surface-2: var(--bg-raised);
+  --bg: var(--bg-deep);
+  --text: var(--text-prim);
+
   /* Easing curves — ease-out-expo for entries, ease-in-out for toggles */
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-io: cubic-bezier(0.65, 0, 0.35, 1);
@@ -426,7 +455,9 @@ body {
   padding: 6px 12px;
   border-radius: var(--radius-sm);
   font-family: inherit;
-  transition: color 120ms var(--ease-out), background 120ms var(--ease-out);
+  transition:
+    color 120ms var(--ease-out),
+    background 120ms var(--ease-out);
 }
 .header-nav-link:hover {
   color: var(--text-sec);
@@ -518,7 +549,9 @@ body {
   font-weight: 500;
   color: var(--text-dim);
   cursor: pointer;
-  transition: color 150ms, border-color 150ms;
+  transition:
+    color 150ms,
+    border-color 150ms;
   font-family: inherit;
 }
 .tab-btn:hover {
@@ -1129,7 +1162,9 @@ body {
   padding: 6px 14px;
   border-radius: var(--radius-sm);
   margin-top: 8px;
-  transition: background 100ms var(--ease-out), border-color 100ms var(--ease-out);
+  transition:
+    background 100ms var(--ease-out),
+    border-color 100ms var(--ease-out);
 }
 .show-more-btn:hover {
   background: var(--bg-raised);
@@ -1150,7 +1185,9 @@ body {
   transition: opacity 100ms var(--ease-out);
   white-space: nowrap;
 }
-.scan-btn:hover { opacity: 0.85; }
+.scan-btn:hover {
+  opacity: 0.85;
+}
 .scan-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -1209,7 +1246,9 @@ body {
   cursor: pointer;
   white-space: nowrap;
   flex-shrink: 0;
-  transition: color 100ms, border-color 100ms;
+  transition:
+    color 100ms,
+    border-color 100ms;
 }
 .examples-toggle:hover {
   color: var(--text-sec);
@@ -1413,8 +1452,13 @@ body {
   transition: opacity 200ms var(--ease-out);
 }
 @keyframes splash-pulse {
-  0%, 100% { opacity: 0.5; }
-  50% { opacity: 1; }
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 
 .pulse-dot {
@@ -1425,8 +1469,15 @@ body {
   animation: pulse-glow 1.6s ease-in-out infinite;
 }
 @keyframes pulse-glow {
-  0%, 100% { opacity: 0.3; transform: scale(1); }
-  50% { opacity: 1; transform: scale(1.3); }
+  0%,
+  100% {
+    opacity: 0.3;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.3);
+  }
 }
 
 /* ── Add capability card ────────────────────────────────────────── */
@@ -1493,12 +1544,22 @@ body {
   flex: 1;
 }
 @keyframes modal-fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 @keyframes modal-slide-up {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* ── Badge (Private / Shared) ──────────────────────────────────────── */
@@ -1566,7 +1627,9 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: color 120ms var(--ease-out), background 120ms var(--ease-out);
+  transition:
+    color 120ms var(--ease-out),
+    background 120ms var(--ease-out);
   flex-shrink: 0;
 }
 .cap-settings-btn:hover {

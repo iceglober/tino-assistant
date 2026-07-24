@@ -68,10 +68,15 @@ export function buildCapabilityView(
     credentials: {},
     settings: {},
   };
-  const fields: CapField[] = schema.map((f) => ({
-    ...f,
-    value: readField(config, f),
-  }));
+  const fields: CapField[] = schema.map((f) => {
+    const raw = readField(config, f);
+    // Never echo secret values to the client. Report only whether one is set;
+    // an empty submission for a secret field preserves the stored value on save.
+    if (f.secret) {
+      return { ...f, value: "", hasValue: raw.length > 0 };
+    }
+    return { ...f, value: raw };
+  });
   return {
     id: cap.id,
     displayName: cap.displayName,
@@ -148,9 +153,15 @@ export function buildConfigFromPayload(
       if (!target) continue;
       const coerced = coerce(def, submitted.value);
       const bag = target.section === "credentials" ? next.credentials : next.settings;
-      // Drop empty strings/arrays so unset fields don't pollute the blob.
-      if ((typeof coerced === "string" && coerced.length === 0) || (Array.isArray(coerced) && coerced.length === 0)) {
-        delete bag[target.name];
+      const isEmpty =
+        (typeof coerced === "string" && coerced.length === 0) || (Array.isArray(coerced) && coerced.length === 0);
+      if (isEmpty) {
+        // A secret is never echoed to the client, so an empty submission means
+        // "unchanged" — preserve the stored value. A non-secret empty value means
+        // the operator cleared it, so drop the key.
+        if (!def.secret) {
+          delete bag[target.name];
+        }
       } else {
         bag[target.name] = coerced as string;
       }

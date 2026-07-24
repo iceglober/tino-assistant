@@ -42,10 +42,33 @@ export interface McpCatalogEntry {
   description: string;
 }
 
-export interface McpServerStatus {
-  id: string;
-  name: string;
-  status: "ready" | "connecting" | "error" | "offline";
+export type McpTransport = "stdio" | "streamable-http" | "sse";
+export interface McpAuth {
+  kind: "none" | "bearer" | "header";
+  headerName?: string;
+}
+
+/** A configured MCP server, as returned by GET /api/mcp/servers (credentials masked). */
+export interface McpServer {
+  serverId: string;
+  enabled: boolean;
+  displayName: string;
+  url?: string;
+  transport: McpTransport;
+  auth: McpAuth;
+  hasCredentials: boolean;
+}
+
+/** Payload to save a custom remote MCP server. */
+export interface McpServerPayload {
+  enabled?: boolean;
+  credentials?: Record<string, string>;
+  settings: {
+    displayName?: string;
+    url: string;
+    transport: McpTransport;
+    auth: McpAuth;
+  };
 }
 
 export interface HealthResponse {
@@ -159,15 +182,31 @@ export async function getMcpCatalog(): Promise<McpCatalogEntry[]> {
   return unwrap<McpCatalogEntry[]>(r);
 }
 
-export async function getMcpServers(): Promise<McpServerStatus[]> {
+export async function getMcpServers(): Promise<McpServer[]> {
   const r = await fetch("/api/mcp/servers", {
     credentials: "include",
   });
-  return unwrap<McpServerStatus[]>(r);
+  return unwrap<McpServer[]>(r);
 }
 
-export async function saveMcpServer(id: string, data: unknown): Promise<{ ok: true; id: string }> {
+export async function saveMcpServer(id: string, data: McpServerPayload): Promise<{ ok: true; serverId: string }> {
   const r = await fetch(`/api/mcp/servers/${encodeURIComponent(id)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(data),
+  });
+  return unwrap(r);
+}
+
+/** Probe a remote MCP server without saving it — powers the wizard "Test connection" step. */
+export async function testMcpServer(data: {
+  url: string;
+  transport: McpTransport;
+  auth?: McpAuth;
+  credentials?: Record<string, string>;
+}): Promise<{ ok: boolean; tools?: string[]; error?: string }> {
+  const r = await fetch("/api/mcp/test", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "include",

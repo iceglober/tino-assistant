@@ -1,16 +1,34 @@
+/** How tino reaches an MCP server. `stdio` spawns a local process via npx; the
+ *  remote transports connect to a URL. */
+export type McpTransport = "stdio" | "streamable-http" | "sse";
+
+/** How a remote MCP server authenticates. The token is stored (encrypted) under
+ *  `credentials.token`; `none` sends no auth header. */
+export interface McpAuth {
+  kind: "none" | "bearer" | "header";
+  /** For `header`: the header name the token is sent under (e.g. "X-Api-Key"). */
+  headerName?: string;
+}
+
 export interface McpServerEntry {
   /** Stable ID used in config keys, e.g. "ramp", "rippling" */
   id: string;
   /** Display name for the console */
   displayName: string;
-  /** npm package name — spawned via npx */
+  /** Transport. Defaults to `stdio` when omitted (catalog npx servers). */
+  transport?: McpTransport;
+  /** Remote transports only: the server endpoint URL (must be https). */
+  url?: string;
+  /** Remote transports only: how to authenticate. */
+  auth?: McpAuth;
+  /** npm package name — spawned via npx (stdio transport only) */
   package?: string;
   /** Optional CLI args after the package */
   args?: string[];
   /** Env var mappings: maps credential keys to the env var the server expects.
    *  e.g. { apiKey: "RAMP_API_KEY" } means config.credentials.apiKey -> env.RAMP_API_KEY */
   envMap?: Record<string, string>;
-  /** Console-side field schema for credential entry */
+  /** Console-side field schema for credential entry. Empty for synthesized custom servers. */
   fields: Array<{
     key: string;
     label: string;

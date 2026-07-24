@@ -2,14 +2,27 @@
  * MCP process pool that manages stdio MCP server processes per (userId, serverId).
  * Caches client connections and tools, with idle timeout reaping.
  */
+import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { ToolSet } from "ai";
 import type { AppLogger } from "../slack/app.js";
-import type { McpServerEntry } from "./catalog.js";
+import type { McpAuth, McpServerEntry } from "./catalog.js";
+import { validateServerUrl } from "./validateServerUrl.js";
 
 interface PoolEntry {
   client: { close: () => Promise<void> };
   timer: NodeJS.Timeout;
   tools: ToolSet;
+}
+
+/** Build the HTTP auth headers for a remote MCP server. The token lives (encrypted)
+ *  under `credentials.token`; `none`/absent token sends nothing. */
+function buildAuthHeaders(auth: McpAuth | undefined, credentials?: Record<string, string>): Record<string, string> {
+  const headers: Record<string, string> = {};
+  const token = credentials?.token;
+  if (!auth || auth.kind === "none" || !token) return headers;
+  if (auth.kind === "bearer") headers.Authorization = `Bearer ${token}`;
+  else if (auth.kind === "header" && auth.headerName) headers[auth.headerName] = token;
+  return headers;
 }
 
 interface MCPPoolOpts {
@@ -73,37 +86,11 @@ export class MCPPool {
       return cached.tools;
     }
 
-    const pkg = entry.package;
-    if (!pkg) {
-      throw new Error(`MCP catalog entry "${serverId}" has no package defined`);
-    }
-
-    // Map user credentials to env vars using the catalog's envMap
-    const userEnv: Record<string, string> = {};
-    if (credentials && entry.envMap) {
-      for (const [credKey, envVar] of Object.entries(entry.envMap)) {
-        if (credentials[credKey]) {
-          userEnv[envVar] = credentials[credKey];
-        }
-      }
-    }
-
     try {
-      // Dynamic imports — these packages may not resolve under Bun's module
-      // system, so we defer loading until someone actually uses MCP.
+      // Dynamic import — @ai-sdk/mcp may not resolve under Bun's module system,
+      // so we defer loading until someone actually uses MCP.
       const { createMCPClient } = await import("@ai-sdk/mcp");
-      const { StdioClientTransport } = await import("@modelcontextprotocol/sdk/client/stdio");
-
-      const baseEnv = Object.fromEntries(
-        Object.entries(process.env).filter(([, v]) => v !== undefined),
-      ) as Record<string, string>;
-
-      const transport = new StdioClientTransport({
-        command: "npx",
-        args: ["-y", pkg, ...(entry.args ?? [])],
-        env: { ...baseEnv, ...userEnv },
-      });
-
+      const transport = await this.buildTransport(serverId, entry, credentials);
       const client = await createMCPClient({ transport });
       const tools = await client.tools();
 
@@ -122,6 +109,83 @@ export class MCPPool {
     } catch (err) {
       this.logger.error({ err, userId, serverId }, "failed to spawn MCP client");
       throw err;
+    }
+  }
+
+  /**
+   * Build the transport for a server based on its declared `transport`. `stdio`
+   * spawns an npx process (existing behavior); `streamable-http`/`sse` connect to
+   * the server's URL with optional auth headers. Returns an opaque transport the
+   * ai-sdk MCP client accepts.
+   */
+  private async buildTransport(
+    serverId: string,
+    entry: McpServerEntry,
+    credentials?: Record<string, string>,
+  ): Promise<Transport> {
+    const transport = entry.transport ?? "stdio";
+
+    if (transport === "stdio") {
+      const pkg = entry.package;
+      if (!pkg) {
+        throw new Error(`MCP server "${serverId}" has no package defined`);
+      }
+      // Map user credentials to env vars using the catalog's envMap.
+      const userEnv: Record<string, string> = {};
+      if (credentials && entry.envMap) {
+        for (const [credKey, envVar] of Object.entries(entry.envMap)) {
+          if (credentials[credKey]) userEnv[envVar] = credentials[credKey];
+        }
+      }
+      const { StdioClientTransport } = await import("@modelcontextprotocol/sdk/client/stdio");
+      const baseEnv = Object.fromEntries(Object.entries(process.env).filter(([, v]) => v !== undefined)) as Record<
+        string,
+        string
+      >;
+      return new StdioClientTransport({
+        command: "npx",
+        args: ["-y", pkg, ...(entry.args ?? [])],
+        env: { ...baseEnv, ...userEnv },
+      });
+    }
+
+    // Remote transports — validate the URL (SSRF guard) before connecting.
+    if (!entry.url) {
+      throw new Error(`MCP server "${serverId}" has no url`);
+    }
+    validateServerUrl(entry.url);
+    const url = new URL(entry.url);
+    const headers = buildAuthHeaders(entry.auth, credentials);
+
+    if (transport === "streamable-http") {
+      const { StreamableHTTPClientTransport } = await import("@modelcontextprotocol/sdk/client/streamableHttp");
+      return new StreamableHTTPClientTransport(url, { requestInit: { headers } });
+    }
+    const { SSEClientTransport } = await import("@modelcontextprotocol/sdk/client/sse");
+    return new SSEClientTransport(url, { requestInit: { headers } });
+  }
+
+  /**
+   * Connect to a server, list its tools, and immediately close — without caching.
+   * Powers the console "Test connection" step before a server is saved. Returns the
+   * discovered tool names; throws (validation error code or connection error) on failure.
+   */
+  async probe(entry: McpServerEntry, credentials?: Record<string, string>): Promise<string[]> {
+    const { createMCPClient } = await import("@ai-sdk/mcp");
+    const transport = await this.buildTransport(entry.id, entry, credentials);
+    const client = (await createMCPClient({ transport })) as {
+      tools: () => Promise<ToolSet>;
+      close: () => Promise<void>;
+    };
+    try {
+      const tools = await client.tools();
+      return Object.keys(tools);
+    } finally {
+      try {
+        await client.close();
+      } catch {
+        /* ignore close errors on probe */
+      }
     }
   }
 

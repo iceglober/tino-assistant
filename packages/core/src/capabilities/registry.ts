@@ -12,6 +12,8 @@
  * see the new toolset immediately.
  */
 import type { ToolSet } from "ai";
+import { SYSTEM_USER_ID } from "../identity/types.js";
+import { MCPPool } from "../mcp/pool.js";
 import type { ConfigStore } from "../persistence/config.js";
 import type { PreferencesStore } from "../persistence/preferences.js";
 import { createPreferencesStore } from "../persistence/preferences.js";
@@ -21,11 +23,15 @@ import type { AppLogger } from "../slack/app.js";
 import { updateDiscoveryTool } from "../tools/discovery.js";
 import { getPreferencesTool, setPreferenceTool } from "../tools/preferences.js";
 import { cancelTaskTool, listTasksTool, scheduleTaskTool } from "../tools/tasks.js";
-import { MCPPool } from "../mcp/pool.js";
-import { setMCPPool } from "./mcp.js";
 import { ALL_CAPABILITIES } from "./all.js";
-import type { CapabilityConfig, CapabilityRegistry, CapabilityRuntimeState, SharedCapability, PrivateCapability } from "./types.js";
-import { SYSTEM_USER_ID } from "../identity/types.js";
+import { setMCPPool } from "./mcp.js";
+import type {
+  CapabilityConfig,
+  CapabilityRegistry,
+  CapabilityRuntimeState,
+  PrivateCapability,
+  SharedCapability,
+} from "./types.js";
 
 export interface RegistryOptions {
   configStore: ConfigStore;
@@ -324,6 +330,7 @@ export async function initCapabilityRegistry(opts: RegistryOptions): Promise<Cap
 
   return {
     sharedTools,
+    pool,
     buildPrivateTools,
     getActiveCapabilities,
     get capabilityIds() {

@@ -1,10 +1,8 @@
 import "dotenv/config";
 import { WebClient } from "@slack/web-api";
 import { createBedrockModel, DEFAULT_BEDROCK_MODEL_ID, validateBedrockModel } from "./agent/bedrock.js";
-import { HistoryAppender } from "./agent/history-appender.js";
-import { createPrivacyConfigStore } from "./privacy/config-store.js";
-import { SourceRespectingPrivacyFilter } from "./privacy/source-respecting-filter.js";
 import { createHistoryStore } from "./agent/history.js";
+import { HistoryAppender } from "./agent/history-appender.js";
 import { runAgent } from "./agent/run.js";
 import { migrateEnvToCapabilities } from "./capabilities/migration.js";
 import { initCapabilityRegistry } from "./capabilities/registry.js";
@@ -14,12 +12,14 @@ import { createEncryptedHistoryStore } from "./drive/adapters/encrypted-history-
 import { createDriveKeyStore } from "./drive/key-manager.js";
 import { createAppDataClientResolver } from "./drive/resolve-client.js";
 import { loadEnv } from "./env.js";
-import { createLogger } from "./logging/logger.js";
 import { migrateToUserModel } from "./identity/migration.js";
 import { createIdentityResolver } from "./identity/resolver.js";
 import { SYSTEM_USER_ID } from "./identity/types.js";
+import { createLogger } from "./logging/logger.js";
 import { createPersistence } from "./persistence/factory.js";
 import { createGoogleCredentialResolver } from "./privacy/adapters/credentials.js";
+import { createPrivacyConfigStore } from "./privacy/config-store.js";
+import { SourceRespectingPrivacyFilter } from "./privacy/source-respecting-filter.js";
 import { startScheduler } from "./scheduler/index.js";
 import { startServer } from "./server/index.js";
 import { createSlackApp, type DmHandler } from "./slack/app.js";
@@ -420,6 +420,7 @@ const consoleServer = await startServer({
   preferencesStore,
   model,
   mockPrivacy,
+  mcpPool: registry.pool,
 });
 
 if (hasSlack) {

@@ -4,8 +4,24 @@ import { Badge } from "../components/Badge.js";
 import { CapabilityModal } from "../components/CapabilityModal.js";
 import { TabPanel, Tabs } from "../components/Tabs.js";
 import { useToast } from "../hooks/useToast.js";
-import type { CapabilityEntry, DiscoveryProgress, DiscoveryResult, HealthResponse, Session, McpCatalogEntry, McpServerStatus } from "../lib/api.js";
-import { getDiscoveryResult, getMcpCatalog, getMcpServers, getUserCapabilities, getUserPreferences, reloadCapabilities, startDiscovery } from "../lib/api.js";
+import type {
+  CapabilityEntry,
+  DiscoveryProgress,
+  DiscoveryResult,
+  HealthResponse,
+  McpCatalogEntry,
+  McpServer,
+  Session,
+} from "../lib/api.js";
+import {
+  getDiscoveryResult,
+  getMcpCatalog,
+  getMcpServers,
+  getUserCapabilities,
+  getUserPreferences,
+  reloadCapabilities,
+  startDiscovery,
+} from "../lib/api.js";
 
 const CAP_META: Record<string, { icon: string; name: string; desc: string }> = {
   github: { icon: "🐙", name: "GitHub", desc: "repos, issues, PRs" },
@@ -46,7 +62,7 @@ export function Capabilities(): JSX.Element {
   const [modalCap, setModalCap] = useState<CapabilityEntry | null>(null);
 
   const [mcpCatalog, setMcpCatalog] = useState<McpCatalogEntry[]>([]);
-  const [mcpServers, setMcpServers] = useState<McpServerStatus[]>([]);
+  const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
   const [mcpLoaded, setMcpLoaded] = useState(false);
 
   const [discovery, setDiscovery] = useState<DiscoveryResult | null>(null);
@@ -212,9 +228,7 @@ export function Capabilities(): JSX.Element {
                 <h2 className="section-label" style={{ marginTop: 24 }}>
                   MCP Tools
                 </h2>
-                <p className="section-hint">
-                  manage your connected mcp servers. connect external tools and services.
-                </p>
+                <p className="section-hint">manage your connected mcp servers. connect external tools and services.</p>
                 <div className="cap-grid">
                   {mcpCatalog.map((entry) => (
                     <McpCard key={entry.id} entry={entry} servers={mcpServers} />
@@ -368,9 +382,7 @@ function PreferencesPanel({
               </div>
               <ul style={{ margin: 0, paddingLeft: 18, fontSize: "0.857rem", color: "var(--text-sub)" }}>
                 {[...(discovery.responsibilities ?? [])]
-                  .sort(
-                    (a, b) => TIME_HORIZON_ORDER.indexOf(a.timeHorizon) - TIME_HORIZON_ORDER.indexOf(b.timeHorizon),
-                  )
+                  .sort((a, b) => TIME_HORIZON_ORDER.indexOf(a.timeHorizon) - TIME_HORIZON_ORDER.indexOf(b.timeHorizon))
                   .map((r, i) => (
                     <li key={i} style={{ marginBottom: 4 }}>
                       <strong>{r.title}</strong>
@@ -462,7 +474,9 @@ function MemoryPanel(): JSX.Element {
     void (async () => {
       try {
         setPrefs(await getUserPreferences());
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
       setLoaded(true);
     })();
   }, []);
@@ -473,7 +487,8 @@ function MemoryPanel(): JSX.Element {
     return (
       <div style={{ marginTop: 8 }}>
         <p className="section-hint">
-          tino hasn't saved any preferences yet. tell tino things like "i'm in pacific timezone" or "i prefer concise summaries" and it will remember.
+          tino hasn't saved any preferences yet. tell tino things like "i'm in pacific timezone" or "i prefer concise
+          summaries" and it will remember.
         </p>
       </div>
     );
@@ -481,21 +496,47 @@ function MemoryPanel(): JSX.Element {
 
   return (
     <div>
-      <h2 className="section-label" style={{ marginTop: 0 }}>Stored preferences</h2>
+      <h2 className="section-label" style={{ marginTop: 0 }}>
+        Stored preferences
+      </h2>
       <p className="section-hint">
         these are things tino remembers about you. set via Slack — tell tino to remember or forget something.
       </p>
       <table style={{ width: "100%", maxWidth: 600, borderCollapse: "collapse", fontSize: 13, marginTop: 12 }}>
         <thead>
           <tr style={{ borderBottom: "1px solid var(--border)", textAlign: "left" }}>
-            <th style={{ padding: "8px 12px", color: "var(--text-dim)", fontWeight: 500, fontSize: "0.786rem", textTransform: "uppercase", letterSpacing: "0.04em" }}>key</th>
-            <th style={{ padding: "8px 12px", color: "var(--text-dim)", fontWeight: 500, fontSize: "0.786rem", textTransform: "uppercase", letterSpacing: "0.04em" }}>value</th>
+            <th
+              style={{
+                padding: "8px 12px",
+                color: "var(--text-dim)",
+                fontWeight: 500,
+                fontSize: "0.786rem",
+                textTransform: "uppercase",
+                letterSpacing: "0.04em",
+              }}
+            >
+              key
+            </th>
+            <th
+              style={{
+                padding: "8px 12px",
+                color: "var(--text-dim)",
+                fontWeight: 500,
+                fontSize: "0.786rem",
+                textTransform: "uppercase",
+                letterSpacing: "0.04em",
+              }}
+            >
+              value
+            </th>
           </tr>
         </thead>
         <tbody>
           {prefs.map((p) => (
             <tr key={p.key} style={{ borderBottom: "1px solid var(--border-sub)" }}>
-              <td style={{ padding: "8px 12px", fontFamily: "var(--font-mono, monospace)", fontSize: "0.857rem" }}>{p.key}</td>
+              <td style={{ padding: "8px 12px", fontFamily: "var(--font-mono, monospace)", fontSize: "0.857rem" }}>
+                {p.key}
+              </td>
               <td style={{ padding: "8px 12px" }}>{p.value}</td>
             </tr>
           ))}
@@ -555,8 +596,8 @@ function CapCard({ cap, onSettings }: { cap: CapabilityEntry; onSettings: () => 
   );
 }
 
-function McpCard({ entry, servers }: { entry: McpCatalogEntry; servers: McpServerStatus[] }): JSX.Element {
-  const isConnected = servers.some((s) => s.id === entry.id && s.status === "ready");
+function McpCard({ entry, servers }: { entry: McpCatalogEntry; servers: McpServer[] }): JSX.Element {
+  const isConnected = servers.some((s) => s.serverId === entry.id && s.enabled);
 
   return (
     <div className="mcp-card cap-card cap-card-compact">

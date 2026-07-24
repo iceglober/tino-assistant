@@ -6,17 +6,40 @@
  * server-namespaced prefixes (mcp_ramp_*, mcp_rippling_*).
  */
 import type { ToolSet } from "ai";
+import type { McpAuth, McpServerEntry, McpTransport } from "../mcp/catalog.js";
+import { getServerEntry } from "../mcp/catalog.js";
+import type { MCPPool } from "../mcp/pool.js";
 import type { ConfigStore } from "../persistence/config.js";
 import type { UserCapabilityStore } from "../persistence/user-capabilities.js";
 import type { AppLogger } from "../slack/app.js";
 import type { CapabilityConfig, PrivateCapability } from "./types.js";
-import type { MCPPool } from "../mcp/pool.js";
-import { getServerEntry } from "../mcp/catalog.js";
 
 let pool: MCPPool | null = null;
 
 export function setMCPPool(mcpPool: MCPPool): void {
   pool = mcpPool;
+}
+
+/**
+ * Build an `McpServerEntry` for a custom (non-catalog) remote server from its
+ * stored per-user config. `url`/`transport`/`auth`/`displayName` live in
+ * `settings` (plaintext); the token lives (encrypted) in `credentials.token`.
+ * Returns null when the stored config isn't a valid remote server.
+ */
+export function synthesizeRemoteEntry(serverId: string, config: CapabilityConfig): McpServerEntry | null {
+  const s = config.settings ?? {};
+  const url = typeof s.url === "string" ? s.url : undefined;
+  const transport = s.transport as McpTransport | undefined;
+  if (!url || (transport !== "streamable-http" && transport !== "sse")) return null;
+  const auth: McpAuth = s.auth && typeof s.auth === "object" ? (s.auth as McpAuth) : { kind: "none" };
+  return {
+    id: serverId,
+    displayName: typeof s.displayName === "string" ? s.displayName : serverId,
+    transport,
+    url,
+    auth,
+    fields: [],
+  };
 }
 
 export const mcpCapability: PrivateCapability = {
@@ -64,9 +87,11 @@ export const mcpCapability: PrivateCapability = {
           continue;
         }
 
-        const entry = getServerEntry(serverId);
+        // Catalog server (npx/stdio) or a custom remote server synthesized from
+        // the user's stored {url, transport, auth} config.
+        const entry = getServerEntry(serverId) ?? synthesizeRemoteEntry(serverId, config);
         if (!entry) {
-          logger.warn({ serverId }, "MCP server not in catalog");
+          logger.warn({ serverId }, "MCP server is neither a catalog entry nor a valid custom remote server");
           continue;
         }
 
@@ -78,16 +103,9 @@ export const mcpCapability: PrivateCapability = {
           tools[prefixedName] = toolDef;
         }
 
-        logger.info(
-          { serverId, toolCount: Object.keys(serverTools).length },
-          "loaded MCP server tools",
-        );
+        logger.info({ serverId, toolCount: Object.keys(serverTools).length }, "loaded MCP server tools");
       } catch (err) {
-        logger.warn(
-          { serverId, err: (err as Error).message },
-          "failed to load MCP server tools",
-        );
-        continue;
+        logger.warn({ serverId, err: (err as Error).message }, "failed to load MCP server tools");
       }
     }
 

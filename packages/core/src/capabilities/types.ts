@@ -6,6 +6,7 @@
  * scanner. Capabilities are stored in the config table under `capability.<id>`.
  */
 import type { ToolSet } from "ai";
+import type { MCPPool } from "../mcp/pool.js";
 import type { ConfigStore } from "../persistence/config.js";
 import type { UserCapabilityStore } from "../persistence/user-capabilities.js";
 import type { AppLogger } from "../slack/app.js";
@@ -56,8 +57,19 @@ export interface CapField {
   kind?: "string" | "string[]";
   secret?: boolean;
   placeholder?: string;
-  /** Filled in by the GET handler from the stored blob; never declared by modules. */
+  /**
+   * Filled in by the GET handler from the stored blob; never declared by modules.
+   * For `secret` fields this is always "" — secret values are never echoed to the
+   * client (see `hasValue`).
+   */
   value?: string;
+  /**
+   * Filled in by the GET handler for `secret` fields only: whether a value is
+   * currently stored. Lets the console show "set / not set" without transmitting
+   * the secret. Submitting an empty value for a secret field preserves the
+   * existing one (see `buildConfigFromPayload`).
+   */
+  hasValue?: boolean;
 }
 
 /** Base properties shared by all capability modules. */
@@ -119,6 +131,12 @@ export type CapabilityModule = SharedCapability | PrivateCapability;
 export interface CapabilityRegistry {
   /** Shared tools (built once at init), ready for runAgent. */
   sharedTools: ToolSet;
+  /**
+   * The MCP connection pool created for this registry. Exposed so the server's
+   * MCP routes can kill/probe connections; the agent path reaches it via the
+   * module-level `setMCPPool` singleton.
+   */
+  pool: MCPPool;
   /**
    * Build tools for a specific user by calling buildToolsForUser on private
    * capabilities. Returns {} for SYSTEM_USER_ID; otherwise walks all private

@@ -36,8 +36,17 @@ describe("buildCapabilityView", () => {
     const idField = view.fields.find((f) => f.key === "clientId");
     expect(idField?.value).toBe("Iv1.abc123");
     const secretField = view.fields.find((f) => f.key === "clientSecret");
-    expect(secretField?.value).toBe("secret_xyz");
+    // Secret values are never echoed to the client — only whether one is set.
+    expect(secretField?.value).toBe("");
+    expect(secretField?.hasValue).toBe(true);
     expect(secretField?.secret).toBe(true);
+  });
+
+  it("reports hasValue=false for an unset secret field", () => {
+    const view = buildCapabilityView(githubCapability, { enabled: true, credentials: {}, settings: {} }, undefined);
+    const secretField = view.fields.find((f) => f.key === "clientSecret");
+    expect(secretField?.value).toBe("");
+    expect(secretField?.hasValue).toBe(false);
   });
 });
 
@@ -63,6 +72,31 @@ describe("buildConfigFromPayload", () => {
       null,
     );
     expect(next.credentials).not.toHaveProperty("clientId");
+  });
+
+  it("preserves an existing secret when an empty value is submitted (unchanged secret)", () => {
+    const existing: CapabilityConfig = {
+      enabled: true,
+      credentials: { clientSecret: "kept_secret" },
+      settings: {},
+    };
+    const next = buildConfigFromPayload(
+      githubCapability,
+      { enabled: true, fields: [{ key: "clientSecret", value: "" }] },
+      existing,
+    );
+    // A secret is never echoed, so an empty submission means "unchanged" — keep it.
+    expect(next.credentials.clientSecret).toBe("kept_secret");
+  });
+
+  it("replaces an existing secret when a new non-empty value is submitted", () => {
+    const existing: CapabilityConfig = { enabled: true, credentials: { clientSecret: "old" }, settings: {} };
+    const next = buildConfigFromPayload(
+      githubCapability,
+      { enabled: true, fields: [{ key: "clientSecret", value: "new" }] },
+      existing,
+    );
+    expect(next.credentials.clientSecret).toBe("new");
   });
 
   it("preserves unknown keys (e.g. findWork, awsProfile) from the existing blob", () => {

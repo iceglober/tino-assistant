@@ -1,11 +1,15 @@
 import { Hono } from "hono";
 import type { AuditLogger } from "../../audit/logger.js";
+import type { McpAuth, McpServerEntry, McpTransport } from "../../mcp/catalog.js";
 import { MCP_CATALOG } from "../../mcp/catalog.js";
 import type { MCPPool } from "../../mcp/pool.js";
+import { validateServerUrl } from "../../mcp/validateServerUrl.js";
 import type { ConfigStore } from "../../persistence/config.js";
 import type { UserCapabilityStore } from "../../persistence/user-capabilities.js";
 import type { AppLogger } from "../../slack/app.js";
 import type { AuthVariables } from "../middleware/auth.js";
+
+const REMOTE_TRANSPORTS: McpTransport[] = ["streamable-http", "sse"];
 
 /**
  * /api/mcp — MCP server catalog and per-user server credential management.
@@ -60,10 +64,17 @@ export function createMcpRoutes(opts: {
     for (const serverConfig of mcpServers) {
       const serverId = serverConfig.capabilityId.replace(/^mcp\./, "");
       const config = await userCapabilities.get(loggedInUser.id, serverConfig.capabilityId);
+      const settings = (config?.settings ?? {}) as Record<string, unknown>;
+      // Never return raw credentials to the client — expose only non-secret
+      // config plus a flag for whether a credential is stored.
       result.push({
         serverId,
         enabled: serverConfig.enabled,
-        config,
+        displayName: typeof settings.displayName === "string" ? settings.displayName : serverId,
+        url: typeof settings.url === "string" ? settings.url : undefined,
+        transport: (settings.transport as McpTransport | undefined) ?? "stdio",
+        auth: (settings.auth as McpAuth | undefined) ?? { kind: "none" },
+        hasCredentials: !!config && Object.keys(config.credentials ?? {}).length > 0,
       });
     }
 
@@ -99,6 +110,18 @@ export function createMcpRoutes(opts: {
       settings: Record<string, unknown>;
     };
 
+    // For custom remote servers, reject a bad/unsafe URL before persisting.
+    const transport = config.settings?.transport as McpTransport | undefined;
+    if (transport && REMOTE_TRANSPORTS.includes(transport)) {
+      const url = config.settings?.url;
+      if (typeof url !== "string") return c.json({ error: "mcp_url_required" }, 400);
+      try {
+        validateServerUrl(url);
+      } catch (err) {
+        return c.json({ error: (err as Error).message }, 400);
+      }
+    }
+
     await userCapabilities.set(loggedInUser.id, capabilityId, {
       enabled: config.enabled ?? true,
       credentials: config.credentials ?? {},
@@ -117,6 +140,59 @@ export function createMcpRoutes(opts: {
 
     logger.info({ userId: loggedInUser.id, serverId }, "MCP server credentials saved");
     return c.json({ ok: true, serverId });
+  });
+
+  /**
+   * POST /api/mcp/test
+   * Probe a remote MCP server without persisting it — powers the "Test connection"
+   * step of the add-server wizard. Body: { url, transport, auth?, credentials? }.
+   * Returns { ok: true, tools: string[] } on success, or { ok: false, error } on failure.
+   */
+  app.post("/test", async (c) => {
+    const loggedInUser = c.get("user");
+    if (!loggedInUser) return c.json({ error: "unauthorized" }, 401);
+    if (!pool) return c.json({ error: "mcp_pool_unavailable" }, 503);
+
+    let body: {
+      url?: string;
+      transport?: McpTransport;
+      auth?: McpAuth;
+      credentials?: Record<string, string>;
+    };
+    try {
+      body = (await c.req.json()) as typeof body;
+    } catch {
+      return c.json({ error: "Request body must be valid JSON" }, 400);
+    }
+
+    const transport = body.transport;
+    if (!transport || !REMOTE_TRANSPORTS.includes(transport)) {
+      return c.json({ ok: false, error: "mcp_transport_unsupported" }, 400);
+    }
+    if (typeof body.url !== "string") {
+      return c.json({ ok: false, error: "mcp_url_required" }, 400);
+    }
+    try {
+      validateServerUrl(body.url);
+    } catch (err) {
+      return c.json({ ok: false, error: (err as Error).message }, 400);
+    }
+
+    const entry: McpServerEntry = {
+      id: "__probe__",
+      displayName: "probe",
+      transport,
+      url: body.url,
+      auth: body.auth ?? { kind: "none" },
+      fields: [],
+    };
+    try {
+      const tools = await pool.probe(entry, body.credentials);
+      return c.json({ ok: true, tools });
+    } catch (err) {
+      logger.warn({ userId: loggedInUser.id, err: (err as Error).message }, "MCP test connection failed");
+      return c.json({ ok: false, error: (err as Error).message });
+    }
   });
 
   /**
