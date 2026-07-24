@@ -13,7 +13,7 @@ import {
   sessionPk,
   tenantPrefix,
   userCapPk,
-} from "../../src/persistence/keys.js";
+} from "../../src/infrastructure/driven/persistence/keys.js";
 
 describe("partition key helpers", () => {
   it("tenantPrefix returns empty string by default", () => {

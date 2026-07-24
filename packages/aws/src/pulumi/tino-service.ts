@@ -90,16 +90,6 @@ export interface TinoServiceArgs {
   memory?: string;
 
   /**
-   * Audit log retention in days (HIPAA audit trail).
-   * Default: 90 (matches `DEFAULT_RETENTION_SECONDS` in audit/dynamo.ts).
-   *
-   * Source from `tino.deploy.json` `hipaa.auditRetentionDays` if you have one.
-   * Passed to the container as `AUDIT_RETENTION_DAYS`; the DynamoDB audit
-   * logger sets DynamoDB TTL on each entry to (now + retentionDays).
-   */
-  auditRetentionDays?: number;
-
-  /**
    * Prefix used in AWS resource names (DynamoDB table, ECS cluster, log
    * group, ECR repo, KMS alias, etc.). Default: the Pulumi component name.
    *
@@ -1146,7 +1136,6 @@ export class TinoService extends pulumi.ComponentResource {
               { name: "DYNAMODB_TABLE_NAME", value: `${prefix}` },
               { name: "LOG_LEVEL", value: "info" },
               { name: "CONSOLE_BASE_URL", value: consoleBaseUrl },
-              { name: "AUDIT_RETENTION_DAYS", value: String(args.auditRetentionDays ?? 90) },
               { name: "AUTH_DB_PATH", value: "/auth/tino-auth.db" },
             ];
             if (oauthClientId) env.push({ name: "GOOGLE_OAUTH_CLIENT_ID", value: oauthClientId });

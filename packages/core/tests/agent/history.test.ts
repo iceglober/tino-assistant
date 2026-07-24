@@ -1,6 +1,6 @@
 import type { ModelMessage } from "ai";
 import { describe, expect, it } from "vitest";
-import { createHistoryStore } from "../../src/agent/history.js";
+import { createHistoryStore } from "../../src/infrastructure/driven/persistence/memory-history.js";
 
 // Helper builders — only the `role` field matters for trim logic.
 // We use `satisfies ModelMessage` to get type-checking without fighting

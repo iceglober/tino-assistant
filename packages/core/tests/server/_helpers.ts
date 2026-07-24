@@ -8,9 +8,9 @@
 
 import type { MiddlewareHandler } from "hono";
 import { vi } from "vitest";
-import type { ConfigStore } from "../../src/persistence/config.js";
-import type { AppLogger } from "../../src/slack/app.js";
-import type { AuthVariables } from "../../src/server/middleware/auth.js";
+import type { ConfigStore } from "../../src/infrastructure/driven/persistence/config.js";
+import type { Logger as AppLogger } from "../../src/ports/outbound.js";
+import type { AuthVariables } from "../../src/infrastructure/driving/http/auth.js";
 
 export function noopLogger(): AppLogger {
   return { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };

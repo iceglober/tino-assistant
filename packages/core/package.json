@@ -3,91 +3,50 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "main": "./dist/bootstrap/main.js",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
+      "default": "./dist/bootstrap/main.js"
     },
     "./env": {
       "types": "./dist/env.d.ts",
       "default": "./dist/env.js"
     },
-    "./agent/history": {
-      "types": "./dist/agent/history.d.ts",
-      "default": "./dist/agent/history.js"
+    "./ports": {
+      "types": "./dist/ports/outbound.d.ts",
+      "default": "./dist/ports/outbound.js"
     },
-    "./persistence/tasks": {
-      "types": "./dist/persistence/tasks.d.ts",
-      "default": "./dist/persistence/tasks.js"
-    },
-    "./persistence/preferences": {
-      "types": "./dist/persistence/preferences.d.ts",
-      "default": "./dist/persistence/preferences.js"
-    },
-    "./persistence/config": {
-      "types": "./dist/persistence/config.d.ts",
-      "default": "./dist/persistence/config.js"
-    },
-    "./persistence/factory": {
-      "types": "./dist/persistence/factory.d.ts",
-      "default": "./dist/persistence/factory.js"
-    },
-    "./identity/store": {
-      "types": "./dist/identity/store.d.ts",
-      "default": "./dist/identity/store.js"
-    },
-    "./identity/types": {
-      "types": "./dist/identity/types.d.ts",
-      "default": "./dist/identity/types.js"
-    },
-    "./slack/app": {
-      "types": "./dist/slack/app.d.ts",
-      "default": "./dist/slack/app.js"
-    },
-    "./audit/logger": {
-      "types": "./dist/audit/logger.d.ts",
-      "default": "./dist/audit/logger.js"
-    },
-    "./audit/memory": {
-      "types": "./dist/audit/memory.d.ts",
-      "default": "./dist/audit/memory.js"
-    },
-    "./capabilities/types": {
-      "types": "./dist/capabilities/types.d.ts",
-      "default": "./dist/capabilities/types.js"
-    },
-    "./crypto/types": {
-      "types": "./dist/crypto/types.d.ts",
-      "default": "./dist/crypto/types.js"
-    },
-    "./crypto/factory": {
-      "types": "./dist/crypto/factory.d.ts",
-      "default": "./dist/crypto/factory.js"
-    },
-    "./persistence/user-capabilities": {
-      "types": "./dist/persistence/user-capabilities.d.ts",
-      "default": "./dist/persistence/user-capabilities.js"
+    "./domain/types": {
+      "types": "./dist/domain/types.d.ts",
+      "default": "./dist/domain/types.js"
     },
     "./persistence/keys": {
-      "types": "./dist/persistence/keys.d.ts",
-      "default": "./dist/persistence/keys.js"
+      "types": "./dist/infrastructure/driven/persistence/keys.d.ts",
+      "default": "./dist/infrastructure/driven/persistence/keys.js"
+    },
+    "./persistence/memory-history": {
+      "types": "./dist/infrastructure/driven/persistence/memory-history.d.ts",
+      "default": "./dist/infrastructure/driven/persistence/memory-history.js"
+    },
+    "./identity/store": {
+      "types": "./dist/infrastructure/driven/identity/store.d.ts",
+      "default": "./dist/infrastructure/driven/identity/store.js"
     }
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json && vite build",
     "build:server": "tsc -p tsconfig.build.json",
     "build:console": "vite build",
-    "dev": "tsx watch src/index.ts",
+    "dev": "tsx watch src/bootstrap/main.ts",
     "dev:console": "vite",
     "lint": "biome check .",
-    "start": "tsx src/index.ts",
+    "start": "tsx src/bootstrap/main.ts",
     "test": "bun --bun ./node_modules/vitest/dist/cli.js run",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.app.json"
   },
   "dependencies": {
     "@ai-sdk/amazon-bedrock": "^4.0.105",
+    "@ai-sdk/azure": "3.0.93",
     "@aws-sdk/client-cloudwatch-logs": "^3.1045.0",
     "@aws-sdk/credential-providers": "^3.1045.0",
     "@hono/node-server": "^2.0.2",

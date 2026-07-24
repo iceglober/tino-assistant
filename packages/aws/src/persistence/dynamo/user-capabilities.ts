@@ -1,6 +1,6 @@
-import type { UserCapabilityStore } from "@tino/core/persistence/user-capabilities";
-import type { CryptoAdapter, EncryptionContext, EnvelopeCiphertext } from "@tino/core/crypto/types";
-import type { CapabilityConfig } from "@tino/core/capabilities/types";
+import type { UserCapabilityStore } from "@tino/core/ports";
+import type { CryptoAdapter, EncryptionContext, EnvelopeCiphertext } from "@tino/core/ports";
+import type { CapabilityConfig } from "@tino/core/domain/types";
 import { CAP_SK_PREFIX, capabilitySk as makeCapSk, userCapPk } from "@tino/core/persistence/keys";
 import { DeleteItemCommand, GetItemCommand, PutItemCommand, QueryCommand } from "dynamodb-toolbox";
 import type { TinoTable } from "./client.js";

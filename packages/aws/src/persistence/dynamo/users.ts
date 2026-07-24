@@ -1,5 +1,5 @@
-import type { UserStore } from "@tino/core/identity/store";
-import type { TinoUser } from "@tino/core/identity/types";
+import type { UserStore } from "@tino/core/ports";
+import type { TinoUser } from "@tino/core/domain/types";
 import { ORG_USER_PARTITION, orgUserPk } from "@tino/core/persistence/keys";
 import { GetItemCommand, PutItemCommand, ScanCommand, UpdateItemCommand } from "dynamodb-toolbox";
 import type { TinoTable } from "./client.js";

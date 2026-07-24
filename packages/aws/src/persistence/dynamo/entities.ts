@@ -6,14 +6,9 @@ import type { TinoTable } from "./client.js";
  *
  * Key patterns:
  *   History:    pk=HISTORY#<userId>             sk=HISTORY
- *   Task:       pk=TASK#<taskId>                sk=TASK
- *   Preference: pk=PREF#<userId>                sk=PREF#<key>
  *   Config:     pk=CONFIG                       sk=CONFIG#<key>
  *   User:       pk=ORG#USER#<tinoUserId>        sk=ORG#USER#<tinoUserId>
  *   Identity:   pk=IDENTITY#<provider>#<externalId>  sk=same
- *
- * GSI1 (tasks only):
- *   gsi1pk=TASK_STATUS#<status>  gsi1sk=<scheduledAt zero-padded 13 digits>
  *
  * The User and Identity entities use single-row partitions (sk == pk) to keep
  * a stable shape for a future tenant-prefix migration; key prefixes are
@@ -31,48 +26,6 @@ export function createHistoryEntity(table: TinoTable) {
       pk: string().key(),
       sk: string().key(),
       messagesJson: string(),
-      updatedAt: number(),
-    }),
-    timestamps: false,
-  });
-}
-
-// ── Task ─────────────────────────────────────────────────────────────────────
-
-export function createTaskEntity(table: TinoTable) {
-  return new Entity({
-    name: "Task",
-    table,
-    schema: item({
-      pk: string().key(),
-      sk: string().key(),
-      gsi1pk: string(),
-      gsi1sk: string(),
-      taskId: string(),
-      userId: string(),
-      description: string(),
-      scheduledAt: number(),
-      status: string(),
-      result: string().optional(),
-      createdAt: number(),
-      updatedAt: number(),
-      intervalSec: number().optional(),
-      expiresAt: number().optional(),
-    }),
-    timestamps: false,
-  });
-}
-
-// ── Preference ───────────────────────────────────────────────────────────────
-
-export function createPreferenceEntity(table: TinoTable) {
-  return new Entity({
-    name: "Preference",
-    table,
-    schema: item({
-      pk: string().key(),
-      sk: string().key(),
-      value: string(),
       updatedAt: number(),
     }),
     timestamps: false,
@@ -170,11 +123,4 @@ export function createSessionEntity(table: TinoTable) {
     }),
     timestamps: false,
   });
-}
-
-// ── Key helpers ──────────────────────────────────────────────────────────────
-
-/** Zero-pad a scheduledAt epoch-seconds value to 13 digits for lexicographic sort. */
-export function padScheduledAt(epochSec: number): string {
-  return String(epochSec).padStart(13, "0");
 }

@@ -1,6 +1,7 @@
 import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
-import { IdentityLinkConflictError, type IdentityStore } from "@tino/core/identity/store";
-import type { Identity, IdentityProvider } from "@tino/core/identity/types";
+import { IdentityLinkConflictError } from "@tino/core/identity/store";
+import type { IdentityStore } from "@tino/core/ports";
+import type { Identity, IdentityProvider } from "@tino/core/domain/types";
 import { identityPk as makeIdentityPk } from "@tino/core/persistence/keys";
 import { GetItemCommand, PutItemCommand, QueryCommand } from "dynamodb-toolbox";
 import type { TinoTable } from "./client.js";

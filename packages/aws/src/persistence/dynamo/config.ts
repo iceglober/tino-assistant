@@ -1,4 +1,4 @@
-import type { ConfigStore } from "@tino/core/persistence/config";
+import type { ConfigStore } from "@tino/core/ports";
 import { CONFIG_PK, CONFIG_SK_PREFIX, configSk } from "@tino/core/persistence/keys";
 import { DeleteItemCommand, GetItemCommand, PutItemCommand, QueryCommand } from "dynamodb-toolbox";
 import type { TinoTable } from "./client.js";

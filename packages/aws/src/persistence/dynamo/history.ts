@@ -1,5 +1,5 @@
-import type { HistoryStore } from "@tino/core/agent/history";
-import { trim } from "@tino/core/agent/history";
+import type { HistoryStore } from "@tino/core/ports";
+import { trim } from "@tino/core/persistence/memory-history";
 import { HISTORY_SK, historyPk } from "@tino/core/persistence/keys";
 import type { ModelMessage } from "ai";
 import { DeleteItemCommand, GetItemCommand, PutItemCommand } from "dynamodb-toolbox";
@@ -30,7 +30,7 @@ export function createDynamoHistoryStore(table: TinoTable, cap = 40): HistorySto
     },
 
     async append(userId: string, msgs: ModelMessage[]): Promise<void> {
-      const existing = await this.get(userId);
+      const existing = (await this.get(userId)) as ModelMessage[];
       const combined = [...existing, ...msgs];
       const trimmed = trim(combined, cap);
 

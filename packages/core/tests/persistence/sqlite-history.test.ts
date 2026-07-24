@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { ModelMessage } from "ai";
 import { afterEach, describe, expect, it } from "vitest";
-import { createSqliteHistoryStore } from "../../src/persistence/sqlite.js";
+import { createSqliteHistoryStore } from "../../src/infrastructure/driven/persistence/sqlite-history.js";
 
 // ─── Helper builders (same shapes as tests/agent/history.test.ts) ────────────
 

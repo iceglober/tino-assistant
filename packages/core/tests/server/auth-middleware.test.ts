@@ -1,13 +1,12 @@
 import type { Auth } from "better-auth";
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
-import { type AuthVariables, buildAuthMiddleware } from "../../src/server/middleware/auth.js";
-import { requireAdmin } from "../../src/server/middleware/require-admin.js";
-import type { IdentityStore } from "../../src/identity/store.js";
-import type { UserStore } from "../../src/identity/store.js";
-import type { TinoUser } from "../../src/identity/types.js";
-import type { ConfigStore } from "../../src/persistence/config.js";
-import type { AppLogger } from "../../src/slack/app.js";
+import { type AuthVariables, buildAuthMiddleware } from "../../src/infrastructure/driving/http/auth.js";
+import type { IdentityStore } from "../../src/infrastructure/driven/identity/store.js";
+import type { UserStore } from "../../src/infrastructure/driven/identity/store.js";
+import type { TinoUser } from "../../src/domain/types.js";
+import type { ConfigStore } from "../../src/infrastructure/driven/persistence/config.js";
+import type { Logger as AppLogger } from "../../src/ports/outbound.js";
 
 function noopLogger(): AppLogger {
   return {
@@ -265,55 +264,5 @@ describe("auth middleware — tino-UUID resolution (wave 3 a6)", () => {
     expect(res.status).toBe(403);
     const body = (await res.json()) as { message: string };
     expect(body.message).toContain("not provisioned");
-  });
-});
-
-describe("requireAdmin middleware (wave 3 a6)", () => {
-  it("requireAdmin middleware rejects member role", async () => {
-    const identities = makeIdentities({ "member@acme.io": "tino-uuid-member" });
-    const users = makeUsers([memberUser]);
-
-    const app = new Hono<{ Variables: AuthVariables }>();
-    app.use(
-      "*",
-      buildAuthMiddleware({
-        authRef: { current: stubAuth({ user: { id: "ba-id", email: "member@acme.io", name: "M" } }) },
-        allowedDomain: undefined,
-        logger: noopLogger(),
-        identities,
-        users,
-      }),
-    );
-    app.use("/api/admin/*", requireAdmin());
-    app.get("/api/admin/action", (c) => c.json({ ok: true }));
-
-    const res = await app.request("/api/admin/action");
-    expect(res.status).toBe(403);
-    const body = (await res.json()) as { message: string };
-    expect(body.message).toBe("admin role required");
-  });
-
-  it("requireAdmin middleware allows admin role", async () => {
-    const identities = makeIdentities({ "admin@acme.io": "tino-uuid-admin" });
-    const users = makeUsers([adminUser]);
-
-    const app = new Hono<{ Variables: AuthVariables }>();
-    app.use(
-      "*",
-      buildAuthMiddleware({
-        authRef: { current: stubAuth({ user: { id: "ba-id", email: "admin@acme.io", name: "Admin" } }) },
-        allowedDomain: undefined,
-        logger: noopLogger(),
-        identities,
-        users,
-      }),
-    );
-    app.use("/api/admin/*", requireAdmin());
-    app.get("/api/admin/action", (c) => c.json({ ok: true }));
-
-    const res = await app.request("/api/admin/action");
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { ok: boolean };
-    expect(body.ok).toBe(true);
   });
 });

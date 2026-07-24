@@ -18,7 +18,11 @@
       "Bash(bun install *)",
       "Bash(bun run *)",
       "Bash(bunx tsc *)",
-      "Bash(bun --bun ./node_modules/vitest/dist/cli.js run tests/slack/resolve-dm-sender.test.ts tests/slack/allowlist.test.ts)"
+      "Bash(bun --bun ./node_modules/vitest/dist/cli.js run tests/slack/resolve-dm-sender.test.ts tests/slack/allowlist.test.ts)",
+      "Bash(git switch *)",
+      "Bash(python3 -c \"import sys,json;d=json.load\\(sys.stdin\\);print\\('bedrock',d.get\\('version'\\)\\);print\\('peer ai:',d.get\\('peerDependencies',{}\\).get\\('ai'\\)\\)\")",
+      "Bash(npm view *)",
+      "Bash(bun add *)"
     ]
   }
 }

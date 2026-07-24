@@ -40,4 +40,4 @@ RUN mkdir -p node_modules/@tino && \
     ln -s /app/packages/aws node_modules/@tino/aws
 
 ENV NODE_ENV=production
-CMD ["bun", "run", "packages/core/dist/index.js"]
+CMD ["bun", "run", "packages/core/dist/bootstrap/main.js"]

@@ -1,6 +1,6 @@
 import type { gmail_v1 } from "googleapis";
 import { describe, expect, it, vi } from "vitest";
-import { _executeGmailGetMessage, _executeGmailSearch } from "../../src/tools/google/gmail.js";
+import { _executeGmailGetMessage, _executeGmailSearch } from "../../src/infrastructure/driven/tools/google/gmail.js";
 
 // ---------------------------------------------------------------------------
 // Mock helper

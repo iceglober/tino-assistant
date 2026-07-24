@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import type { SessionSecondaryStorage } from "../../src/persistence/factory.js";
+import type { SessionSecondaryStorage } from "../../src/infrastructure/driven/persistence/factory.js";
 
 function createInMemorySessionStore(): SessionSecondaryStorage {
   const store = new Map<string, { value: string; expiresAt?: number }>();

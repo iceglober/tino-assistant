@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import type { CryptoAdapter, EncryptionContext, EnvelopeCiphertext } from "@tino/core/crypto/types";
-import type { CapabilityConfig } from "@tino/core/capabilities/types";
-import { createSqliteUserCapabilityStore } from "@tino/core/persistence/user-capabilities";
+import type { CryptoAdapter, EncryptionContext, EnvelopeCiphertext } from "../../src/ports/outbound.js";
+import type { CapabilityConfig } from "../../src/domain/types.js";
+import { createSqliteUserCapabilityStore } from "../../src/infrastructure/driven/persistence/user-capabilities.js";
 
 /**
  * Stub CryptoAdapter for testing — does identity crypto (no real encryption)
