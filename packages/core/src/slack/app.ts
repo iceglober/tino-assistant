@@ -2,10 +2,10 @@ import { App, LogLevel } from "@slack/bolt";
 import type { WebClient } from "@slack/web-api";
 import type { HistoryStore } from "../agent/history.js";
 import type { AuditLogger } from "../audit/logger.js";
-import type { ConfigStore } from "../persistence/config.js";
+import type { Env } from "../env.js";
 import type { IdentityResolver } from "../identity/resolver.js";
 import type { IdentityStore, UserStore } from "../identity/store.js";
-import type { Env } from "../env.js";
+import type { ConfigStore } from "../persistence/config.js";
 import { toSlackMrkdwn } from "./mrkdwn.js";
 import { handleResetCommand } from "./reset.js";
 import { resolveDmSender } from "./resolve-dm-sender.js";
@@ -34,7 +34,19 @@ export async function handleDmMessage(params: {
   auditLogger?: AuditLogger;
   seenUsers?: Set<string>;
 }): Promise<void> {
-  const { message: m, onDm, say, client, logger, identityResolver, users, identities, configStore, auditLogger, seenUsers } = params;
+  const {
+    message: m,
+    onDm,
+    say,
+    client,
+    logger,
+    identityResolver,
+    users,
+    identities,
+    configStore,
+    auditLogger,
+    seenUsers,
+  } = params;
 
   if (m.subtype !== undefined) {
     logger.debug({ subtype: m.subtype }, "ignored message with subtype");
@@ -91,6 +103,7 @@ export async function handleDmMessage(params: {
     } else {
       await say({ text: formatted });
     }
+    await auditLogger?.log({ userId: tinoUserId, action: "slack_message_sent", status: "success" });
     logger.info(
       { user: m.user, tinoUserId, channel: m.channel, replyLen: formatted.length, durationMs: Date.now() - start },
       "DM handled",
@@ -189,14 +202,19 @@ export function createSlackApp(opts: CreateSlackAppOpts): App {
       users,
       identities,
       configStore,
-      say: async (args) => { await say({ ...args, thread_ts: event.ts }); },
+      say: async (args) => {
+        await say({ ...args, thread_ts: event.ts });
+      },
       auditLogger,
       logger,
     });
     if (!tinoUserId) return;
 
     try {
-      logger.info({ user: event.user, tinoUserId, channel: event.channel, textLen: text.length }, "channel mention received");
+      logger.info(
+        { user: event.user, tinoUserId, channel: event.channel, textLen: text.length },
+        "channel mention received",
+      );
       const placeholder = await say({ text: "thinking...", thread_ts: event.ts });
       const placeholderTs = (placeholder as { ts?: string })?.ts;
 
@@ -206,11 +224,14 @@ export function createSlackApp(opts: CreateSlackAppOpts): App {
         const threadTs = (event as { thread_ts?: string }).thread_ts;
         const historyResult = threadTs
           ? await app.client.conversations.replies({ channel: event.channel, ts: threadTs, limit: 30 })
-          : await app.client.conversations.history({ channel: event.channel, latest: event.ts, limit: 20, inclusive: false });
+          : await app.client.conversations.history({
+              channel: event.channel,
+              latest: event.ts,
+              limit: 20,
+              inclusive: false,
+            });
 
-        const msgs = (historyResult.messages ?? [])
-          .filter((msg) => msg.ts !== event.ts && msg.text)
-          .slice(-20);
+        const msgs = (historyResult.messages ?? []).filter((msg) => msg.ts !== event.ts && msg.text).slice(-20);
 
         const privacyRule =
           "IMPORTANT: Your response will be visible to EVERYONE in this channel. " +
@@ -226,17 +247,19 @@ export function createSlackApp(opts: CreateSlackAppOpts): App {
           });
           contextPrefix =
             "[You were @mentioned in a Slack channel. Below are the most recent messages from the conversation for context. " +
-            "When the user says \"this\" or references something discussed, use this context to understand what they mean. " +
+            'When the user says "this" or references something discussed, use this context to understand what they mean. ' +
             "If you need more context than what's shown here, use your Slack tools (slack_search_messages, slack_read_channel, slack_read_channel_thread) " +
             "to find related messages, and any other tools (gmail, calendar, linear) that would help you fulfill the request. " +
-            privacyRule + "\n\n" +
+            privacyRule +
+            "\n\n" +
             lines.join("\n") +
             "\n]\n\n";
         } else {
           contextPrefix =
             "[You were @mentioned in a Slack channel but no prior messages were available. " +
             "If you need context, use your Slack and other tools to search for related information. " +
-            privacyRule + "]\n\n";
+            privacyRule +
+            "]\n\n";
         }
       } catch (histErr) {
         logger.warn({ err: histErr, channel: event.channel }, "failed to fetch channel context for mention");
@@ -257,8 +280,20 @@ export function createSlackApp(opts: CreateSlackAppOpts): App {
       } else {
         await say({ text: formatted, thread_ts: event.ts });
       }
+      await auditLogger?.log({
+        userId: tinoUserId,
+        action: "slack_message_sent",
+        status: "success",
+        metadata: { channel: true },
+      });
       logger.info(
-        { user: event.user, tinoUserId, channel: event.channel, replyLen: formatted.length, durationMs: Date.now() - start },
+        {
+          user: event.user,
+          tinoUserId,
+          channel: event.channel,
+          replyLen: formatted.length,
+          durationMs: Date.now() - start,
+        },
         "channel mention handled",
       );
     } catch (err) {

@@ -1,3 +1,4 @@
+import type { AuditLogger } from "../audit/logger.js";
 import type { Task, TaskStore } from "../persistence/tasks.js";
 import type { AppLogger } from "../slack/app.js";
 
@@ -6,6 +7,8 @@ export interface SchedulerDeps {
   logger: AppLogger;
   runTask: (task: Task) => Promise<string>; // returns the agent's response text
   postResult: (userId: string, text: string) => Promise<void>;
+  /** Audit logger — records a task_executed activity event when a task runs. */
+  auditLogger?: AuditLogger;
   intervalMs?: number; // default 15_000 (15s — responsive enough for short reminders)
 }
 
@@ -22,7 +25,7 @@ export interface SchedulerDeps {
  *    e. On error: updateStatus(id, 'failed', error.message), postResult with error
  */
 export function startScheduler(deps: SchedulerDeps): () => void {
-  const { taskStore, logger, runTask, postResult, intervalMs = 15_000 } = deps;
+  const { taskStore, logger, runTask, postResult, auditLogger, intervalMs = 15_000 } = deps;
 
   const tick = async () => {
     const now = Math.floor(Date.now() / 1000);
@@ -40,6 +43,12 @@ export function startScheduler(deps: SchedulerDeps): () => void {
         const result = await runTask(task);
         await taskStore.updateStatus(task.id, "completed", result);
         await postResult(task.userId, `📋 *Scheduled task completed:*\n\n_${task.description}_\n\n${result}`);
+        await auditLogger?.log({
+          userId: task.userId,
+          action: "task_executed",
+          status: "success",
+          metadata: { taskId: task.id, description: task.description },
+        });
         logger.info({ taskId: task.id }, "scheduled task completed");
 
         // Recurring tasks: schedule the next occurrence if not expired

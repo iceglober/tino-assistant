@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { createMemoryAuditLogger } from "../../src/audit/memory.js";
 import type { Task, TaskStore } from "../../src/persistence/tasks.js";
 import { cancelTaskTool, listTasksTool, scheduleTaskTool } from "../../src/tools/tasks.js";
 
@@ -55,6 +56,19 @@ describe("scheduleTaskTool", () => {
     expect(calledEpoch).toBe(Math.floor(new Date("2026-05-13T09:00:00Z").getTime() / 1000));
 
     expect(result).toMatchObject({ taskId: "task-uuid-1", status: "pending" });
+  });
+
+  it("logs a task_scheduled audit event carrying the task id (for the activity feed)", async () => {
+    const store = makeStore();
+    const audit = createMemoryAuditLogger();
+    const tool = scheduleTaskTool(store, "U1", audit);
+
+    await tool.execute({ description: "prep for standup", scheduledAtIso: "2026-05-13T09:00:00Z" }, {} as never);
+
+    const entries = await audit.query({ action: "task_scheduled" });
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.userId).toBe("U1");
+    expect(entries[0]?.metadata?.taskId).toBe("task-uuid-1");
   });
 
   // 2. schedule_task with invalid date → returns error

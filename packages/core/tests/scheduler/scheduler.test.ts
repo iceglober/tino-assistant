@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createMemoryAuditLogger } from "../../src/audit/memory.js";
 import type { Task, TaskStore } from "../../src/persistence/tasks.js";
 import { startScheduler } from "../../src/scheduler/index.js";
 import type { AppLogger } from "../../src/slack/app.js";
@@ -80,6 +81,28 @@ describe("startScheduler", () => {
     expect((postResult as ReturnType<typeof vi.fn>).mock.calls[0][0]).toBe("U1");
     expect((postResult as ReturnType<typeof vi.fn>).mock.calls[0][1]).toContain("Scheduled task completed");
     expect((postResult as ReturnType<typeof vi.fn>).mock.calls[0][1]).toContain("task output text");
+
+    stop();
+  });
+
+  it("logs a task_executed audit event when a task completes", async () => {
+    const task = makeTask();
+    const store = makeStore({ listPending: vi.fn().mockReturnValue([task]) });
+    const audit = createMemoryAuditLogger();
+    const stop = startScheduler({
+      taskStore: store,
+      logger: makeLogger(),
+      runTask: vi.fn().mockResolvedValue("output"),
+      postResult: vi.fn().mockResolvedValue(undefined),
+      auditLogger: audit,
+      intervalMs: 60_000,
+    });
+
+    await flushInitialTick();
+
+    const entries = await audit.query({ action: "task_executed" });
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.metadata).toMatchObject({ taskId: "task-uuid-1" });
 
     stop();
   });

@@ -21,6 +21,7 @@ export interface AuditEntry {
     | "capability_toggle"
     | "task_scheduled"
     | "task_executed"
+    | "slack_message_sent"
     | "injection_suspected"
     | "user_deprovisioned"
     | "admin_restart"

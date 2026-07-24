@@ -158,6 +158,7 @@ const registry = await initCapabilityRegistry({
   preferencesStore: preferencesStore,
   taskStore,
   userCapabilities,
+  auditLogger,
   onNewWork: async (summary: string) => {
     // findWork callback — run the agent on the work item and post result to owner
     const taskHistory = createHistoryStore({ cap: 40 });
@@ -319,6 +320,7 @@ async function reconnectSlack(): Promise<{ ok: boolean; error?: string }> {
   stopScheduler = startScheduler({
     taskStore,
     logger,
+    auditLogger,
     runTask: async (task) => {
       const taskHistory = createHistoryStore({ cap: 40 });
       const taskPrompt = [

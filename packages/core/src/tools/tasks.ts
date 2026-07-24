@@ -1,5 +1,6 @@
 import { tool } from "ai";
 import { z } from "zod";
+import type { AuditLogger } from "../audit/logger.js";
 import type { TaskStore } from "../persistence/tasks.js";
 
 // ---------------------------------------------------------------------------
@@ -42,7 +43,7 @@ const scheduleInputSchema = z.object({
     ),
 });
 
-export function scheduleTaskTool(taskStore: TaskStore, userId: string) {
+export function scheduleTaskTool(taskStore: TaskStore, userId: string, auditLogger?: AuditLogger) {
   return tool({
     description:
       "Schedule a task for tino to execute at a future time. " +
@@ -56,13 +57,26 @@ export function scheduleTaskTool(taskStore: TaskStore, userId: string) {
         return { error: "invalid_date", message: `Could not parse scheduledAtIso: ${scheduledAtIso}` };
       }
       if ((intervalMinutes && !forHours) || (!intervalMinutes && forHours)) {
-        return { error: "invalid_recurring", message: "Both intervalMinutes and forHours must be set for recurring tasks." };
+        return {
+          error: "invalid_recurring",
+          message: "Both intervalMinutes and forHours must be set for recurring tasks.",
+        };
       }
       const scheduledAtEpochSec = Math.floor(ms / 1000);
-      const recurring = intervalMinutes && forHours
-        ? { intervalSec: Math.round(intervalMinutes * 60), expiresAt: scheduledAtEpochSec + Math.round(forHours * 3600) }
-        : undefined;
+      const recurring =
+        intervalMinutes && forHours
+          ? {
+              intervalSec: Math.round(intervalMinutes * 60),
+              expiresAt: scheduledAtEpochSec + Math.round(forHours * 3600),
+            }
+          : undefined;
       const task = await taskStore.create(userId, description, scheduledAtEpochSec, recurring);
+      await auditLogger?.log({
+        userId,
+        action: "task_scheduled",
+        status: "success",
+        metadata: { taskId: task.id, description: task.description },
+      });
       const nowSec = Math.floor(Date.now() / 1000);
       const deltaSec = scheduledAtEpochSec - nowSec;
       return {
@@ -71,12 +85,14 @@ export function scheduleTaskTool(taskStore: TaskStore, userId: string) {
         scheduledAt: new Date(task.scheduledAt * 1000).toISOString(),
         scheduledInMinutes: Math.round(deltaSec / 60),
         status: task.status,
-        ...(recurring ? {
-          recurring: true,
-          intervalMinutes: intervalMinutes,
-          forHours: forHours,
-          expiresAt: new Date(recurring.expiresAt * 1000).toISOString(),
-        } : {}),
+        ...(recurring
+          ? {
+              recurring: true,
+              intervalMinutes: intervalMinutes,
+              forHours: forHours,
+              expiresAt: new Date(recurring.expiresAt * 1000).toISOString(),
+            }
+          : {}),
       };
     },
   });

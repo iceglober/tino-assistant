@@ -12,6 +12,7 @@
  * see the new toolset immediately.
  */
 import type { ToolSet } from "ai";
+import type { AuditLogger } from "../audit/logger.js";
 import { SYSTEM_USER_ID } from "../identity/types.js";
 import { MCPPool } from "../mcp/pool.js";
 import type { ConfigStore } from "../persistence/config.js";
@@ -55,6 +56,8 @@ export interface RegistryOptions {
   preferencesStore?: PreferencesStore;
   /** Task store for schedule_task / list_tasks / cancel_task tools. */
   taskStore?: TaskStore;
+  /** Audit logger — lets schedule_task record a task_scheduled activity event. */
+  auditLogger?: AuditLogger;
   /**
    * Per-user capability store for encrypted credentials (wave 2).
    * When provided, buildPrivateTools checks this store before falling back
@@ -149,7 +152,17 @@ async function loadCapabilityTools(opts: {
  * materialized on-demand via `buildPrivateTools()` per agent run.
  */
 export async function initCapabilityRegistry(opts: RegistryOptions): Promise<CapabilityRegistry> {
-  const { configStore, logger, allowedUserId, dbPath, preferencesStore, taskStore, userCapabilities, onNewWork } = opts;
+  const {
+    configStore,
+    logger,
+    allowedUserId,
+    dbPath,
+    preferencesStore,
+    taskStore,
+    userCapabilities,
+    onNewWork,
+    auditLogger,
+  } = opts;
   // Mutable buckets — the registry exposes `sharedTools` directly so callers can
   // share a stable reference across reloads (`reload()` mutates this in place).
   const sharedTools: ToolSet = {};
@@ -212,7 +225,7 @@ export async function initCapabilityRegistry(opts: RegistryOptions): Promise<Cap
 
     // Per-user task tools
     if (taskStore) {
-      privateTools.schedule_task = scheduleTaskTool(taskStore, tinoUserId);
+      privateTools.schedule_task = scheduleTaskTool(taskStore, tinoUserId, auditLogger);
       privateTools.list_tasks = listTasksTool(taskStore, tinoUserId);
       privateTools.cancel_task = cancelTaskTool(taskStore);
     }

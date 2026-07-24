@@ -39,6 +39,7 @@ const ACTION_LABELS: Record<string, (entry: { toolName?: string; metadata?: Reco
     const desc = e.metadata?.description;
     return desc ? `Ran: ${desc}` : "Ran a task";
   },
+  slack_message_sent: (e) => (e.metadata?.channel ? "Replied in a Slack channel" : "Sent you a Slack message"),
   privacy_config_change: () => "Updated privacy settings",
   privacy_setup_completed: () => "Completed privacy setup",
   role_change: (e) => {
