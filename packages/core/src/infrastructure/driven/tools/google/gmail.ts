@@ -1,6 +1,7 @@
 import { tool } from "ai";
 import { type gmail_v1, google } from "googleapis";
 import { z } from "zod";
+import { decodeBase64Url, findPart, stripHtmlTags } from "./gmail-body.js";
 
 type OAuth2Client = InstanceType<typeof google.auth.OAuth2>;
 
@@ -19,50 +20,6 @@ type GetMessageInput = z.infer<typeof getMessageInputSchema>;
 type GetMessageResult =
   | { id: string; threadId: string; subject: string; from: string; body: string; truncated: boolean }
   | { error: string; message: string };
-
-/**
- * Walk a MIME payload tree looking for a part with the given mimeType.
- * Returns the first match, or null if not found.
- */
-function findPart(
-  payload: gmail_v1.Schema$MessagePart | undefined,
-  mimeType: string,
-): gmail_v1.Schema$MessagePart | null {
-  if (!payload) return null;
-  if (payload.mimeType === mimeType) return payload;
-  for (const part of payload.parts ?? []) {
-    const found = findPart(part, mimeType);
-    if (found) return found;
-  }
-  return null;
-}
-
-/**
- * Decode a base64url-encoded string to UTF-8 text.
- * Gmail uses URL-safe base64 (- and _ instead of + and /).
- */
-function decodeBase64Url(data: string): string {
-  // Convert URL-safe base64 to standard base64
-  const standard = data.replace(/-/g, "+").replace(/_/g, "/");
-  return Buffer.from(standard, "base64").toString("utf8");
-}
-
-/**
- * Strip HTML tags from a string. Basic — good enough for email body extraction.
- * Collapses whitespace runs to single spaces and trims.
- */
-function stripHtmlTags(html: string): string {
-  return html
-    .replace(/<[^>]*>/g, " ")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/gi, "&")
-    .replace(/&lt;/gi, "<")
-    .replace(/&gt;/gi, ">")
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;/gi, "'")
-    .replace(/\s+/g, " ")
-    .trim();
-}
 
 /**
  * Core gmail_get_message logic, exported for unit testing.
