@@ -17,10 +17,12 @@ export interface CreateSlackAppOpts {
   logger: Logger;
   /** Build the personal Slack OAuth connect link for a user (enables the `connect` command). */
   connectLink?: (userId: string) => string;
+  /** Wipe a user's knowledge-base data (enables the `forget me` command). */
+  kbForgetUser?: (userId: string) => Promise<void>;
 }
 
 export function createSlackApp(opts: CreateSlackAppOpts): App {
-  const { env, assistant, senderResolver, logger, connectLink } = opts;
+  const { env, assistant, senderResolver, logger, connectLink, kbForgetUser } = opts;
 
   const app = new App({
     token: env.SLACK_BOT_TOKEN,
@@ -68,6 +70,18 @@ export function createSlackApp(opts: CreateSlackAppOpts): App {
         await say({
           text: `connect your Slack so I can read your own messages (DMs, private channels, search) on your behalf:\n${connectLink(userId)}\n\nthe link is personal and expires in 15 minutes.`,
         });
+        return;
+      }
+      // "forget me" — wipe the user's indexed knowledge-base data (two-step).
+      if (cmd === "forget me" && kbForgetUser) {
+        await say({
+          text: "this deletes everything I've indexed from your messages and email, and stops indexing until you reconnect. reply *forget me confirm* to proceed.",
+        });
+        return;
+      }
+      if (cmd === "forget me confirm" && kbForgetUser) {
+        await kbForgetUser(userId);
+        await say({ text: "done — your indexed data is deleted and indexing is off. DM me 'connect' anytime to start again." });
         return;
       }
 

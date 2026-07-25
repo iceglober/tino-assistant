@@ -42,9 +42,11 @@ export function createSlackOAuthRoutes(opts: {
   connectTokens: ConnectTokens;
   logger: Logger;
   baseUrl: string;
+  /** Re-activate KB indexing for this user (fresh consent on reconnect). */
+  kbReactivate?: (userId: string, source: "slack" | "gmail") => Promise<void>;
 }): Hono {
   const app = new Hono();
-  const { config, userCapabilities, identities, connectTokens, logger, baseUrl } = opts;
+  const { config, userCapabilities, identities, connectTokens, logger, baseUrl, kbReactivate } = opts;
   const redirectUri = `${baseUrl}/api/oauth/slack/callback`;
 
   async function clientCreds(): Promise<{ clientId: string; clientSecret: string } | null> {
@@ -113,6 +115,7 @@ export function createSlackOAuthRoutes(opts: {
           .catch(() => {});
       }
 
+      await kbReactivate?.(userId, "slack").catch(() => {});
       logger.info({ userId, slackUserId }, "slack oauth connected — user token stored");
       return c.html(successHtml);
     } catch (err) {

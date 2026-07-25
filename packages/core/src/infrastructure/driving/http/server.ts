@@ -44,6 +44,10 @@ export interface StartServerOptions {
   assistant: Assistant;
   /** Signs/verifies the connect tokens carried by the bot-DM'd Slack OAuth link. */
   connectTokens?: ConnectTokens;
+  /** Detailed KB state for the auth-gated /api/kb/status endpoint. */
+  kbStatus?: () => Promise<unknown>;
+  /** Re-activate KB indexing after a user re-connects (fresh consent). */
+  kbReactivate?: (userId: string, source: "slack" | "gmail") => Promise<void>;
 }
 
 export interface StartedServer {
@@ -63,6 +67,8 @@ export async function startServer(opts: StartServerOptions): Promise<StartedServ
     getGoogleRefreshToken,
     assistant,
     connectTokens,
+    kbStatus,
+    kbReactivate,
   } = opts;
   const port = opts.port ?? 3001;
   const startTime = Date.now();
@@ -153,13 +159,20 @@ export async function startServer(opts: StartServerOptions): Promise<StartedServ
     "/api/reload",
     createReloadRoutes({ reconnectSlack, reloadAuth, isAuthConfigured: () => !!authRef.current, logger }),
   );
-  app.route("/api/oauth/google", createGoogleOAuthRoutes({ config, userCapabilities, logger, baseUrl }));
+  app.route("/api/oauth/google", createGoogleOAuthRoutes({ config, userCapabilities, logger, baseUrl, kbReactivate }));
   if (connectTokens) {
     app.route(
       "/api/oauth/slack",
-      createSlackOAuthRoutes({ config, userCapabilities, identities, connectTokens, logger, baseUrl }),
+      createSlackOAuthRoutes({ config, userCapabilities, identities, connectTokens, logger, baseUrl, kbReactivate }),
     );
   }
+
+  // Auth-gated KB status (the public /api/health stays counts-free).
+  app.get("/api/kb/status", async (c) => {
+    if (!c.get("user")) return c.json({ error: "unauthorized" }, 401);
+    if (!kbStatus) return c.json({ enabled: false });
+    return c.json(await kbStatus());
+  });
 
   // ── Logo asset ────────────────────────────────────────────────────────────
   app.get("/assets/tino-logo.png", (c) => {

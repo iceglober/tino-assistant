@@ -1,9 +1,17 @@
 import "dotenv/config";
 import crypto from "node:crypto";
 import { WebClient } from "@slack/web-api";
+import type { ToolSet } from "ai";
 import { createAssistant } from "../application/assistant.js";
+import { createKbIndexer, type KbIndexer } from "../application/kb-indexer.js";
 import { createSenderResolver } from "../application/sender.js";
 import { loadEnv } from "../env.js";
+import { createPgKnowledgeStore } from "../infrastructure/driven/kb/pg-store.js";
+import { ensureKbSchema } from "../infrastructure/driven/kb/schema.js";
+import { createGmailKbSource } from "../infrastructure/driven/kb/sources/gmail.js";
+import { createSlackKbSource } from "../infrastructure/driven/kb/sources/slack.js";
+import { createVertexEmbedder } from "../infrastructure/driven/kb/vertex-embedder.js";
+import { buildKbTools } from "../infrastructure/driven/tools/kb.js";
 import { buildChatModel, resolveModelConfig } from "../infrastructure/driven/model/index.js";
 import { createCryptoAdapter } from "../infrastructure/driven/crypto/factory.js";
 import { createIdentityResolver } from "../infrastructure/driven/identity/resolver.js";
@@ -25,7 +33,7 @@ const logger = createLogger(env);
 // Crypto adapter — encrypts per-user Google credentials in the capability store.
 const cryptoAdapter = await createCryptoAdapter(env);
 
-const { history, config, users, identities, userCapabilities, authDatabase, getGoogleRefreshToken } =
+const { history, config, users, identities, userCapabilities, authDatabase, getGoogleRefreshToken, pgPool } =
   await createPersistence(env, logger, cryptoAdapter);
 
 const port = env.PORT ?? 3001;
@@ -52,6 +60,73 @@ if (!connectSecret) {
 const connectTokens = createConnectTokens(connectSecret);
 const slackConnectLink = (userId: string): string =>
   `${baseUrl}/api/oauth/slack/authorize?state=${encodeURIComponent(connectTokens.issue(userId))}`;
+
+// ── Knowledge base (Postgres + pgvector + Vertex embeddings) ─────────────────
+// Constructed once (independent of Slack reconnects); tools reference it via a
+// late-binding closure so refreshRuntime rebuilds never recreate it.
+interface KbRuntime {
+  indexer: KbIndexer;
+  buildTools: (userId: string) => Promise<ToolSet>;
+  forgetUser: (userId: string) => Promise<void>;
+  reactivate: (userId: string, source: "slack" | "gmail") => Promise<void>;
+  status: () => Promise<unknown>;
+}
+let kb: KbRuntime | null = null;
+const vertexProject =
+  (await config.getTyped<string>("kb.vertexProject", "")) || process.env.GOOGLE_VERTEX_PROJECT || "";
+const vertexLocation =
+  (await config.getTyped<string>("kb.vertexLocation", "")) || process.env.GOOGLE_VERTEX_LOCATION || "us-central1";
+if (pgPool && process.env.KB_ENABLED !== "0" && !vertexProject) {
+  logger.info("knowledge base off (set GOOGLE_VERTEX_PROJECT or kb.vertexProject to enable embeddings)");
+}
+if (pgPool && process.env.KB_ENABLED !== "0" && vertexProject) {
+  const kbReady = await ensureKbSchema(pgPool, logger);
+  if (kbReady) {
+    const kbStore = createPgKnowledgeStore({ pool: pgPool });
+    const embedder = createVertexEmbedder({ project: vertexProject, location: vertexLocation });
+    const srcDeps = { store: kbStore, embedder, config, userCapabilities, logger };
+    const indexer = createKbIndexer({
+      store: kbStore,
+      users,
+      userCapabilities,
+      config,
+      logger,
+      runners: {
+        slackWorkspace: createSlackKbSource(srcDeps, "workspace"),
+        slackPersonal: createSlackKbSource(srcDeps, "personal"),
+        gmail: createGmailKbSource(srcDeps),
+      },
+      notifyAuthLoss: async (userId, source) => {
+        const u = await users.get(userId);
+        if (!u?.slackUserId || !app) return;
+        const open = await app.client.conversations.open({ users: u.slackUserId });
+        const ch = open.channel?.id;
+        if (!ch) return;
+        await app.client.chat.postMessage({
+          channel: ch,
+          text: `heads up — my ${source} connection for you stopped working, so I've paused indexing. DM me "connect" to fix it, or "forget me" to delete what I've indexed.`,
+        });
+      },
+    });
+    indexer.start();
+    kb = {
+      indexer,
+      buildTools: (userId) => buildKbTools(userId, { store: kbStore, embedder, config, logger }),
+      forgetUser: (userId) => kbStore.forgetUser(userId),
+      reactivate: async (userId, source) => {
+        await kbStore.setIndexState({ scope: "user", userId, source, status: "active", backfillDone: false });
+      },
+      status: async () => ({
+        enabled: true,
+        workspace: await kbStore.stats("workspace", ""),
+        principals: await kbStore.listIndexStates(),
+      }),
+    };
+    logger.info("knowledge base enabled");
+  }
+} else if (!pgPool) {
+  logger.info("knowledge base off (requires the postgres adapter)");
+}
 
 // ── Runtime that depends on config the console can change (model + tools).
 //    Rebuilt at startup and on reconnect so Setup edits take effect live. ──────
@@ -83,6 +158,7 @@ async function refreshRuntime(): Promise<void> {
     slackTools,
     buildGoogle: (userId) => buildGoogleTools(userId, config, userCapabilities, logger),
     buildSlackUser: (userId) => buildSlackUserTools(userId, config, userCapabilities, logger),
+    buildKb: (userId) => (kb ? kb.buildTools(userId) : Promise.resolve({})),
   });
 
   assistant = model ? createAssistant({ model, tools, history, users, logger }) : null;
@@ -130,6 +206,7 @@ async function reconnectSlack(): Promise<{ ok: boolean; error?: string }> {
       senderResolver,
       logger,
       connectLink: slackConnectLink,
+      kbForgetUser: kb ? (userId: string) => (kb as KbRuntime).forgetUser(userId) : undefined,
     });
     await nextApp.start();
     app = nextApp;
@@ -145,6 +222,7 @@ async function reconnectSlack(): Promise<{ ok: boolean; error?: string }> {
 
 const shutdown = async (signal: string): Promise<void> => {
   logger.info({ signal }, "tino stopping");
+  kb?.indexer.stop();
   try {
     consoleServer.close();
   } catch {
@@ -174,6 +252,8 @@ const consoleServer = await startServer({
   getGoogleRefreshToken,
   assistant: assistantFacade,
   connectTokens,
+  kbStatus: kb ? () => (kb as KbRuntime).status() : undefined,
+  kbReactivate: kb ? (userId: string, source: "slack" | "gmail") => (kb as KbRuntime).reactivate(userId, source) : undefined,
 });
 
 const hasSlack = Boolean(

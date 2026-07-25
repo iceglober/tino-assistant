@@ -28,9 +28,11 @@ export function createGoogleOAuthRoutes(opts: {
   userCapabilities?: UserCapabilityStore;
   logger: Logger;
   baseUrl: string;
+  /** Re-activate KB indexing for this user (fresh consent on reconnect). */
+  kbReactivate?: (userId: string, source: "slack" | "gmail") => Promise<void>;
 }): Hono<{ Variables: AuthVariables }> {
   const app = new Hono<{ Variables: AuthVariables }>();
-  const { config, userCapabilities, logger, baseUrl } = opts;
+  const { config, userCapabilities, logger, baseUrl, kbReactivate } = opts;
 
   const pendingStates = new Map<string, { userId: string; expiresAt: number }>();
 
@@ -130,6 +132,7 @@ export function createGoogleOAuthRoutes(opts: {
         await config.set(`user.${user.id}.capability.calendar`, calConfig);
       }
 
+      await kbReactivate?.(user.id, "gmail").catch(() => {});
       logger.info({ userId: user.id, email: user.email }, "Google OAuth connected — gmail + calendar capabilities stored");
       return c.redirect("/?oauth=success");
     } catch (err) {

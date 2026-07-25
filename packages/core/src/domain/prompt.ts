@@ -41,9 +41,13 @@ Tone:
   const hasCalendar = tools.has("calendar_list_events");
   const hasSlack = tools.has("slack_list_channels") || tools.has("slack_read_channel");
   const hasSlackUser = tools.has("slack_search_my_messages") || tools.has("slack_list_my_conversations");
+  const hasKb = tools.has("kb_search_workspace") || tools.has("kb_search_mine");
 
-  if (hasGmail || hasCalendar || hasSlack || hasSlackUser) {
+  if (hasGmail || hasCalendar || hasSlack || hasSlackUser || hasKb) {
     prompt += `\n\nTools:`;
+    if (hasKb) {
+      prompt += `\n- knowledge base: \`kb_search_mine\` / \`kb_search_workspace\` — semantic + recency-ranked search over ~90 days of indexed Slack${tools.has("kb_search_mine") ? " and email" : ""}. PREFER these FIRST for open-ended or historical questions: "what problems am I facing", "what have I been working on", "catch me up on X", "what did we decide about Y". Then open the underlying thread/email (permalink → \`slack_read_my_thread\`; gmail id → \`gmail_get_message\`) before answering in depth. Use live search tools instead for right-now questions or exact keywords/people/dates.`;
+    }
     if (hasGmail) {
       prompt += `\n- gmail: search with \`gmail_search\` (Gmail query syntax), then \`gmail_get_message\` for the full body of a specific result.`;
     }

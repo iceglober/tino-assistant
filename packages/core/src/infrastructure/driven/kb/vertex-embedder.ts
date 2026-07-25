@@ -24,11 +24,19 @@ export function l2Normalize(v: number[]): number[] {
 }
 
 export function createVertexEmbedder(opts: { project?: string; location?: string } = {}): Embedder {
-  const vertex = createVertex({
-    ...(opts.project ? { project: opts.project } : {}),
-    ...(opts.location ? { location: opts.location } : {}),
-  });
-  const model = vertex.textEmbeddingModel(EMBED_MODEL_ID);
+  // Lazy: the SDK validates project/location at model construction and would
+  // otherwise crash boot on installs without Vertex configured.
+  let model: ReturnType<ReturnType<typeof createVertex>["textEmbeddingModel"]> | null = null;
+  const getModel = () => {
+    if (!model) {
+      const vertex = createVertex({
+        ...(opts.project ? { project: opts.project } : {}),
+        ...(opts.location ? { location: opts.location } : {}),
+      });
+      model = vertex.textEmbeddingModel(EMBED_MODEL_ID);
+    }
+    return model;
+  };
 
   return {
     async embedDocuments(texts: string[]): Promise<number[][]> {
@@ -36,7 +44,7 @@ export function createVertexEmbedder(opts: { project?: string; location?: string
       for (let i = 0; i < texts.length; i += BATCH) {
         const batch = texts.slice(i, i + BATCH);
         const { embeddings } = await embedMany({
-          model,
+          model: getModel(),
           values: batch,
           providerOptions: { google: { taskType: "RETRIEVAL_DOCUMENT", autoTruncate: true } },
         });
@@ -47,7 +55,7 @@ export function createVertexEmbedder(opts: { project?: string; location?: string
 
     async embedQuery(text: string): Promise<number[]> {
       const { embedding } = await embed({
-        model,
+        model: getModel(),
         value: text,
         providerOptions: { google: { taskType: "RETRIEVAL_QUERY", autoTruncate: true } },
       });
