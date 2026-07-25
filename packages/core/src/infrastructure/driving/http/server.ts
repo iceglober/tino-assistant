@@ -4,14 +4,7 @@ import { type ServerType, serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { type Context, Hono } from "hono";
 import type { Assistant } from "../../../ports/inbound.js";
-import type {
-  ConfigStore,
-  IdentityStore,
-  Logger,
-  SessionSecondaryStorage,
-  UserCapabilityStore,
-  UserStore,
-} from "../../../ports/outbound.js";
+import type { ConfigStore, IdentityStore, Logger, UserCapabilityStore, UserStore } from "../../../ports/outbound.js";
 import type { ConnectTokens } from "../../security/connect-token.js";
 import { type AuthVariables, buildAuthMiddleware, createAuth } from "./auth.js";
 import { createChatRoutes } from "./routes/chat.js";
@@ -40,10 +33,13 @@ export interface StartServerOptions {
   port?: number;
   reconnectSlack?: () => Promise<{ ok: boolean; error?: string }>;
   shutdown?: (signal: string) => Promise<void> | void;
-  sessionStore?: SessionSecondaryStorage;
   identities?: IdentityStore;
   users?: UserStore;
   userCapabilities?: UserCapabilityStore;
+  /** DB handle for better-auth (pg Pool or bun:sqlite Database) — Persistence.authDatabase. */
+  authDatabase: unknown;
+  /** Reads better-auth's stored Google refresh token — Persistence.getGoogleRefreshToken. */
+  getGoogleRefreshToken?: (betterAuthUserId: string) => Promise<string | null>;
   /** The assistant port — powers the web chat box. */
   assistant: Assistant;
   /** Signs/verifies the connect tokens carried by the bot-DM'd Slack OAuth link. */
@@ -56,8 +52,18 @@ export interface StartedServer {
 }
 
 export async function startServer(opts: StartServerOptions): Promise<StartedServer> {
-  const { config, logger, reconnectSlack, sessionStore, identities, users, userCapabilities, assistant, connectTokens } =
-    opts;
+  const {
+    config,
+    logger,
+    reconnectSlack,
+    identities,
+    users,
+    userCapabilities,
+    authDatabase,
+    getGoogleRefreshToken,
+    assistant,
+    connectTokens,
+  } = opts;
   const port = opts.port ?? 3001;
   const startTime = Date.now();
 
@@ -79,9 +85,8 @@ export async function startServer(opts: StartServerOptions): Promise<StartedServ
         googleClientSecret: process.env.GOOGLE_OAUTH_CLIENT_SECRET,
         allowedDomain,
         baseUrl,
-        dbPath: process.env.AUTH_DB_PATH ?? "/tmp/tino-auth.db",
+        database: authDatabase,
         logger,
-        sessionStore,
         emailPassword: isLocalDev,
       });
       logger.info({ baseUrl, google: hasGoogleCreds }, "console auth enabled");
@@ -102,9 +107,8 @@ export async function startServer(opts: StartServerOptions): Promise<StartedServ
         googleClientSecret: process.env.GOOGLE_OAUTH_CLIENT_SECRET,
         allowedDomain,
         baseUrl,
-        dbPath: process.env.AUTH_DB_PATH ?? "/tmp/tino-auth.db",
+        database: authDatabase,
         logger,
-        sessionStore,
         emailPassword: isLocalDev,
       });
       logger.info("auth reloaded from config store");
@@ -129,7 +133,7 @@ export async function startServer(opts: StartServerOptions): Promise<StartedServ
       users,
       configStore: config,
       userCapabilities,
-      authDbPath: process.env.AUTH_DB_PATH ?? "/tmp/tino-auth.db",
+      getGoogleRefreshToken,
       localDev: isLocalDev,
     }),
   );

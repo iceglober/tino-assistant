@@ -27,12 +27,16 @@ export async function createDynamoPersistence(
   logger: Logger,
   cryptoAdapter?: CryptoAdapter,
 ): Promise<DynamoPersistence> {
-  const tableName = env.DYNAMODB_TABLE_NAME;
+  // Read from process.env directly: core's Env schema no longer carries the
+  // DYNAMODB_* fields (the dynamodb adapter is retired from core's factory;
+  // this package remains only as a rollback path until post-cutover cleanup).
+  void env;
+  const tableName = process.env.DYNAMODB_TABLE_NAME;
   if (!tableName) {
     throw new Error("DYNAMODB_TABLE_NAME env var is required when PERSISTENCE_ADAPTER=dynamodb");
   }
 
-  const endpoint = env.DYNAMODB_ENDPOINT;
+  const endpoint = process.env.DYNAMODB_ENDPOINT;
   const table = await createDynamoTable(tableName, endpoint);
 
   if (!cryptoAdapter) {

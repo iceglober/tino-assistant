@@ -12,46 +12,32 @@ import { z } from "zod";
  * On first startup, if the old env vars (SLACK_BOT_TOKEN, GITHUB_TOKEN, etc.)
  * are still set, they are auto-migrated to the config store and can then be
  * removed from .env.
- *
- * AWS_REGION is intentionally optional — the AWS SDK's default credential
- * chain resolves region from ~/.aws/config, AWS_DEFAULT_REGION, SSO configs,
- * or IMDS. Setting it here would force duplication for users whose profile
- * already has it.
  */
 const EnvSchema = z.object({
   // Persistence adapter selection. Default: 'sqlite' (local dev).
-  // Set to 'dynamodb' in production (requires DYNAMODB_TABLE_NAME).
-  PERSISTENCE_ADAPTER: z.enum(["sqlite", "dynamodb"]).optional(),
+  // Set to 'postgres' in production (requires DATABASE_URL).
+  PERSISTENCE_ADAPTER: z.enum(["sqlite", "postgres"]).optional(),
 
   // Optional: path to the SQLite database file for conversation history.
   // Default applied at consumption time: './tino.db'.
   DB_PATH: z.string().min(1).optional(),
 
-  // DynamoDB table name. Required when PERSISTENCE_ADAPTER=dynamodb.
-  DYNAMODB_TABLE_NAME: z.string().min(1).optional(),
+  // Postgres connection string. Required when PERSISTENCE_ADAPTER=postgres.
+  // Cloud SQL unix socket: postgresql://tino:PW@/tino?host=/cloudsql/PROJECT:REGION:INSTANCE
+  DATABASE_URL: z.string().min(1).optional(),
 
-  // DynamoDB endpoint override. Set to http://localhost:8000 for DynamoDB Local.
-  // When set, the table is auto-created if it doesn't exist (zero-setup local dev).
-  // When unset, the SDK connects to AWS (table must already exist via CDK).
-  DYNAMODB_ENDPOINT: z.string().url().optional(),
+  // better-auth sqlite file path (sqlite adapter only). Default: /tmp/tino-auth.db.
+  AUTH_DB_PATH: z.string().min(1).optional(),
+
+  // HTTP port for the console server. Default: 3001. Cloud Run sets PORT.
+  PORT: z.coerce.number().int().positive().optional(),
 
   LOG_LEVEL: z.enum(["trace", "debug", "info", "warn", "error", "fatal"]).default("info"),
 
   NODE_ENV: z.string().optional(),
 
-  // Optional: AWS config for Bedrock (model inference).
-  // The SDK also reads AWS_REGION / AWS_DEFAULT_REGION from the environment
-  // automatically; this is only needed to override that.
-  AWS_REGION: z.string().min(1).optional(),
-
-  // KMS key ARN for envelope encryption (production).
-  // Format: arn:aws:kms:region:account:key/id or alias/name.
-  // When set, enables KMS-backed CryptoAdapter for encrypting per-user credentials.
-  // When unset, falls back to LOCAL_DEV_CRYPTO_KEY for local development.
-  KMS_KEY_ARN: z.string().min(1).optional(),
-
-  // Local development crypto key (scrypt password for AES-256-GCM derivation).
-  // Ignored if KMS_KEY_ARN is set. Default: 'dev-key'.
+  // Master key for AES-256-GCM envelope encryption of per-user credentials
+  // (scrypt-derived). In production this comes from Secret Manager.
   // WARNING: Changing this key invalidates all existing encrypted payloads.
   LOCAL_DEV_CRYPTO_KEY: z.string().min(1).optional(),
 

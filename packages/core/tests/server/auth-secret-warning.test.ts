@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Database } from "bun:sqlite";
 import { createAuth } from "../../src/infrastructure/driving/http/auth.js";
 import type { Logger as AppLogger } from "../../src/ports/outbound.js";
 
@@ -51,7 +52,7 @@ describe("createAuth — BETTER_AUTH_SECRET warning (gap #7)", () => {
       googleClientId: "test-client-id",
       googleClientSecret: "test-client-secret",
       baseUrl: "http://localhost:3000",
-      dbPath: ":memory:",
+      database: new Database(":memory:"),
       logger,
     });
 
@@ -70,7 +71,7 @@ describe("createAuth — BETTER_AUTH_SECRET warning (gap #7)", () => {
       googleClientId: "test-client-id",
       googleClientSecret: "test-client-secret",
       baseUrl: "http://localhost:3000",
-      dbPath: ":memory:",
+      database: new Database(":memory:"),
       logger,
     });
 
@@ -85,7 +86,7 @@ describe("createAuth — BETTER_AUTH_SECRET warning (gap #7)", () => {
         googleClientId: "test-client-id",
         googleClientSecret: "test-client-secret",
         baseUrl: "http://localhost:3000",
-        dbPath: ":memory:",
+        database: new Database(":memory:"),
       }),
     ).resolves.toBeDefined();
   });

@@ -1,9 +1,18 @@
 services:
-  dynamodb:
-    image: amazon/dynamodb-local
+  postgres:
+    # pgvector-enabled Postgres — matches Cloud SQL (POSTGRES_16 + vector ext).
+    # Needed for `bun run dev:pg` and the pg adapter contract tests
+    # (TEST_DATABASE_URL=postgres://tino:tino@localhost:5433/tino).
+    # sqlite remains the zero-dependency dev default (KB features off).
+    image: pgvector/pgvector:pg16
     ports:
-      - "8000:8000"
-    command: ["-jar", "DynamoDBLocal.jar", "-sharedDb", "-inMemory"]
-    # -inMemory: data lives in memory only (lost on container restart).
-    # This is fine for local dev — tino recreates the table on startup.
-    # For persistent local data, use the sqlite adapter instead.
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: tino
+      POSTGRES_PASSWORD: tino
+      POSTGRES_DB: tino
+    volumes:
+      - tino-pg-data:/var/lib/postgresql/data
+
+volumes:
+  tino-pg-data:

@@ -142,11 +142,3 @@ export interface CryptoAdapter {
   decrypt(envelope: EnvelopeCiphertext, context: EncryptionContext): Promise<string>;
 }
 
-// ── Auth session ──────────────────────────────────────────────────────────────
-
-/** better-auth SecondaryStorage shape (dynamodb provides it; sqlite omits it). */
-export interface SessionSecondaryStorage {
-  get: (key: string) => Promise<string | null>;
-  set: (key: string, value: string, ttl?: number) => Promise<void>;
-  delete: (key: string) => Promise<void>;
-}

@@ -1,10 +1,8 @@
-import { Database } from "bun:sqlite";
 import { type Auth, betterAuth } from "better-auth";
 import { getMigrations } from "better-auth/db/migration";
 import type { MiddlewareHandler } from "hono";
 import type { IdentityStore, UserStore } from "../../../ports/outbound.js";
 import type { ConfigStore } from "../../../ports/outbound.js";
-import type { SessionSecondaryStorage } from "../../../ports/outbound.js";
 import type { UserCapabilityStore } from "../../../ports/outbound.js";
 import type { Logger } from "../../../ports/outbound.js";
 
@@ -17,17 +15,11 @@ const GOOGLE_CAPABILITY_SCOPES = [
 /**
  * Build a better-auth instance.
  *
- * ## Session persistence
- *
- * When `sessionStore` is provided (DynamoDB adapter), sessions persist in
- * DynamoDB via better-auth's `secondaryStorage` so multi-user deployments
- * survive ECS restarts. DynamoDB TTL evicts expired sessions automatically.
- *
- * When `sessionStore` is omitted (SQLite / local dev), better-auth uses
- * its built-in database-backed sessions via the SQLite `dbPath`.
- *
- * `BETTER_AUTH_SECRET` MUST be set to a stable value across restarts;
- * without it session token signatures change and all sessions invalidate.
+ * `database` is an opaque handle from the persistence layer: a pg Pool
+ * (postgres — better-auth wraps it in its kysely PostgresDialect) or a
+ * bun:sqlite Database (local dev). Sessions are database-backed and durable
+ * either way. The auth secret persists in the config store, so sessions
+ * survive restarts without a BETTER_AUTH_SECRET env var.
  */
 export async function createAuth(opts: {
   config?: ConfigStore;
@@ -35,9 +27,9 @@ export async function createAuth(opts: {
   googleClientSecret?: string;
   allowedDomain?: string;
   baseUrl: string;
-  dbPath?: string;
+  /** pg Pool or bun:sqlite Database — Persistence.authDatabase. */
+  database: unknown;
   logger?: Logger;
-  sessionStore?: SessionSecondaryStorage;
   emailPassword?: boolean;
 }): Promise<Auth> {
   let secret = opts.config ? await opts.config.getTyped<string>("auth.secret", "") : "";
@@ -73,7 +65,7 @@ export async function createAuth(opts: {
   const authConfig: Parameters<typeof betterAuth>[0] = {
     baseURL: opts.baseUrl,
     secret,
-    database: new Database(opts.dbPath ?? "./tino-auth.db"),
+    database: opts.database as Parameters<typeof betterAuth>[0]["database"],
     socialProviders: Object.keys(socialProviders).length > 0 ? socialProviders : undefined,
     emailAndPassword: opts.emailPassword ? { enabled: true } : undefined,
     session: { expiresIn: 60 * 60 * 24 },
@@ -85,10 +77,6 @@ export async function createAuth(opts: {
       },
     },
   };
-
-  if (opts.sessionStore) {
-    (authConfig as Record<string, unknown>).secondaryStorage = opts.sessionStore;
-  }
 
   const auth = betterAuth(authConfig) as unknown as Auth;
 
@@ -139,29 +127,24 @@ export function buildAuthMiddleware(opts: {
   users?: UserStore;
   configStore?: ConfigStore;
   userCapabilities?: UserCapabilityStore;
-  authDbPath?: string;
+  /** Reads better-auth's stored Google refresh token — Persistence.getGoogleRefreshToken. */
+  getGoogleRefreshToken?: (betterAuthUserId: string) => Promise<string | null>;
   localDev?: boolean;
 }): MiddlewareHandler<{ Variables: AuthVariables }> {
-  const { authRef, logger, identities, users, configStore, userCapabilities, localDev } = opts;
+  const { authRef, logger, identities, users, configStore, userCapabilities, getGoogleRefreshToken, localDev } = opts;
 
   const synced = new Set<string>();
 
   async function syncGoogleCredentials(tinoUserId: string, betterAuthUserId: string): Promise<void> {
-    if (!userCapabilities || synced.has(tinoUserId)) return;
+    if (!userCapabilities || !getGoogleRefreshToken || synced.has(tinoUserId)) return;
     synced.add(tinoUserId);
 
     const existing = await userCapabilities.get(tinoUserId, "gmail");
     if (existing?.credentials?.refreshToken) return;
 
     try {
-      const dbPath = opts.authDbPath ?? process.env.AUTH_DB_PATH ?? "/tmp/tino-auth.db";
-      const db = new Database(dbPath, { readonly: true });
-      const row = db.query<{ refreshToken: string | null }, [string, string]>(
-        "SELECT refreshToken FROM account WHERE userId = ? AND providerId = ? LIMIT 1",
-      ).get(betterAuthUserId, "google");
-      db.close();
-
-      if (!row?.refreshToken) return;
+      const refreshToken = await getGoogleRefreshToken(betterAuthUserId);
+      if (!refreshToken) return;
 
       let clientId = opts.configStore ? await opts.configStore.getTyped<string>("google.oauth.clientId", "") : "";
       let clientSecret = opts.configStore ? await opts.configStore.getTyped<string>("google.oauth.clientSecret", "") : "";
@@ -169,7 +152,7 @@ export function buildAuthMiddleware(opts: {
       if (!clientSecret) clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET ?? "";
       if (!clientId || !clientSecret) return;
 
-      const creds = { clientId, clientSecret, refreshToken: row.refreshToken };
+      const creds = { clientId, clientSecret, refreshToken };
       await userCapabilities.set(tinoUserId, "gmail", { enabled: true, credentials: creds, settings: {} });
       await userCapabilities.set(tinoUserId, "calendar", { enabled: true, credentials: creds, settings: { calendarId: "primary" } });
       logger.info({ tinoUserId }, "google capability credentials synced from SSO");

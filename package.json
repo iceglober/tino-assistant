@@ -9,6 +9,7 @@
     "start": "PERSISTENCE_ADAPTER=sqlite bun packages/core/src/bootstrap/main.ts",
     "start:full": "bun packages/core/src/bootstrap/main.ts",
     "dev": "PERSISTENCE_ADAPTER=sqlite bun --watch packages/core/src/bootstrap/main.ts",
+    "dev:pg": "PERSISTENCE_ADAPTER=postgres DATABASE_URL=postgres://tino:tino@localhost:5433/tino bun --watch packages/core/src/bootstrap/main.ts",
     "test": "bun run --filter '*' test",
     "typecheck": "bun run --filter '*' typecheck",
     "lint": "bun run --filter '*' lint",

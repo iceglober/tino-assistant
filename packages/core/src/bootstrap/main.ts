@@ -25,11 +25,10 @@ const logger = createLogger(env);
 // Crypto adapter — encrypts per-user Google credentials in the capability store.
 const cryptoAdapter = await createCryptoAdapter(env);
 
-const { history, config, users, identities, userCapabilities, sessionStore } = await createPersistence(
-  env,
-  logger,
-  cryptoAdapter,
-);
+const { history, config, users, identities, userCapabilities, authDatabase, getGoogleRefreshToken } =
+  await createPersistence(env, logger, cryptoAdapter);
+
+const port = env.PORT ?? 3001;
 
 function parseConfigValue(raw: string | null): string | undefined {
   if (!raw) return undefined;
@@ -40,7 +39,7 @@ function parseConfigValue(raw: string | null): string | undefined {
   }
 }
 
-const baseUrl = process.env.CONSOLE_BASE_URL ?? "http://localhost:3001";
+const baseUrl = process.env.CONSOLE_BASE_URL ?? `http://localhost:${port}`;
 
 // Connect-token signer for the bot-DM'd Slack OAuth link. Uses a dedicated
 // secret persisted to the config store so it survives restarts and doesn't
@@ -165,13 +164,14 @@ const shutdown = async (signal: string): Promise<void> => {
 const consoleServer = await startServer({
   config,
   logger,
-  port: 3001,
+  port,
   reconnectSlack,
   shutdown,
-  sessionStore,
   identities,
   users,
   userCapabilities,
+  authDatabase,
+  getGoogleRefreshToken,
   assistant: assistantFacade,
   connectTokens,
 });
@@ -184,7 +184,7 @@ if (hasSlack) {
   const initial = await reconnectSlack();
   if (!initial.ok) logger.warn({ err: initial.error }, "initial slack connect failed — console still running");
 } else {
-  logger.info({ port: 3001 }, "no Slack tokens configured — visit http://localhost:3001 to set up");
+  logger.info({ port }, "no Slack tokens configured — visit the console to set up");
 }
 
 process.on("SIGINT", () => void shutdown("SIGINT"));
