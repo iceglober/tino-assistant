@@ -5,7 +5,7 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "bun run --filter @tino/core build && bun run --filter @tino/cli build",
+    "build": "bun run --filter @tino/core build",
     "start": "PERSISTENCE_ADAPTER=sqlite bun packages/core/src/bootstrap/main.ts",
     "start:full": "bun packages/core/src/bootstrap/main.ts",
     "dev": "PERSISTENCE_ADAPTER=sqlite bun --watch packages/core/src/bootstrap/main.ts",
@@ -14,8 +14,7 @@
     "typecheck": "bun run --filter '*' typecheck",
     "lint": "bun run --filter '*' lint",
     "lint:fix": "biome check --write .",
-    "deploy:gcp": "bash scripts/gcp-deploy.sh",
-    "tino": "bun run --filter @tino/cli start"
+    "deploy:gcp": "bash scripts/gcp-deploy.sh"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.15"

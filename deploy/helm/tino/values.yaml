@@ -16,7 +16,7 @@ imagePullSecrets: []
 
 # The public URL users will reach the console on (drives OAuth redirect URLs
 # and 0.0.0.0 binding). REQUIRED for any real install.
-consoleBaseUrl: "http://localhost:3001"
+consoleBaseUrl: "http://localhost:8080"
 
 # Restrict console sign-in to one email domain (empty = no restriction).
 allowedEmailDomain: ""
@@ -44,7 +44,11 @@ secretEnv: {}
 service:
   type: ClusterIP
   port: 80
-  targetPort: 3001
+  # 8080 deliberately: GKE's generated L7 health-check firewall rule
+  # (k8s-fw-l7--*) allows 8080 out of the box. A non-standard port there means
+  # load-balancer health checks silently can't reach the pod → permanent 502s
+  # after the first pod replacement. The container reads PORT, so this drives it.
+  targetPort: 8080
 
 ingress:
   enabled: false

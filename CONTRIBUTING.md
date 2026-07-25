@@ -7,7 +7,7 @@ How to develop tino locally, run the test suite, and add a new tool or capabilit
 - Node 22 (`nvm use` in the repo root reads `.nvmrc`).
 - pnpm (`npm install -g pnpm`).
 - Docker, if you want to test the container build path.
-- AWS credentials, only if you want to test against real Bedrock or DynamoDB; local dev runs on SQLite without them.
+- Docker, only if you want the Postgres/pgvector parity setup (`docker compose up -d postgres`); local dev runs on SQLite without it.
 
 ## the dev loop
 
@@ -29,18 +29,17 @@ pnpm dev
 ```sh
 pnpm test                 # everything, vitest
 pnpm --filter @tino/core test
-pnpm --filter @tino/aws test
 pnpm typecheck            # tsc --noEmit across all packages
 ```
 
-Coverage is uneven — load-bearing modules (persistence, audit, agent loop, config store) are well-covered; the Pulumi component is typecheck-only because we don't have a Pulumi mock.
+Coverage is uneven — load-bearing modules (persistence, agent loop, config store, KB chunking/ranking) are well-covered. The Postgres adapter suites run only when `TEST_DATABASE_URL` is set.
 
 The test runner is `vitest`. Bun's `bun test` does NOT work for `@tino/core` — `better-sqlite3` is incompatible with Bun's runtime. Always use `pnpm test` (which invokes vitest) or `npx vitest run` directly.
 
 ### test patterns
 
 - Persistence stores: spin up a temp SQLite file and exercise the contract. See [`packages/core/tests/persistence/config.test.ts`](packages/core/tests/persistence/config.test.ts).
-- DynamoDB stores: mock the toolbox client per [`packages/core/tests/tools/preferences.test.ts`](packages/core/tests/tools/preferences.test.ts).
+- Postgres stores: run the real thing via docker compose and gate on `TEST_DATABASE_URL` (see `packages/core/tests/persistence/postgres.test.ts`).
 - Hono routes: use Hono's test client (`app.request(...)`) — see [`packages/core/tests/server/admin-routes.test.ts`](packages/core/tests/server/admin-routes.test.ts).
 - React components: vitest + happy-dom — see [`packages/core/tests/console-app/`](packages/core/tests/console-app).
 
@@ -116,15 +115,6 @@ Conventions:
 - Design tokens only. Never inline hex; reach for `var(--accent)`, `var(--err)`, etc. Tokens live in `packages/core/src/console-app/styles/tokens.css`.
 - One component per file. Hooks colocated with their consumer if used in one place; lifted to `hooks/` if reused.
 
-## working with Pulumi
-
-The `TinoService` component is in `packages/aws/src/pulumi/tino-service.ts`. To test changes:
-
-1. Generate a sandbox infra dir: `mkdir /tmp/tino-test && cd /tmp/tino-test && pulumi new typescript`.
-2. Edit `index.ts` to import `TinoService` from the local `@tino/aws` build.
-3. `pulumi up` against a throwaway stack.
-
-There are no Pulumi unit tests in this repo because the component's value is in the resource graph it produces, not in pure logic. Typechecking + `pulumi preview` against a sandbox stack is the contract.
 
 ## commit + PR conventions
 

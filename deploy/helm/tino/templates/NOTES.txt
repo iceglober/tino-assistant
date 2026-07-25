@@ -3,7 +3,7 @@ events across connections; the knowledge-base indexer assumes a singleton).
 
 Next steps:
 1. Open the console at {{ .Values.consoleBaseUrl }}
-   (port-forward if no ingress: kubectl port-forward svc/{{ include "tino.fullname" . }} 3001:{{ .Values.service.port }})
+   (port-forward if no ingress: kubectl port-forward svc/{{ include "tino.fullname" . }} 8080:{{ .Values.service.port }})
 2. Sign in (first user becomes admin), then Setup:
    - Slack bot + app tokens (Socket Mode app)
    - Model provider + key (Azure OpenAI / OpenAI / Anthropic / Vertex)

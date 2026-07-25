@@ -47,7 +47,7 @@ gcloud compute addresses describe tino-ip --global --format='value(address)' 2>/
 # kube-system default backend's port. Our container serves on 3001, so without
 # this the LB health checks can never reach the pod: backend UNHEALTHY → 502 on
 # every request after a pod replacement. Idempotent.
-PORT_TO_ALLOW=3001
+PORT_TO_ALLOW=8080
 RULE="$(gcloud compute firewall-rules list --filter='name~^k8s-fw-l7--' --format='value(name)' | head -1)"
 if [ -n "$RULE" ]; then
   PORTS="$(gcloud compute firewall-rules describe "$RULE" --format='value(allowed[].map().firewall_rule().list())')"

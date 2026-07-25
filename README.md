@@ -4,86 +4,79 @@
 
 # tino
 
-A Claude agent that lives in your Slack DM, runs in your AWS account, and remembers what you ask it. Backed by Bedrock for inference and DynamoDB for state. HIPAA-aware: encryption-at-rest on all stateful resources, an audit trail for every tool call, and a hard BAA gate before deploys.
+A personal AI assistant that lives in your Slack DMs and a small web console. It
+answers from *your* context: your Slack, your email, your calendar — using
+per-user OAuth, so it reads your private messages **with your own token**, never
+a bot token that can see everyone's.
 
-## Two installation paths
+- **Slack + web chat** — DM the bot, @mention it in a channel, or use the console chat box.
+- **Per-user access** — each person connects their own Slack and Google; tools are built per user, per message.
+- **Knowledge bases** — a shared workspace KB (public channels) and a private per-user KB (your DMs, private channels, email), incrementally indexed and searched with semantic + **recency-weighted** ranking.
+- **Bring your own model** — Azure OpenAI, OpenAI, or Anthropic, chosen in the console.
 
-Pick the one that fits where you are.
+## Deploy
 
-### A. Standalone — `tino init` (recommended)
-
-The fastest path. Runs an interactive setup that asks for your AWS profile, Slack admin user, Google OAuth credentials, and HIPAA BAA status, then writes a Pulumi project to `./infra-tino/` and deploys it.
+Tino ships as a **Helm chart** — one always-on container plus a Postgres
+database (pgvector for the knowledge base).
 
 ```sh
-git clone <repo> tino && cd tino
-pnpm install
-pnpm --filter @tino/cli build
-node packages/cli/dist/index.js init
+helm install tino deploy/helm/tino \
+  --set consoleBaseUrl=https://tino.example.com \
+  --set secretEnv.DATABASE_URL=postgres://user:pw@host:5432/tino \
+  --set secretEnv.LOCAL_DEV_CRYPTO_KEY=$(openssl rand -hex 32) \
+  --set secretEnv.CONNECT_SECRET=$(openssl rand -hex 32)
 ```
 
-You end up with:
-- a Pulumi stack you own,
-- the tino service running on Fargate behind an ALB,
-- a config console at the printed URL,
-- a `tino.deploy.json` capturing the choices you made.
+Then open the console, sign in (first user becomes admin), and fill in Setup:
+Slack tokens, a model provider + key, and optionally a Google OAuth client.
 
-See [`docs/deployment.md`](docs/deployment.md) for the full walkthrough.
+**Requirements**
+- Kubernetes + any Postgres with **pgvector ≥ 0.7** (or `--set postgresql.enabled=true` for a dev-grade bundled one).
+- A Slack app in **Socket Mode** (no public webhook needed).
+- Knowledge-base embeddings use Vertex AI — set `GOOGLE_VERTEX_PROJECT`/`LOCATION` with ADC or a mounted key. Without it the KB stays off and everything else works.
 
-### B. Library — drop into an existing Pulumi project
+> **The chart runs a single replica on purpose** (`replicas: 1`, `strategy: Recreate`).
+> Slack Socket Mode load-balances events across connections, so two pods split
+> conversations randomly; the KB indexer also assumes a singleton. Don't scale it.
 
-If you already have a Pulumi project (your VPC, your cluster), import the component:
-
-```ts
-import { TinoService } from "@tino/aws";
-
-const tino = new TinoService("tino", {
-  vpc: network.vpcId,
-  subnets: network.privateSubnetIds,
-  cluster: existingCluster,
-  googleOAuthClientId: config.require("googleOAuthClientId"),
-  googleOAuthClientSecret: config.requireSecret("googleOAuthClientSecret"),
-  allowedDomain: "example.com",
-  // Optional HTTPS (both required together):
-  consoleDomain: "tino.example.com",
-  hostedZoneId: "Z0123456789ABCDEFGHIJ",
-});
-```
-
-The component provisions DynamoDB, KMS, ECR, the ECS task, the ALB, and (when `consoleDomain` is set) ACM + Route53. It expects you to bring the VPC.
+The reference deployment (GKE Autopilot + Cloud SQL + Workload Identity) is
+documented in [`docs/gcp.md`](docs/gcp.md), with provisioning and deploy scripts
+in [`scripts/`](scripts).
 
 ## Documentation
 
-- [`docs/deployment.md`](docs/deployment.md) — step-by-step deploy
+- [`docs/gcp.md`](docs/gcp.md) — the reference GKE deployment, end to end
 - [`docs/console.md`](docs/console.md) — using the web console
 - [`docs/architecture.md`](docs/architecture.md) — how tino is put together
-- [`docs/security.md`](docs/security.md) — what's enforced, and where
-- [`docs/migration.md`](docs/migration.md) — renaming `tino-tino` → `tino`, switching adapters
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — local dev, tests, adding tools
 
 ## Local development
 
 ```sh
-nvm use          # picks up .nvmrc → Node 22
 cp .env.example .env
-# fill in .env with your tokens
-pnpm install
-pnpm dev
+bun install
+bun run dev            # sqlite, zero dependencies (knowledge base off)
+```
+
+For Postgres parity (required for KB work):
+
+```sh
+docker compose up -d postgres      # pgvector on :5433
+bun run dev:pg
 ```
 
 | Command | What it does |
 |---|---|
-| `pnpm dev` | Start core with `tsx watch` — restarts on file changes |
-| `pnpm test` | Run vitest across the workspace |
-| `pnpm typecheck` | TypeScript check (no emit) |
+| `bun run dev` / `dev:pg` | Start with sqlite / Postgres, watching for changes |
+| `bun run test` | vitest (`TEST_DATABASE_URL=…` also runs the Postgres contract suites) |
+| `bun run typecheck` | TypeScript check (no emit) |
+| `bun run deploy:gcp` | Cloud Build → Artifact Registry → `helm upgrade` |
 
-The local dev mode uses SQLite (`./tino.db`) and an in-memory audit logger — durable persistence is DynamoDB-only. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the dev loop in more depth.
+## Architecture in one paragraph
 
-## Config console
-
-When tino is running, the console is at **`http://localhost:3001`** in dev or `https://<consoleDomain>` in production. It manages Slack tokens, Google OAuth, the Bedrock model ID, capability connections (GitHub, Linear, CloudWatch), and surfaces a HIPAA compliance dashboard.
-
-Config changes take effect on the next tool call — no restart needed for capability changes; Slack reconnections happen via the console's "reconnect" button.
-
-## Plan history
-
-The current buildout plan lives at [`docs/plans/v2_1/main.md`](docs/plans/v2_1/main.md).
+A strict hexagon: `domain/` and `application/` depend only on `ports/`, and all
+I/O lives in `infrastructure/driving` (Slack, HTTP) and `infrastructure/driven`
+(model, tools, persistence, crypto, knowledge base). Even the LLM sits behind a
+`ChatModel` port — the AI SDK's agent loop exists in exactly one adapter.
+`bootstrap/main.ts` is the composition root. See
+[`docs/architecture.md`](docs/architecture.md).

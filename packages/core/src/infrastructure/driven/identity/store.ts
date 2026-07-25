@@ -4,12 +4,10 @@ import type { IdentityStore, UserStore } from "../../../ports/outbound.js";
 
 export { IdentityLinkConflictError };
 
-// Lazily resolve bun:sqlite. Importing this module for its types or for
-// `IdentityLinkConflictError` must NOT eagerly load the `bun:` builtin — the
-// Pulumi infra program pulls this module in via `@tino/aws` under plain Node,
-// where `bun:sqlite` is unresolvable (ERR_UNSUPPORTED_ESM_URL_SCHEME). The
-// sqlite factories below are only ever called under the Bun runtime, so the
-// require happens there, never at import time.
+// Lazily resolve bun:sqlite: importing this module must NOT eagerly load the
+// `bun:` builtin, which is unresolvable under plain Node
+// (ERR_UNSUPPORTED_ESM_URL_SCHEME). The sqlite factories below only run on the
+// local-dev path under Bun, so the require happens there, never at import time.
 const nodeRequire = createRequire(import.meta.url);
 function bunSqlite(): typeof import("bun:sqlite") {
   return nodeRequire("bun:sqlite");
