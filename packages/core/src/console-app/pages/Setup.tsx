@@ -109,8 +109,11 @@ export function Setup({ onComplete }: { onComplete: () => void }): JSX.Element {
     if (!validate()) return;
 
     const ok = await save.run(async () => {
-      await putConfig("slack.botToken", val("slack.botToken").trim());
-      await putConfig("slack.appToken", val("slack.appToken").trim());
+      // ALL slack fields — incl. the optional OAuth client id/secret (the old
+      // explicit two-key save silently dropped them).
+      for (const f of SLACK_FIELDS) {
+        if (val(f.key).trim()) await putConfig(f.key, val(f.key).trim());
+      }
       await putConfig("model.provider", provider);
       for (const f of PROVIDERS[provider].fields) {
         if (val(f.key).trim()) await putConfig(f.key, val(f.key).trim());
