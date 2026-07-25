@@ -40,11 +40,15 @@ kubectl -n "$NAMESPACE" create secret generic tino-env \
   --dry-run=client -o yaml | kubectl apply -f -
 
 echo "=== helm upgrade --install ==="
+# --force-conflicts: recovering an outage with `kubectl set image` leaves that
+# field owned by the kubectl-set field manager, and server-side apply then
+# refuses every later deploy. The chart is the source of truth, so reclaim it.
 helm upgrade --install tino deploy/helm/tino \
   --namespace "$NAMESPACE" \
   -f deploy/kayn/values-kayn.yaml \
   --set image.repository="$IMG_REPO" \
   --set image.tag="$SHA" \
+  --take-ownership --force-conflicts \
   --wait --timeout 10m
 
 echo "=== status ==="

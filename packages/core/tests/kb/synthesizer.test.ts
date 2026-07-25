@@ -215,6 +215,46 @@ describe("kb synthesizer", () => {
     expect(failing.extractFacts).toHaveBeenCalledTimes(6); // and the model is left alone
   });
 
+  it("falls back to a keyword label for a cluster the model would not name", async () => {
+    const store = fakeStore([[]]);
+    store.embeddingsForClustering = vi.fn(async () => [
+      ...Array.from({ length: 5 }, (_, i) => ({
+        id: "a" + i,
+        text: "sandbox credentials for stedi are missing",
+        embedding: [1, 0.01 * i, 0],
+      })),
+      ...Array.from({ length: 5 }, (_, i) => ({
+        id: "b" + i,
+        text: "hiring pipeline candidate interviews",
+        embedding: [0, 1, 0.01 * i],
+      })),
+    ]);
+    let call = 0;
+    const synth = createKbSynthesizer({
+      store,
+      embedder: fakeEmbedder,
+      extractor: () => ({
+        extractFacts: vi.fn(async () => []),
+        labelTopic: vi.fn(async () => {
+          call++;
+          if (call === 1) return { label: "Stedi Sandbox", summary: "creds" };
+          throw new Error("content filtered");
+        }),
+      }),
+      config,
+      logger: noopLogger,
+    });
+
+    const res = await synth.refreshTopics("private", "u1");
+    expect(res.refreshed).toBe(true);
+    const written = (store.replaceTopics as ReturnType<typeof vi.fn>).mock.calls[0]?.[2];
+    expect(written).toHaveLength(2); // neither cluster was dropped
+    expect(written.map((t: { label: string }) => t.label)).toContain("Stedi Sandbox");
+    // The unnamed one still gets something readable from its own vocabulary.
+    const fallback = written.find((t: { label: string }) => t.label !== "Stedi Sandbox");
+    expect(fallback.label.toLowerCase()).toMatch(/hiring|pipeline|candidate|interview/);
+  });
+
   it("keeps existing themes when every label call fails", async () => {
     const store = fakeStore([[]]);
     store.embeddingsForClustering = vi.fn(async () =>

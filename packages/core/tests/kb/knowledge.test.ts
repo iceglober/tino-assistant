@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   clusterCount,
   factKey,
+  keywordLabel,
   kmeans,
   representatives,
   validateDraft,
@@ -117,6 +118,38 @@ describe("kmeans", () => {
     const lopsided = [[1, 0, 0], [0.99, 0.01, 0], [0.98, 0, 0.02], [0.97, 0.02, 0], [0, 1, 0]];
     const clusters = kmeans(lopsided, 2);
     expect(clusters[0]?.members.length).toBeGreaterThanOrEqual(clusters[1]?.members.length ?? 0);
+  });
+});
+
+describe("keywordLabel", () => {
+  it("names a cluster from the terms its excerpts share", () => {
+    const { label } = keywordLabel([
+      "sandbox credentials are still missing for stedi",
+      "stedi sandbox access blocked again",
+      "chasing stedi for sandbox credentials",
+    ]);
+    expect(label.toLowerCase()).toContain("stedi");
+    expect(label.toLowerCase()).toContain("sandbox");
+  });
+
+  it("ignores slack ids and bare numbers, which are not topics", () => {
+    const { label } = keywordLabel([
+      "#chan — 2026-04-29 [04-29 22:42] U05S91V7LJF: deployment rollback",
+      "[04-29 22:45] U0AG64BLXAB: deployment rollback again",
+      "[04-29 22:50] C08MWL9N06S deployment failed",
+    ]);
+    expect(label.toLowerCase()).toContain("deployment");
+    expect(label).not.toMatch(/U05S91V7LJF|C08MWL9N06S|\d{4}/i);
+  });
+
+  it("degrades to a placeholder rather than throwing on empty input", () => {
+    expect(keywordLabel([]).label).toBe("Unlabelled");
+    expect(keywordLabel(["the a of is"]).label).toBe("Unlabelled");
+  });
+
+  it("is deterministic", () => {
+    const s = ["billing azure spend", "azure billing again", "spend on azure billing"];
+    expect(keywordLabel(s)).toEqual(keywordLabel(s));
   });
 });
 

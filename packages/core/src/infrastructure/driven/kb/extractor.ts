@@ -10,24 +10,35 @@
  */
 import { generateObject, type LanguageModel } from "ai";
 import { z } from "zod";
-import type { KbFactDraft, KbScope, KbSource, KnowledgeExtractor, Logger } from "../../../ports/outbound.js";
+import type { KbFactDraft, KbSource, KnowledgeExtractor, Logger } from "../../../ports/outbound.js";
 
-const factSchema = z.object({
+/**
+ * Written for the strictest provider, which is Azure/OpenAI structured output:
+ * every property must appear in `required`, and min/max/minItems constraints
+ * are rejected outright. So optionality is expressed as `.nullable()` and all
+ * bounds are enforced afterwards by `validateDraft`. Using `.optional()` here
+ * fails every single call with "Invalid schema for response_format".
+ */
+export const factSchema = z.object({
   facts: z
     .array(
       z.object({
         kind: z.enum(["project", "person", "problem", "commitment", "decision", "preference", "fact"]),
-        subject: z.string().describe("The thing this is about, e.g. 'Stedi POC'. Reuse an existing subject verbatim when it matches."),
+        subject: z
+          .string()
+          .describe("The thing this is about, e.g. 'Stedi POC'. Reuse an existing subject verbatim when it matches."),
         statement: z.string().describe("One sentence, self-contained, readable months later without the source open."),
-        detail: z.string().optional().describe("At most two sentences of specifics: names, numbers, dates."),
-        confidence: z.number().min(0).max(1),
-        evidenceIdx: z.array(z.number().int()).min(1).describe("Indexes of the numbered excerpts supporting this."),
+        detail: z.string().nullable().describe("At most two sentences of specifics: names, numbers, dates. Null if none."),
+        confidence: z.number().describe("Between 0 and 1."),
+        evidenceIdx: z
+          .array(z.number().int())
+          .describe("Indexes of the numbered excerpts supporting this. At least one; never invent an index."),
       }),
     )
-    .max(12),
+    .describe("At most 12 facts. Fewer and better is preferred; an empty list is a valid answer."),
 });
 
-const topicSchema = z.object({
+export const topicSchema = z.object({
   label: z.string().describe("2–4 words, title case, specific to these excerpts."),
   summary: z.string().describe("One sentence on what this group of conversations is about."),
 });
@@ -53,6 +64,17 @@ Rules:
 - Never guess. If something is implied but not stated, leave it out.
 `.trim();
 
+/** Surface what the model actually said — "could not parse" alone is undebuggable. */
+function describeError(err: unknown): Record<string, unknown> {
+  const e = err as { message?: string; text?: string; cause?: { message?: string }; finishReason?: string };
+  return {
+    err: e.message,
+    ...(e.text ? { modelText: e.text.slice(0, 300) } : {}),
+    ...(e.cause?.message ? { cause: e.cause.message.slice(0, 200) } : {}),
+    ...(e.finishReason ? { finishReason: e.finishReason } : {}),
+  };
+}
+
 export interface ExtractorDeps {
   model: LanguageModel;
   logger: Logger;
@@ -66,7 +88,7 @@ export function createKnowledgeExtractor({ model, logger }: ExtractorDeps): Know
           ? [
               "You are building a durable profile of ONE person from their own",
               "Slack DMs, private channels, and email.",
-              input.owner ? `That person is ${input.owner}.` : "",
+              input.owner ? "That person is " + input.owner + "." : "",
               "Write facts about them and their world in the third person",
               '("they own the Stedi integration"), never addressed to them.',
               "Other people appear only in relation to them.",
@@ -96,22 +118,28 @@ export function createKnowledgeExtractor({ model, logger }: ExtractorDeps): Know
         });
         return object.facts as KbFactDraft[];
       } catch (err) {
-        logger.warn({ err: (err as Error).message, scope: input.scope }, "fact extraction failed");
+        logger.warn({ ...describeError(err), scope: input.scope }, "fact extraction failed");
         throw err;
       }
     },
 
     async labelTopic(input) {
-      const { object } = await generateObject({
-        model,
-        schema: topicSchema,
-        system:
-          "Name the single theme these excerpts share. Be concrete and specific to " +
-          "this content — 'Stedi Integration' not 'Customer Work', 'Hiring Pipeline' " +
-          "not 'Discussions'. No generic labels like 'General' or 'Miscellaneous'.",
-        prompt: input.samples.map((s, i) => "[" + i + "] " + s).join("\n\n---\n\n"),
-      });
-      return object;
+      try {
+        const { object } = await generateObject({
+          model,
+          schema: topicSchema,
+          system:
+            "Name the single theme these excerpts share. Be concrete and specific to " +
+            "this content — 'Stedi Integration' not 'Customer Work', 'Hiring Pipeline' " +
+            "not 'Discussions'. No generic labels like 'General' or 'Miscellaneous'. " +
+            "Always answer; if the excerpts are mixed, name the dominant thread.",
+          prompt: input.samples.map((s, i) => "[" + i + "] " + s).join("\n\n---\n\n"),
+        });
+        return object;
+      } catch (err) {
+        logger.warn({ ...describeError(err), scope: input.scope }, "topic labelling failed");
+        throw err;
+      }
     },
   };
 }

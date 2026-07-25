@@ -7,7 +7,14 @@
  * budgeted per cycle so a large backlog drains over hours instead of spending
  * the model budget in one go.
  */
-import { clusterCount, factKey, kmeans, representatives, validateDraft } from "../domain/knowledge.js";
+import {
+  clusterCount,
+  factKey,
+  keywordLabel,
+  kmeans,
+  representatives,
+  validateDraft,
+} from "../domain/knowledge.js";
 import type {
   ConfigStore,
   Embedder,
@@ -149,7 +156,9 @@ export function createKbSynthesizer(deps: KbSynthesizerDeps): KbSynthesizer {
               statement: d.statement.trim(),
               detail: d.detail?.trim() || undefined,
               key: factKey(d.subject, d.statement),
-              confidence: d.confidence,
+              // The model is not bound to the 0–1 range: strict schemas reject
+              // numeric constraints, so it is enforced here.
+              confidence: Math.min(1, Math.max(0, Number(d.confidence) || 0.5)),
               firstSeenMs: times.length > 0 ? Math.min(...times) : Date.now(),
               lastSeenMs: times.length > 0 ? Math.max(...times) : Date.now(),
               evidence,
@@ -227,28 +236,36 @@ export function createKbSynthesizer(deps: KbSynthesizerDeps): KbSynthesizer {
       const clusters = kmeans(vectors, clusterCount(rows.length));
 
       let calls = 0;
+      let labelled = 0;
       const drafts = [];
       for (const cluster of clusters) {
         // Too small to be a theme — its chunks stay unassigned rather than
         // padding the list with singletons.
         if (cluster.members.length < 3) continue;
         const samples = representatives(vectors, cluster, 6).map((i) => snippet(rows[i]?.text ?? ""));
+
+        // A cluster is real whether or not the model will name it, so fall back
+        // to its own vocabulary rather than discarding it.
+        let named = keywordLabel(samples);
         try {
-          const { label, summary } = await ex.labelTopic({ scope, samples });
+          named = await ex.labelTopic({ scope, samples });
           calls++;
-          drafts.push({
-            label,
-            summary,
-            chunkIds: cluster.members.map((i) => rows[i]?.id ?? "").filter(Boolean),
-          });
-        } catch (err) {
-          logger.warn({ scope, userId, err: (err as Error).message }, "kb topic labelling failed");
+          labelled++;
+        } catch {
+          calls++; // it was still attempted; the extractor logged the reason
         }
+
+        drafts.push({
+          ...named,
+          chunkIds: cluster.members.map((i) => rows[i]?.id ?? "").filter(Boolean),
+        });
       }
 
-      // Only replace when something was actually labelled — a total model
-      // outage must not wipe the themes that are already there.
-      if (drafts.length === 0 && clusters.length > 0) {
+      // If not one cluster could be named, the model is down rather than coy —
+      // keep the themes that are already stored instead of replacing good
+      // labels with keyword guesses.
+      if (labelled === 0 && drafts.length > 0) {
+        logger.warn({ scope, userId, clusters: drafts.length }, "kb topic labelling failed for every cluster");
         return { topics: 0, modelCalls: calls, refreshed: false };
       }
 

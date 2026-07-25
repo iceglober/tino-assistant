@@ -258,12 +258,16 @@ export interface KbFact {
   updatedAt: number;
 }
 
-/** A fact as the extractor emits it, before merge. Indexes refer to the batch. */
+/**
+ * A fact as the extractor emits it, before merge. Indexes refer to the batch.
+ * `detail` is nullable rather than optional because strict structured output
+ * requires every property to be present — see the schema in kb/extractor.ts.
+ */
 export interface KbFactDraft {
   kind: KbFactKind;
   subject: string;
   statement: string;
-  detail?: string;
+  detail?: string | null;
   confidence: number;
   evidenceIdx: number[];
 }

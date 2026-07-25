@@ -38,13 +38,22 @@ function stem(word: string): string {
   return word;
 }
 
-const slugWords = (text: string): string[] =>
+/**
+ * Slack user/channel ids and bare numbers carry no meaning in a label. The
+ * digit lookahead matters: without it this also eats "deployment", "customer",
+ * and "workflow", which are exactly the words a good label is made of.
+ */
+const isNoiseToken = (w: string): boolean =>
+  /^\d+$/.test(w) || /^[ucdwg](?=[a-z0-9]*\d)[a-z0-9]{7,}$/.test(w);
+
+const tokenize = (text: string): string[] =>
   text
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, " ")
     .split(/\s+/)
-    .filter((w) => w.length > 0 && !STOPWORDS.has(w))
-    .map(stem);
+    .filter((w) => w.length > 0 && !STOPWORDS.has(w));
+
+const slugWords = (text: string): string[] => tokenize(text).map(stem);
 
 /**
  * Merge key for a fact. Two observations of the same claim should land on the
@@ -159,6 +168,29 @@ export function kmeans(vectors: number[][], k: number, iterations = 12): Cluster
     .map((centroid, c) => ({ centroid, members: assign.flatMap((a, i) => (a === c ? [i] : [])) }))
     .filter((cl) => cl.members.length > 0)
     .sort((a, b) => b.members.length - a.members.length);
+}
+
+/**
+ * Name a cluster from its own most distinctive words, for when the labelling
+ * call fails. A theme called "Sandbox Credentials Stedi" is worth far more than
+ * a cluster silently dropped because the model would not answer.
+ */
+export function keywordLabel(samples: string[]): { label: string; summary: string } {
+  const docFreq = new Map<string, number>();
+  for (const s of samples) {
+    for (const w of new Set(tokenize(s))) {
+      if (w.length > 2 && !isNoiseToken(w)) docFreq.set(w, (docFreq.get(w) ?? 0) + 1);
+    }
+  }
+  const top = [...docFreq.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, 3)
+    .map(([w]) => w.charAt(0).toUpperCase() + w.slice(1));
+
+  return {
+    label: top.length > 0 ? top.join(" ") : "Unlabelled",
+    summary: "Grouped by similarity; naming this theme was not possible, so these are its most common terms.",
+  };
 }
 
 /**
