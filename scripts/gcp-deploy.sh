@@ -42,3 +42,18 @@ echo "=== status ==="
 kubectl -n "$NAMESPACE" get pods,ingress
 echo "Ingress IP (Route53 A record for tino.kayn.ai):"
 gcloud compute addresses describe tino-ip --global --format='value(address)' 2>/dev/null || true
+
+# GKE generates the L7 health-check firewall rule (k8s-fw-l7--*) with only the
+# kube-system default backend's port. Our container serves on 3001, so without
+# this the LB health checks can never reach the pod: backend UNHEALTHY → 502 on
+# every request after a pod replacement. Idempotent.
+PORT_TO_ALLOW=3001
+RULE="$(gcloud compute firewall-rules list --filter='name~^k8s-fw-l7--' --format='value(name)' | head -1)"
+if [ -n "$RULE" ]; then
+  PORTS="$(gcloud compute firewall-rules describe "$RULE" --format='value(allowed[].map().firewall_rule().list())')"
+  case "$PORTS" in
+    *"tcp:$PORT_TO_ALLOW"*) echo "health-check firewall ok (tcp:$PORT_TO_ALLOW allowed)" ;;
+    *) gcloud compute firewall-rules update "$RULE" --allow="$PORTS,tcp:$PORT_TO_ALLOW" >/dev/null &&
+       echo "added tcp:$PORT_TO_ALLOW to $RULE" ;;
+  esac
+fi

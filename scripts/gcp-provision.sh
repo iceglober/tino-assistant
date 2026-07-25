@@ -103,20 +103,3 @@ Provisioning done. REMAINING MANUAL STEPS:
 3. Deploy: scripts/gcp-deploy.sh
 4. DNS: point tino.kayn.ai (Route53) at the static IP printed above (A record).
 EOF
-
-# NOTE: run AFTER the first `helm install` creates the Ingress.
-# GKE's L7 health-check firewall rule (k8s-fw-l7--*) is generated with the
-# kube-system default backend's port only; the container's serving port must be
-# added or every LB health check fails and the ingress serves 502s.
-ensure_health_check_port() {
-  local port="${1:-3001}"
-  local rule
-  rule="$(gcloud compute firewall-rules list --filter='name~^k8s-fw-l7--' --format='value(name)' | head -1)"
-  [ -z "$rule" ] && { echo "no k8s-fw-l7 rule yet — re-run after the first helm install"; return 0; }
-  local ports
-  ports="$(gcloud compute firewall-rules describe "$rule" --format='value(allowed[].map().firewall_rule().list())')"
-  case "$ports" in
-    *"tcp:$port"*) echo "health-check firewall already allows tcp:$port" ;;
-    *) gcloud compute firewall-rules update "$rule" --allow="$ports,tcp:$port" && echo "added tcp:$port to $rule" ;;
-  esac
-}
