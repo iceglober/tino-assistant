@@ -3,8 +3,6 @@ WORKDIR /app
 RUN npm install -g bun
 COPY package.json bun.lock* ./
 COPY packages/core/package.json ./packages/core/
-COPY packages/aws/package.json ./packages/aws/
-COPY packages/cli/package.json ./packages/cli/
 RUN bun install --frozen-lockfile
 
 FROM deps AS builder
