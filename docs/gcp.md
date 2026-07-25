@@ -1,58 +1,85 @@
-# Tino on GCP — runbook
+# Tino on GCP (KayN) — GKE Autopilot + Helm runbook
 
-Project `quiet-spirit-503422-u3`, region `us-central1`. Cloud Run (always-on
-single instance, Slack socket mode) + Cloud SQL Postgres 16 w/ pgvector +
-Secret Manager + Vertex AI embeddings (service-account ADC, no keys).
+KayN dogfoods the self-hosting Helm chart (`deploy/helm/tino`). Stack: GKE
+Autopilot (project `quiet-spirit-503422-u3`, region `us-central1`) + Cloud SQL
+Postgres 16 w/ pgvector (via cloud-sql-proxy sidecar) + Secret Manager +
+Workload Identity (Vertex embeddings + Cloud SQL, zero keys). KayN-specific
+values: `deploy/kayn/values-kayn.yaml` (destined for the kn-eng repo).
+
+The chart enforces a **single replica with strategy Recreate** — Slack Socket
+Mode splits events across connections and the KB indexer is a singleton. Never
+scale it.
 
 ## One-time provisioning
 
 ```bash
 gcloud auth login
 scripts/gcp-provision.sh
-# then the manual steps it prints: OAuth client secrets + CREATE EXTENSION vector
+# then the manual steps it prints:
+#  - add the Google OAuth client id/secret to Secret Manager
+#  - CREATE EXTENSION vector on the tino DB (>=0.7 needed for halfvec)
 ```
 
-Secrets: `tino-database-url`, `tino-google-oauth-client-id/secret`,
-`tino-crypto-master-key` (AES master key — changing it invalidates all stored
-credentials), `tino-connect-secret` (Slack connect-link signer).
+Creates: APIs, Artifact Registry `tino`, Cloud SQL `tino-pg` + db/user,
+secrets (`tino-database-url` in TCP-via-proxy form, generated crypto/connect
+keys), GSA `tino-run` (cloudsql.client + aiplatform.user) with Workload
+Identity binding to `tino/tino`, Autopilot cluster `tino`, global static IP
+`tino-ip`.
 
 ## Deploy
 
 ```bash
-BASE_URL=https://tino.kayn.ai scripts/gcp-deploy.sh     # or npm: bun run deploy:gcp
+scripts/gcp-deploy.sh   # or: bun run deploy:gcp
 ```
 
-Cloud Build builds amd64 natively; the service runs `min=max=1 instance,
---no-cpu-throttling` because Slack socket mode must have exactly one owner and
-the KB indexer runs in-process.
+Cloud Build builds amd64 natively → Artifact Registry; the script refreshes
+the `tino-env` k8s Secret from Secret Manager and `helm upgrade --install`s
+with the kayn values (image tag = git sha).
 
-## Cutover from AWS (split-brain-safe order)
+## Cutover from AWS
 
 Slack socket-mode connections **split** events across connected instances —
-never let AWS and GCP hold Slack tokens at the same time.
+AWS and GCP must never both hold Slack tokens. With GKE the DNS flip comes
+*before* the Slack transfer (the AWS bot keeps running through it; only the
+console moves):
 
-1. **Phase A — verify on run.app.** Deploy with `BASE_URL=<run.app URL>`.
-   Don't enter Slack tokens (without them the app skips the socket connect).
-   Add temporary Google OAuth redirect URIs for the run.app host:
-   `/api/auth/callback/google` + `/api/oauth/google/callback`.
-   Verify: `/api/health`, Google sign-in (first user = admin on the fresh DB),
-   Setup saves, web chat replies, rows in Cloud SQL.
-2. **Phase B — Slack ownership transfer** (no DNS needed): scale AWS to zero
-   (`gsa exec --profile production -- aws ecs update-service --cluster
-   api-cluster-prod --service tino --desired-count 0 --region us-east-1`),
+1. **Deploy + smoke** — run the deploy; verify via
+   `kubectl -n tino port-forward svc/tino 3001:80` → `/api/health`, SPA loads.
+   Sign-in can't work yet (domain still points at AWS). The GKE
+   ManagedCertificate stays `Provisioning` until DNS resolves — expected.
+2. **DNS flip (console-only outage window)** — Route53: `tino.kayn.ai` A
+   record → the `tino-ip` static IP. AWS console becomes unreachable; the AWS
+   *bot* keeps answering (socket mode is outbound, console-independent). Wait
+   for the managed cert (15–60 min after DNS), then sign in at
+   https://tino.kayn.ai (first user = admin on the fresh DB) and fill Setup:
+   model provider + Google OAuth — **not the Slack tokens yet**.
+3. **Slack ownership transfer** — scale AWS to zero:
+   `gsa exec --profile production -- aws ecs update-service --cluster
+   api-cluster-prod --service tino --desired-count 0 --region us-east-1`,
    then enter the Slack bot+app tokens in the GCP console Setup and save.
-   Slack is now served from GCP.
-3. **Phase C — DNS.** Redeploy with `BASE_URL=https://tino.kayn.ai`. Create the
-   Cloud Run domain mapping (requires kayn.ai verified in Search Console):
-   `gcloud beta run domain-mappings create --service=tino
-   --domain=tino.kayn.ai --region=us-central1`, flip the Route53 record for
-   `tino.kayn.ai` to CNAME `ghs.googlehosted.com.`, wait for the managed cert
-   (15–60 min; only the console is affected — Slack is outbound). Verify
-   sign-in + connects on the domain, then remove the temp redirect URIs.
+   Verify a DM, `connect`, and a tool call. Done.
 
-**Rollback:** flip Route53 back to the ALB alias, `--desired-count 1` on ECS,
-blank the Slack tokens in GCP config (or scale Cloud Run to zero). AWS
-DynamoDB/EFS state was never touched.
+**Rollback:** Route53 back to the ALB alias, `--desired-count 1` on ECS, blank
+the Slack tokens in the GCP config. AWS DynamoDB/EFS state was never touched.
+
+Also: temporarily add `https://tino.kayn.ai/api/auth/callback/google` +
+`/api/oauth/google/callback` to the NEW Google OAuth client if not already
+present (they should be — same domain as before).
+
+## Self-hosting (the chart itself)
+
+```bash
+helm install tino deploy/helm/tino \
+  --set consoleBaseUrl=https://tino.example.com \
+  --set secretEnv.DATABASE_URL=postgres://... \
+  --set secretEnv.LOCAL_DEV_CRYPTO_KEY=$(openssl rand -hex 32) \
+  --set secretEnv.CONNECT_SECRET=$(openssl rand -hex 32)
+```
+
+Needs any Postgres with pgvector ≥0.7 (or `--set postgresql.enabled=true` for
+a dev-grade bundled one). KB embeddings need Vertex credentials (ADC /
+Workload Identity on GKE, or a mounted service-account key elsewhere); without
+them the KB stays off and everything else works.
 
 ## Local dev
 

@@ -1,0 +1,11 @@
+apiVersion: v2
+name: tino
+description: >-
+  Tino — a self-hostable Slack AI assistant. Single always-on container +
+  a Postgres database (pgvector recommended, for the knowledge base).
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords: [slack, assistant, ai]
+sources:
+  - https://github.com/iceglober/tino-assistant

@@ -119,6 +119,94 @@ export interface UserCapabilityStore {
   delete(userId: string, capabilityId: string): Promise<boolean>;
 }
 
+// ── Knowledge base ────────────────────────────────────────────────────────────
+
+/** Text embedder (Vertex in prod). Vectors are unit-normalized by the adapter. */
+export interface Embedder {
+  /** Embed document chunks for storage (RETRIEVAL_DOCUMENT). */
+  embedDocuments(texts: string[]): Promise<number[][]>;
+  /** Embed one search query (RETRIEVAL_QUERY). */
+  embedQuery(text: string): Promise<number[]>;
+}
+
+export type KbScope = "workspace" | "user";
+export type KbSource = "slack_channel" | "slack_thread" | "slack_dm" | "gmail";
+
+export interface KbChunk {
+  scope: KbScope;
+  /** tino UUID for scope='user'; '' for workspace rows. */
+  userId: string;
+  source: KbSource;
+  /** Idempotency key within (scope,userId,source) — e.g. 'C123:thread:<ts>'. */
+  sourceRef: string;
+  chunkSeq: number;
+  text: string;
+  /** Content time (epoch ms) — last message in the chunk / email internalDate. */
+  ts: number;
+  permalink?: string;
+  meta?: Record<string, unknown>;
+}
+
+export interface KbSearchHit {
+  text: string;
+  source: KbSource;
+  ts: number;
+  permalink?: string;
+  meta: Record<string, unknown>;
+  sim: number;
+  score: number;
+}
+
+export interface KbSearchQuery {
+  scope: KbScope;
+  /** Server-injected; '' for workspace. Never model-supplied. */
+  userId: string;
+  embedding: number[];
+  topK: number;
+  afterMs?: number;
+  beforeMs?: number;
+  sources?: KbSource[];
+  /** Blend weight w in score=(1−w)·sim + w·exp(−age/τ). 0 disables recency. */
+  recencyWeight: number;
+  recencyTauDays: number;
+}
+
+export interface KbCursorRow {
+  stream: string;
+  state: Record<string, unknown>;
+}
+
+export interface KbIndexState {
+  scope: KbScope;
+  userId: string;
+  source: "slack" | "gmail";
+  status: "active" | "paused_auth" | "paused_error" | "disabled";
+  backfillDone: boolean;
+  lastCycleAt?: number;
+  pausedAt?: number;
+  lastError?: string;
+}
+
+export interface KnowledgeStore {
+  /** Idempotent upsert (skips unchanged content by hash). Returns rows written. */
+  upsertChunks(chunks: KbChunk[], embeddings: number[][]): Promise<number>;
+  /** Remove stale tails after a re-chunk produced fewer sequences. */
+  deleteStaleSeqs(scope: KbScope, userId: string, source: KbSource, sourceRef: string, maxSeq: number): Promise<void>;
+  /** ANN + recency-weighted rerank. */
+  search(query: KbSearchQuery): Promise<KbSearchHit[]>;
+  /** Coverage stats for a scope (chunk count + content-time range). */
+  stats(scope: KbScope, userId: string): Promise<{ chunks: number; oldestMs: number | null; newestMs: number | null }>;
+  /** Delete a user's chunks + cursors and tombstone their index state. */
+  forgetUser(userId: string): Promise<void>;
+
+  getCursor(scope: KbScope, userId: string, source: string, stream: string): Promise<Record<string, unknown> | null>;
+  setCursor(scope: KbScope, userId: string, source: string, stream: string, state: Record<string, unknown>): Promise<void>;
+
+  getIndexState(scope: KbScope, userId: string, source: "slack" | "gmail"): Promise<KbIndexState | null>;
+  setIndexState(state: KbIndexState): Promise<void>;
+  listIndexStates(): Promise<KbIndexState[]>;
+}
+
 // ── Crypto ────────────────────────────────────────────────────────────────────
 
 /** Fixed 3-field encryption context, bound to AAD to prevent cross-context decrypt. */

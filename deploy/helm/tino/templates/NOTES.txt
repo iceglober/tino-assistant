@@ -1,0 +1,15 @@
+tino is deploying as a SINGLE replica (required: Slack Socket Mode splits
+events across connections; the knowledge-base indexer assumes a singleton).
+
+Next steps:
+1. Open the console at {{ .Values.consoleBaseUrl }}
+   (port-forward if no ingress: kubectl port-forward svc/{{ include "tino.fullname" . }} 3001:{{ .Values.service.port }})
+2. Sign in (first user becomes admin), then Setup:
+   - Slack bot + app tokens (Socket Mode app)
+   - Model provider + key (Azure OpenAI / OpenAI / Anthropic / Vertex)
+   - Google OAuth client (optional — Gmail/Calendar tools + sign-in)
+3. DM the bot "connect" in Slack to grant per-user access to your own messages.
+
+Database: {{ if .Values.postgresql.enabled }}bundled dev Postgres (NOT for production){{ else }}external via DATABASE_URL in secret {{ include "tino.secretName" . }}{{ end }}.
+Knowledge base needs pgvector >= 0.7 and Vertex embedding credentials
+(GOOGLE_VERTEX_PROJECT/LOCATION + ADC or a mounted service-account key).
