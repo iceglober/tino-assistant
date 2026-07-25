@@ -84,6 +84,16 @@ function describeError(err: unknown): Record<string, unknown> {
   };
 }
 
+/**
+ * Output budgets. These are caps, not spend — but they must clear the model's
+ * *reasoning* tokens, not just the answer. Kimi K2.6 thinks before it acts, and
+ * a budget sized for the visible output (a four-word label needs ~20 tokens)
+ * gets consumed entirely by reasoning, returning finishReason=length and no
+ * tool call at all.
+ */
+const EXTRACT_MAX_TOKENS = 16_000;
+const LABEL_MAX_TOKENS = 4_000;
+
 class NoToolCallError extends Error {
   constructor(toolName: string, finishReason: string, text: string) {
     super(
@@ -130,6 +140,9 @@ export function createKnowledgeExtractor({ model, logger }: ExtractorDeps): Know
 
     const call = result.toolCalls[0];
     if (!call) throw new NoToolCallError(opts.toolName, result.finishReason, result.text);
+    // Reasoning tokens are billed and invisible — log them so the running cost
+    // of distillation is observable rather than inferred.
+    logger.debug({ tool: opts.toolName, usage: result.usage }, "kb extraction call");
     return call.input as T;
   }
 
@@ -168,9 +181,7 @@ export function createKnowledgeExtractor({ model, logger }: ExtractorDeps): Know
           schema: factSchema,
           system: [framing, SHARED_RULES].join("\n\n"),
           prompt: ["Numbered excerpts:", "", excerpts].join("\n"),
-          // Twelve facts with detail and citations; generous so the answer is
-          // never truncated mid-JSON (finishReason=length yields nothing).
-          maxOutputTokens: 4000,
+          maxOutputTokens: EXTRACT_MAX_TOKENS,
         });
         return out.facts as KbFactDraft[];
       } catch (err) {
@@ -192,7 +203,7 @@ export function createKnowledgeExtractor({ model, logger }: ExtractorDeps): Know
             "Always answer; if the excerpts are mixed, name the dominant thread. " +
             "Report your answer by calling the record_theme tool, not in prose.",
           prompt: input.samples.map((s, i) => "[" + i + "] " + s).join("\n\n---\n\n"),
-          maxOutputTokens: 500,
+          maxOutputTokens: LABEL_MAX_TOKENS,
         });
       } catch (err) {
         logger.warn({ ...describeError(err), scope: input.scope }, "topic labelling failed");
