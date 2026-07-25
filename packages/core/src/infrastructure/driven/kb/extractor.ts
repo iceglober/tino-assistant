@@ -1,23 +1,30 @@
 /**
- * KnowledgeExtractor over the AI SDK's schema-constrained generation. This is
- * the only place that turns text into claims, so the prompts that decide what
- * counts as "knowledge" live here rather than being scattered through the
- * indexer.
+ * KnowledgeExtractor over the AI SDK. This is the only place that turns text
+ * into claims, so the prompts that decide what counts as "knowledge" live here
+ * rather than being scattered through the indexer.
+ *
+ * Structured output comes from a FORCED TOOL CALL, not `generateObject`.
+ * `generateObject` sends `response_format: json_schema`, which only some
+ * providers honour — the deployment this runs against (Kimi K2 on Azure AI
+ * Foundry) accepts the parameter and then answers in prose, so every call
+ * failed to parse. Tool calling is the mechanism the agent loop already uses
+ * successfully on the same model, and it is near-universal across providers,
+ * so the schema rides in as tool parameters instead. `ai@6` removed
+ * generateObject's `mode: 'tool'` option, hence doing it by hand.
  *
  * The model never sees a user id and never chooses a scope — the caller has
  * already selected the corpus, and drafts can only cite chunks from the batch
  * they were given.
  */
-import { generateObject, type LanguageModel } from "ai";
+import { generateText, stepCountIs, tool, type LanguageModel } from "ai";
 import { z } from "zod";
 import type { KbFactDraft, KbSource, KnowledgeExtractor, Logger } from "../../../ports/outbound.js";
 
 /**
- * Written for the strictest provider, which is Azure/OpenAI structured output:
- * every property must appear in `required`, and min/max/minItems constraints
- * are rejected outright. So optionality is expressed as `.nullable()` and all
- * bounds are enforced afterwards by `validateDraft`. Using `.optional()` here
- * fails every single call with "Invalid schema for response_format".
+ * Nullable rather than optional: providers that DO enforce strict schemas
+ * (Azure/OpenAI) reject any property missing from `required`, and reject
+ * min/max/minItems outright. All bounds are enforced afterwards by
+ * `validateDraft` and by clamping in the synthesizer.
  */
 export const factSchema = z.object({
   facts: z
@@ -62,6 +69,8 @@ Rules:
 - Prefer fewer, better facts. Returning an empty list is correct when a batch
   is all noise.
 - Never guess. If something is implied but not stated, leave it out.
+
+Report your answer by calling the record_facts tool. Do not reply in prose.
 `.trim();
 
 /** Surface what the model actually said — "could not parse" alone is undebuggable. */
@@ -75,12 +84,55 @@ function describeError(err: unknown): Record<string, unknown> {
   };
 }
 
+class NoToolCallError extends Error {
+  constructor(toolName: string, finishReason: string, text: string) {
+    super(
+      "model did not call " +
+        toolName +
+        " (finishReason=" +
+        finishReason +
+        (text ? ", said: " + text.slice(0, 160) : "") +
+        ")",
+    );
+    this.name = "NoToolCallError";
+  }
+}
+
 export interface ExtractorDeps {
   model: LanguageModel;
   logger: Logger;
 }
 
 export function createKnowledgeExtractor({ model, logger }: ExtractorDeps): KnowledgeExtractor {
+  /**
+   * Ask for one forced tool call and return its arguments. `stopWhen` caps at a
+   * single step so a chatty model cannot turn this into a conversation.
+   */
+  async function callForStructure<T>(opts: {
+    toolName: string;
+    description: string;
+    schema: z.ZodType<T>;
+    system: string;
+    prompt: string;
+    maxOutputTokens: number;
+  }): Promise<T> {
+    const result = await generateText({
+      model,
+      system: opts.system,
+      prompt: opts.prompt,
+      maxOutputTokens: opts.maxOutputTokens,
+      stopWhen: stepCountIs(1),
+      toolChoice: "required",
+      tools: {
+        [opts.toolName]: tool({ description: opts.description, inputSchema: opts.schema }),
+      },
+    });
+
+    const call = result.toolCalls[0];
+    if (!call) throw new NoToolCallError(opts.toolName, result.finishReason, result.text);
+    return call.input as T;
+  }
+
   return {
     async extractFacts(input): Promise<KbFactDraft[]> {
       const framing =
@@ -110,13 +162,17 @@ export function createKnowledgeExtractor({ model, logger }: ExtractorDeps): Know
         .join("\n\n---\n\n");
 
       try {
-        const { object } = await generateObject({
-          model,
+        const out = await callForStructure({
+          toolName: "record_facts",
+          description: "Record the durable facts found in these excerpts.",
           schema: factSchema,
           system: [framing, SHARED_RULES].join("\n\n"),
           prompt: ["Numbered excerpts:", "", excerpts].join("\n"),
+          // Twelve facts with detail and citations; generous so the answer is
+          // never truncated mid-JSON (finishReason=length yields nothing).
+          maxOutputTokens: 4000,
         });
-        return object.facts as KbFactDraft[];
+        return out.facts as KbFactDraft[];
       } catch (err) {
         logger.warn({ ...describeError(err), scope: input.scope }, "fact extraction failed");
         throw err;
@@ -125,17 +181,19 @@ export function createKnowledgeExtractor({ model, logger }: ExtractorDeps): Know
 
     async labelTopic(input) {
       try {
-        const { object } = await generateObject({
-          model,
+        return await callForStructure({
+          toolName: "record_theme",
+          description: "Record the single theme shared by these excerpts.",
           schema: topicSchema,
           system:
             "Name the single theme these excerpts share. Be concrete and specific to " +
             "this content — 'Stedi Integration' not 'Customer Work', 'Hiring Pipeline' " +
             "not 'Discussions'. No generic labels like 'General' or 'Miscellaneous'. " +
-            "Always answer; if the excerpts are mixed, name the dominant thread.",
+            "Always answer; if the excerpts are mixed, name the dominant thread. " +
+            "Report your answer by calling the record_theme tool, not in prose.",
           prompt: input.samples.map((s, i) => "[" + i + "] " + s).join("\n\n---\n\n"),
+          maxOutputTokens: 500,
         });
-        return object;
       } catch (err) {
         logger.warn({ ...describeError(err), scope: input.scope }, "topic labelling failed");
         throw err;
