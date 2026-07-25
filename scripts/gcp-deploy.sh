@@ -14,7 +14,16 @@ SHA="$(git rev-parse --short HEAD)"
 IMG_REPO="$REGION-docker.pkg.dev/$PROJECT/tino/tino"
 
 echo "=== Cloud Build: $IMG_REPO:$SHA ==="
-gcloud builds submit --project "$PROJECT" --tag "$IMG_REPO:$SHA" .
+# NEVER deploy an unbuilt tag: the chart uses strategy Recreate, so helm kills
+# the running pod first and a missing image leaves prod down in
+# ImagePullBackOff. `set -e` covers the direct path; this is the explicit guard
+# for anyone copying these steps into a chained/CI invocation.
+if ! gcloud builds submit --project "$PROJECT" --tag "$IMG_REPO:$SHA" .; then
+  echo "BUILD FAILED — not deploying (prod keeps running the previous image)" >&2
+  exit 1
+fi
+# Belt and braces: confirm the tag actually exists in the registry.
+gcloud artifacts docker images describe "$IMG_REPO:$SHA" --project "$PROJECT" >/dev/null
 
 echo "=== Cluster credentials ==="
 gcloud container clusters get-credentials "$CLUSTER" --region "$REGION" --project "$PROJECT"
