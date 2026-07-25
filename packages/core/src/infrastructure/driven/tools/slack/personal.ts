@@ -7,6 +7,7 @@
 import type { webApi } from "@slack/bolt";
 import { tool } from "ai";
 import { z } from "zod";
+import { toSlackTs } from "./time.js";
 
 function slackError(err: unknown): { error: string; message: string } {
   const e = err as { data?: { error?: string }; message?: string };
@@ -23,11 +24,31 @@ function slackError(err: unknown): { error: string; message: string } {
 const searchSchema = z.object({
   query: z.string().min(1).describe("Slack search query (same syntax as the Slack search box, e.g. 'from:@alice invoice')."),
   count: z.number().int().min(1).max(50).default(20).describe("Max matches to return (1–50, default 20)."),
+  after: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional()
+    .describe("Only messages after this date (YYYY-MM-DD). Use for 'recently', 'this month', 'since June'."),
+  before: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional()
+    .describe("Only messages before this date (YYYY-MM-DD)."),
+  sort: z
+    .enum(["score", "timestamp"])
+    .default("score")
+    .describe(
+      "'timestamp' = newest first. USE 'timestamp' for questions about the user's recent or current state — " +
+        "'score' is relevance-ranked with NO recency weighting and often surfaces months-old messages.",
+    ),
+  sortDir: z.enum(["desc", "asc"]).default("desc").describe("Sort direction (with sort='timestamp', desc = newest first)."),
 });
 
 const historySchema = z.object({
   channel: z.string().min(1).describe("Conversation/DM ID (e.g. D01ABC123 or C01ABC123). Use slack_list_my_conversations to find it."),
   limit: z.number().int().min(1).max(50).default(20).describe("Max messages to return (1–50, default 20)."),
+  oldest: z.string().optional().describe("Only messages after this time — Slack ts ('1753372800.000000') or ISO date ('2026-07-01')."),
+  latest: z.string().optional().describe("Only messages before this time (same formats)."),
 });
 
 const threadSchema = z.object({
@@ -52,11 +73,14 @@ export function slackSearchMyMessagesTool(client: webApi.WebClient) {
   return tool({
     description:
       "Search the CURRENT USER's own Slack messages — including their private DMs and group DMs — using Slack search syntax. " +
-      "Returns matching messages with text, author, channel, and a permalink.",
+      "Returns matching messages with text, author, channel, and a permalink. " +
+      "Default ranking is relevance with NO recency weighting: for anything about the user's recent/current state, " +
+      "pass sort='timestamp' and/or an after: date.",
     inputSchema: searchSchema,
-    execute: async ({ query, count }) => {
+    execute: async ({ query, count, after, before, sort, sortDir }) => {
       try {
-        const res = await client.search.messages({ query, count });
+        const q = [query, after && `after:${after}`, before && `before:${before}`].filter(Boolean).join(" ");
+        const res = await client.search.messages({ query: q, count, sort, sort_dir: sortDir });
         const matches = (res.messages?.matches ?? []).map((m) => ({
           text: m.text,
           user: m.username ?? m.user,
@@ -81,9 +105,9 @@ export function slackReadMyConversationTool(client: webApi.WebClient) {
     description:
       "Read recent messages from one of the CURRENT USER's conversations — a DM, group DM, or channel they belong to — by its ID.",
     inputSchema: historySchema,
-    execute: async ({ channel, limit }) => {
+    execute: async ({ channel, limit, oldest, latest }) => {
       try {
-        const res = await client.conversations.history({ channel, limit });
+        const res = await client.conversations.history({ channel, limit, oldest: toSlackTs(oldest), latest: toSlackTs(latest) });
         const messages = (res.messages ?? []).map((m) => ({ user: m.user, text: m.text, ts: m.ts }));
         return { messages };
       } catch (err) {

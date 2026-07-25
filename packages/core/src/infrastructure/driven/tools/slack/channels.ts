@@ -1,6 +1,7 @@
 import type { webApi } from "@slack/bolt";
 import { tool } from "ai";
 import { z } from "zod";
+import { toSlackTs } from "./time.js";
 import type { UserCache } from "./user-cache.js";
 
 const listChannelsSchema = z.object({
@@ -10,6 +11,8 @@ const listChannelsSchema = z.object({
 const readChannelSchema = z.object({
   channel: z.string().min(1).describe("Channel ID (e.g., C01ABC123)"),
   limit: z.number().int().min(1).max(50).default(20).describe("Max messages to return (1–50, default 20)"),
+  oldest: z.string().optional().describe("Only messages after this time — Slack ts or ISO date ('2026-07-01')."),
+  latest: z.string().optional().describe("Only messages before this time (same formats)."),
 });
 
 const readThreadSchema = z.object({
@@ -91,6 +94,8 @@ export function slackReadChannelTool(client: webApi.WebClient, userCache?: UserC
         const res = await client.conversations.history({
           channel: input.channel,
           limit: input.limit,
+          oldest: toSlackTs(input.oldest),
+          latest: toSlackTs(input.latest),
         });
         const messages: ChannelMessage[] = await Promise.all(
           (res.messages ?? []).map(async (m) => {

@@ -25,6 +25,7 @@ Use this timestamp as your clock for any time-based tool call. Do NOT guess the 
 Behavior:
 - Be concise. Say so when you don't know; don't fabricate.
 - Prefer specific, source-cited answers from tools over general knowledge when a tool can answer.
+- Recency matters: every tool result carries timestamps — check them. For questions about the user's CURRENT state ("what am I working on", "problems I'm facing"), prefer recent evidence (date filters, timestamp sort) and say how old your evidence is.
 
 Memory:
 - The messages array you receive IS your conversation with this user — trust it.
@@ -53,7 +54,7 @@ Tone:
       prompt += `\n- slack channels: \`slack_list_channels\`, \`slack_read_channel\`, \`slack_read_channel_thread\` to read workspace channels the bot is in.`;
     }
     if (hasSlackUser) {
-      prompt += `\n- slack (this user's own messages): \`slack_search_my_messages\` to search their DMs + channels — each hit has a \`channelId\` and \`ts\`. To get the full discussion behind a hit, call \`slack_read_my_thread\` with that channelId + ts (works in private DMs); use \`slack_read_my_conversation\` for recent messages in a conversation and \`slack_list_my_conversations\` to find an id. Don't stop at search snippets when the user asks what a discussion was about — read the thread. These use the user's own token, so only THIS user's private messages, and only when they've connected Slack. If a slack tool returns an auth error, tell them to DM you "connect".`;
+      prompt += `\n- slack (this user's own messages): \`slack_search_my_messages\` to search their DMs + channels — each hit has a \`channelId\` and \`ts\`. Its default ranking has NO recency weighting: for recent/current-state questions pass \`sort: "timestamp"\` and/or \`after\`. To get the full discussion behind a hit, call \`slack_read_my_thread\` with that channelId + ts (works in private DMs); use \`slack_read_my_conversation\` (supports \`oldest\`/\`latest\`) for recent messages and \`slack_list_my_conversations\` to find an id. Don't stop at search snippets when the user asks what a discussion was about — read the thread. These use the user's own token, so only THIS user's private messages, and only when they've connected Slack. If a slack tool returns an auth error, tell them to DM you "connect".`;
     }
   }
 
