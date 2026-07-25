@@ -29,6 +29,8 @@ gcloud services enable \
   secretmanager.googleapis.com \
   aiplatform.googleapis.com \
   compute.googleapis.com
+# Fresh projects: enablement returns before it propagates to the API frontends.
+sleep 45
 
 echo "=== 2/7 Artifact Registry ==="
 gcloud artifacts repositories create tino \
@@ -65,16 +67,24 @@ openssl rand -hex 32 | tr -d '\n' | gcloud secrets versions add tino-connect-sec
 
 echo "=== 5/7 Service account + IAM (Workload Identity) ==="
 gcloud iam service-accounts create "$SA_NAME" --display-name="tino runtime" || true
+# SA creation propagates asynchronously — poll before binding.
+for i in $(seq 1 12); do
+  gcloud iam service-accounts describe "$SA_EMAIL" >/dev/null 2>&1 && break
+  sleep 5
+done
 gcloud projects add-iam-policy-binding "$PROJECT" \
   --member="serviceAccount:$SA_EMAIL" --role=roles/cloudsql.client --condition=None >/dev/null
 gcloud projects add-iam-policy-binding "$PROJECT" \
   --member="serviceAccount:$SA_EMAIL" --role=roles/aiplatform.user --condition=None >/dev/null
-gcloud iam service-accounts add-iam-policy-binding "$SA_EMAIL" \
-  --role=roles/iam.workloadIdentityUser \
-  --member="serviceAccount:$PROJECT.svc.id.goog[$NAMESPACE/$KSA]" >/dev/null
 
 echo "=== 6/7 GKE Autopilot cluster ==="
 gcloud container clusters create-auto "$CLUSTER" --region="$REGION" || true
+
+# Workload Identity binding must come AFTER the first cluster exists — the
+# PROJECT.svc.id.goog identity pool is created with it.
+gcloud iam service-accounts add-iam-policy-binding "$SA_EMAIL" \
+  --role=roles/iam.workloadIdentityUser \
+  --member="serviceAccount:$PROJECT.svc.id.goog[$NAMESPACE/$KSA]" >/dev/null
 
 echo "=== 7/7 Global static IP for the ingress ==="
 gcloud compute addresses create tino-ip --global || true
