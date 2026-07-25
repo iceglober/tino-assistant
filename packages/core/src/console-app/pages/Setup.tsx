@@ -43,14 +43,9 @@ const PROVIDERS: Record<string, { label: string; note?: string; fields: Provider
       { key: "anthropic.model", label: "Model", placeholder: "claude-sonnet-4-5" },
     ],
   },
-  bedrock: {
-    label: "Amazon Bedrock",
-    note: "Authenticates via the server's AWS IAM role — no key needed. Only works when Tino runs on AWS.",
-    fields: [
-      { key: "bedrock.region", label: "Region", placeholder: "us-east-1" },
-      { key: "bedrock.modelId", label: "Model ID", placeholder: "us.anthropic.claude-sonnet-4-5-20250929-v1:0" },
-    ],
-  },
+  // Bedrock intentionally not offered: it authenticates via an AWS IAM role,
+  // which doesn't exist on the GCP deployment. The registry code still
+  // understands `model.provider=bedrock` if set manually with AWS env creds.
 };
 const PROVIDER_IDS = Object.keys(PROVIDERS);
 
