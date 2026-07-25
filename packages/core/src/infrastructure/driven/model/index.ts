@@ -60,8 +60,12 @@ export function resolveModelConfig(get: (key: string) => string | undefined): Mo
   }
 }
 
-/** Construct the ChatModel for validated settings. */
-export function buildChatModel(s: ModelSettings): ChatModel {
+/**
+ * Construct the raw AI-SDK model. Exposed separately from `buildChatModel`
+ * because knowledge extraction needs schema-constrained generation rather than
+ * a conversational turn, and both must run on whatever provider is configured.
+ */
+export function buildLanguageModel(s: ModelSettings): LanguageModel {
   let model: LanguageModel;
   switch (s.provider) {
     case "azure": {
@@ -85,5 +89,10 @@ export function buildChatModel(s: ModelSettings): ChatModel {
       model = createAmazonBedrock({ region: s.region })(s.modelId);
       break;
   }
-  return toChatModel(model);
+  return model;
+}
+
+/** Construct the ChatModel for validated settings. */
+export function buildChatModel(s: ModelSettings): ChatModel {
+  return toChatModel(buildLanguageModel(s));
 }

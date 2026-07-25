@@ -4,15 +4,18 @@ import { WebClient } from "@slack/web-api";
 import type { ToolSet } from "ai";
 import { createAssistant } from "../application/assistant.js";
 import { createKbIndexer, type KbIndexer } from "../application/kb-indexer.js";
+import { createKbSynthesizer } from "../application/kb-synthesizer.js";
 import { createSenderResolver } from "../application/sender.js";
 import { loadEnv } from "../env.js";
+import { createKnowledgeExtractor } from "../infrastructure/driven/kb/extractor.js";
 import { createPgKnowledgeStore } from "../infrastructure/driven/kb/pg-store.js";
 import { ensureKbSchema } from "../infrastructure/driven/kb/schema.js";
 import { createGmailKbSource } from "../infrastructure/driven/kb/sources/gmail.js";
 import { createSlackKbSource } from "../infrastructure/driven/kb/sources/slack.js";
 import { createVertexEmbedder } from "../infrastructure/driven/kb/vertex-embedder.js";
 import { buildKbTools } from "../infrastructure/driven/tools/kb.js";
-import { buildChatModel, resolveModelConfig } from "../infrastructure/driven/model/index.js";
+import { buildLanguageModel, resolveModelConfig } from "../infrastructure/driven/model/index.js";
+import { toChatModel } from "../infrastructure/driven/model/chat-model.js";
 import { createCryptoAdapter } from "../infrastructure/driven/crypto/factory.js";
 import { createIdentityResolver } from "../infrastructure/driven/identity/resolver.js";
 import { createPersistence } from "../infrastructure/driven/persistence/factory.js";
@@ -25,8 +28,9 @@ import type { KbRoutesDeps } from "../infrastructure/driving/http/routes/kb.js";
 import { startServer } from "../infrastructure/driving/http/server.js";
 import { createConnectTokens } from "../infrastructure/security/connect-token.js";
 import { createLogger } from "../logging.js";
+import type { LanguageModel } from "ai";
 import type { Assistant, SenderResolver } from "../ports/inbound.js";
-import type { ChatModel } from "../ports/outbound.js";
+import type { ChatModel, KnowledgeExtractor } from "../ports/outbound.js";
 
 const env = loadEnv();
 const logger = createLogger(env);
@@ -73,6 +77,12 @@ interface KbRuntime {
   routes: KbRoutesDeps;
 }
 let kb: KbRuntime | null = null;
+// The extractor rides whatever provider Setup currently points at, so it is
+// resolved per call rather than captured — refreshRuntime swaps this in place.
+let languageModel: LanguageModel | null = null;
+const currentExtractor = (): KnowledgeExtractor | null =>
+  languageModel ? createKnowledgeExtractor({ model: languageModel, logger }) : null;
+
 const vertexProject =
   (await config.getTyped<string>("kb.vertexProject", "")) || process.env.GOOGLE_VERTEX_PROJECT || "";
 const vertexLocation =
@@ -86,12 +96,20 @@ if (pgPool && process.env.KB_ENABLED !== "0" && vertexProject) {
     const kbStore = createPgKnowledgeStore({ pool: pgPool });
     const embedder = createVertexEmbedder({ project: vertexProject, location: vertexLocation });
     const srcDeps = { store: kbStore, embedder, config, userCapabilities, logger };
+    const synthesizer = createKbSynthesizer({
+      store: kbStore,
+      embedder,
+      extractor: currentExtractor,
+      config,
+      logger,
+    });
     const indexer = createKbIndexer({
       store: kbStore,
       users,
       userCapabilities,
       config,
       logger,
+      synthesizer,
       runners: {
         slackWorkspace: createSlackKbSource(srcDeps, "workspace"),
         slackPersonal: createSlackKbSource(srcDeps, "personal"),
@@ -110,36 +128,102 @@ if (pgPool && process.env.KB_ENABLED !== "0" && vertexProject) {
       },
     });
     indexer.start();
+
+    /** Console scope → the (scope, userId) pair the store expects. */
+    const resolve = (scope: "workspace" | "private", userId: string): ["workspace" | "private", string] =>
+      scope === "workspace" ? ["workspace", ""] : ["private", userId];
+
     kb = {
       indexer,
       buildTools: (userId) => buildKbTools(userId, { store: kbStore, embedder, config, logger }),
       forgetUser: (userId) => kbStore.forgetUser(userId),
       reactivate: async (userId, source) => {
-        await kbStore.setIndexState({ scope: "user", userId, source, status: "active", backfillDone: false });
+        await kbStore.setIndexState({ scope: "private", userId, source, status: "active", backfillDone: false });
       },
       routes: {
         logger,
         status: async (userId: string) => {
-          const [wsStats, wsBySource, mineStats, mineBySource, states] = await Promise.all([
-            kbStore.stats("workspace", ""),
-            kbStore.statsBySource("workspace", ""),
-            kbStore.stats("user", userId),
-            kbStore.statsBySource("user", userId),
-            kbStore.listIndexStates(),
-          ]);
+          const [wsStats, wsBySource, mineStats, mineBySource, states, wsPending, minePending, wsFacts, mineFacts] =
+            await Promise.all([
+              kbStore.stats("workspace", ""),
+              kbStore.statsBySource("workspace", ""),
+              kbStore.stats("private", userId),
+              kbStore.statsBySource("private", userId),
+              kbStore.listIndexStates(),
+              kbStore.pendingSynthesisCount("workspace", ""),
+              kbStore.pendingSynthesisCount("private", userId),
+              kbStore.listFacts("workspace", "", { limit: 1, offset: 0 }),
+              kbStore.listFacts("private", userId, { limit: 1, offset: 0 }),
+            ]);
           return {
             enabled: true,
+            // Distillation is off without a model, and the page should say so
+            // rather than showing an empty knowledge list forever.
+            distilling: languageModel !== null,
             indexer: indexer.status(),
             scopes: {
-              workspace: { ...wsStats, bySource: wsBySource },
-              mine: { ...mineStats, bySource: mineBySource },
+              workspace: { ...wsStats, bySource: wsBySource, pending: wsPending, facts: wsFacts.total },
+              private: { ...mineStats, bySource: mineBySource, pending: minePending, facts: mineFacts.total },
             },
             // Only this user's principals + the shared workspace ones.
             principals: states.filter((s) => s.scope === "workspace" || s.userId === userId),
           };
         },
+
+        knowledge: async ({ scope, userId, kind, subject, limit, offset }) => {
+          const [s, u] = resolve(scope, userId);
+          const { items, total, kinds } = await kbStore.listFacts(s, u, { limit, offset, kind, subject });
+          return {
+            total,
+            kinds,
+            items: items.map((f) => ({
+              id: f.id,
+              kind: f.kind,
+              subject: f.subject,
+              statement: f.statement,
+              detail: f.detail,
+              confidence: f.confidence,
+              firstSeen: new Date(f.firstSeenMs).toISOString(),
+              lastSeen: new Date(f.lastSeenMs).toISOString(),
+              evidence: f.evidence.map((e) => ({
+                source: e.source,
+                ts: new Date(e.ts).toISOString(),
+                permalink: e.permalink,
+                snippet: e.snippet,
+              })),
+            })),
+          };
+        },
+
+        topics: async (scope, userId) => {
+          const [s, u] = resolve(scope, userId);
+          const items = await kbStore.listTopics(s, u);
+          return {
+            items: items.map((t) => ({
+              id: t.id,
+              label: t.label,
+              summary: t.summary,
+              chunks: t.chunks,
+              oldest: t.oldestMs ? new Date(t.oldestMs).toISOString() : null,
+              newest: t.newestMs ? new Date(t.newestMs).toISOString() : null,
+            })),
+          };
+        },
+
+        topicChunks: async (scope, userId, topicId) => {
+          const [s, u] = resolve(scope, userId);
+          const items = await kbStore.chunksForTopic(s, u, topicId, 40);
+          return {
+            items: items.map((i) => ({
+              ...i,
+              ts: new Date(i.ts).toISOString(),
+              indexedAt: new Date(i.indexedAt).toISOString(),
+            })),
+          };
+        },
+
         browse: async ({ scope, userId, q, source, limit, offset }) => {
-          const scopeArgs = scope === "workspace" ? (["workspace", ""] as const) : (["user", userId] as const);
+          const [s, u] = resolve(scope, userId);
           if (q) {
             const [w, tau] = await Promise.all([
               config.getTyped<number>("kb.recencyWeight", 0.3),
@@ -147,8 +231,8 @@ if (pgPool && process.env.KB_ENABLED !== "0" && vertexProject) {
             ]);
             const embedding = await embedder.embedQuery(q);
             const hits = await kbStore.search({
-              scope: scopeArgs[0],
-              userId: scopeArgs[1],
+              scope: s,
+              userId: u,
               embedding,
               topK: limit,
               sources: source ? [source] : undefined,
@@ -161,7 +245,7 @@ if (pgPool && process.env.KB_ENABLED !== "0" && vertexProject) {
               items: hits.map((h) => ({ ...h, ts: new Date(h.ts).toISOString() })),
             };
           }
-          const { items, total } = await kbStore.listChunks(scopeArgs[0], scopeArgs[1], { limit, offset, source });
+          const { items, total } = await kbStore.listChunks(s, u, { limit, offset, source });
           return {
             mode: "recent",
             total,
@@ -171,6 +255,11 @@ if (pgPool && process.env.KB_ENABLED !== "0" && vertexProject) {
               indexedAt: new Date(i.indexedAt).toISOString(),
             })),
           };
+        },
+
+        activity: async (userId, limit) => {
+          const events = await kbStore.listCycleEvents(userId, limit);
+          return { items: events.map((e) => ({ ...e, at: new Date(e.at).toISOString() })) };
         },
       },
     };
@@ -199,9 +288,12 @@ async function refreshRuntime(): Promise<void> {
   const settings = resolveModelConfig(get);
   let model: ChatModel | null = null;
   if (settings) {
-    model = buildChatModel(settings);
+    // One construction, two consumers: the chat loop and knowledge extraction.
+    languageModel = buildLanguageModel(settings);
+    model = toChatModel(languageModel);
     logger.info({ provider: settings.provider }, "model configured");
   } else {
+    languageModel = null;
     logger.warn(`model not configured (provider=${get("model.provider") ?? "azure"}) — configure it in Setup`);
   }
 

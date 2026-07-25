@@ -17,7 +17,8 @@ Tino moved from AWS/Pulumi to GKE/Helm on 2026-07-25 — see git history.)
 ```
 packages/core/src/
 ├── domain/              pure: types, system prompt, KB chunking + scoring
-├── application/         use-cases: assistant, sender resolution, kb-indexer
+├── application/         use-cases: assistant, sender resolution, kb-indexer,
+│                        kb-synthesizer (chunks → facts + themes)
 ├── ports/               inbound.ts (Assistant, SenderResolver)
 │                        outbound.ts (everything the app needs from the world)
 ├── infrastructure/
@@ -54,21 +55,51 @@ replayed across users, capabilities, or fields.
 
 ## the knowledge base
 
-Two scopes — `workspace` (public channels via the bot token) and `user` (each
-person's own DMs, private channels, and email via their own tokens) — indexed
-into `kb_chunks` as `halfvec(3072)` vectors with an HNSW cosine index.
+Two scopes: **`workspace`** is what the company can see (public Slack channels)
+and **`private`** is one person's own DMs, private channels, and mail. Rows
+stored `scope='user'` before 2026-07-25 are rewritten by a migration in
+`kb/schema.ts`; nothing else in the codebase should say "user scope".
+
+Three layers, most digested first:
+
+| table | holds | built by |
+|---|---|---|
+| `kb_facts` | atomic claims with evidence, dates, confidence | `application/kb-synthesizer.ts` |
+| `kb_topics` | labelled clusters of chunks | same, via k-means + a labelling call |
+| `kb_chunks` | raw indexed excerpts, `halfvec(3072)` + HNSW cosine | `kb/sources/*` |
+
+**Who can read what a channel contains is decided by Slack, not by us.**
+`conversations.history` only works for channels the token's owner has joined —
+for bot tokens *and* user tokens. The bot is typically in very few channels, so
+public channels are indexed by whichever **user** principal is a member, written
+to the `workspace` scope (`user_id=''`) so everyone shares one copy. DMs, group
+DMs, and private channels stay in that person's `private` scope. A short
+recheck window in the shared cursor stops N users re-reading the same channel
+every cycle. (`search.messages` needs no membership, which is why the live
+Slack tools can see channels the KB has not indexed.)
 
 The indexer is a single 5-minute loop started **once** in `bootstrap/main.ts`.
 It must not live in `refreshRuntime()`, which re-runs on every Slack reconnect
 and would leak timers. Per-cycle API budgets, rotating round-robin over
 principals, and mark-and-continue isolation: one revoked token pauses that
-principal only.
+principal only. Every principal's slice writes a row to `kb_cycle_events`,
+which is what the console's activity view reads.
+
+Distillation runs at the end of each cycle over chunks with `synthesized_at IS
+NULL`, newest first. Two failure modes are handled separately and it matters
+that they are: a batch that fails three times is consumed so it cannot block
+newer chunks behind it, while **six** failures in a row — any batch — halt the
+principal for an hour, because a misconfigured model would otherwise eat the
+entire backlog three chunks at a time. Facts merge on
+`(scope, userId, kind, key)` where `key` is a stemmed word-set slug of the
+claim, so re-observing something extends its date range and evidence instead of
+duplicating it.
 
 Retrieval blends similarity with recency —
 `score = (1−w)·sim + w·exp(−age/τ)` (`w=0.3`, `τ=30d`, both config-tunable),
 with `w` forced to 0 when the caller passes explicit date filters. The
-`kb_search_mine` tool binds the user id in its closure, so it can never be
-pointed at another user's data by the model.
+`kb_search_mine` and `kb_what_you_know` tools bind the user id in their
+closures, so they can never be pointed at another user's data by the model.
 
 ## request paths
 

@@ -12,6 +12,7 @@ a bot token that can see everyone's.
 - **Slack + web chat** — DM the bot, @mention it in a channel, or use the console chat box.
 - **Per-user access** — each person connects their own Slack and Google; tools are built per user, per message.
 - **Knowledge bases** — a shared workspace KB (public channels) and a private per-user KB (your DMs, private channels, email), incrementally indexed and searched with semantic + **recency-weighted** ranking.
+- **It draws conclusions** — a distillation pass turns indexed history into durable facts (projects, open problems, commitments, decisions, people) each carrying the messages that back it, plus labelled themes. Browse both in the console; tino answers from them.
 - **Bring your own model** — Azure OpenAI, OpenAI, or Anthropic, chosen in the console.
 
 ## Deploy

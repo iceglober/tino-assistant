@@ -1,16 +1,30 @@
 /**
- * Slack KB source — shared engine for the workspace principal (bot token,
- * public channels) and per-user principals (xoxp; DMs, group DMs, private
- * channels). Per cycle and per principal, within a Web-API call budget:
- *   discovery (users.conversations) → per-channel steady-state advance from
- *   the cursor → active-thread re-rollups → backfill (newest→oldest to the
- *   horizon). Cursor state lives in kb_cursors; upserts are content-hash
- *   idempotent so overlaps are free.
+ * Slack KB source — one engine, two principals.
+ *
+ * The important asymmetry: `conversations.history` only works for channels the
+ * token's owner has joined, for bot tokens *and* user tokens alike. So the bot
+ * can only bulk-read the channels it was invited to, which is usually very few.
+ * Each user's own token, however, can read every public channel they are in.
+ *
+ * Public channel content is workspace-visible by definition, so whoever reaches
+ * it first writes it to the WORKSPACE scope (user_id='') and everyone shares
+ * one copy; DMs, group DMs, and private channels stay in that person's PRIVATE
+ * scope. A short recheck window stops five users from re-reading #general five
+ * times every cycle.
  */
 import { webApi } from "@slack/bolt";
 import { rollupThread, type SlackKbMessage, slackTsToMs, windowMessages } from "../../../../domain/kb.js";
 import { KbAuthError, type KbPrincipal, type KbRunResult } from "../../../../application/kb-indexer.js";
-import type { ConfigStore, Embedder, KbChunk, KnowledgeStore, Logger, UserCapabilityStore } from "../../../../ports/outbound.js";
+import type {
+  ConfigStore,
+  Embedder,
+  KbChunk,
+  KbScope,
+  KbSource,
+  KnowledgeStore,
+  Logger,
+  UserCapabilityStore,
+} from "../../../../ports/outbound.js";
 import { readUserCredentials } from "../../tools/credentials.js";
 
 interface SlackCursor {
@@ -18,6 +32,8 @@ interface SlackCursor {
   backfillOldest?: string; // how far back the backfill has walked
   backfillDone?: boolean;
   activeThreads?: Record<string, string>; // threadTs -> last indexed reply ts
+  /** Epoch ms of the last pass, so shared channels are not re-read per user. */
+  lastRunAt?: number;
   [key: string]: unknown;
 }
 
@@ -29,6 +45,23 @@ interface SlackSourceDeps {
   logger: Logger;
   backfillDays?: number;
   callBudget?: number;
+}
+
+interface SlackChannel {
+  id?: string;
+  name?: string;
+  is_im?: boolean;
+  is_mpim?: boolean;
+  is_private?: boolean;
+  user?: string;
+}
+
+/** Where a channel's content belongs and what it is called. */
+interface Target {
+  scope: KbScope;
+  userId: string;
+  windowSource: KbSource;
+  kind: string;
 }
 
 const AUTH_ERRORS = new Set(["not_authed", "invalid_auth", "token_revoked", "account_inactive"]);
@@ -52,7 +85,6 @@ const parseJson = (raw: string | null): string | undefined => {
 export function createSlackKbSource(deps: SlackSourceDeps, mode: "workspace" | "personal") {
   const { store, embedder, config, userCapabilities, logger } = deps;
   const backfillDays = deps.backfillDays ?? 90;
-  const callBudget = deps.callBudget ?? 30;
 
   return async (principal: KbPrincipal, _backfillDone: boolean): Promise<KbRunResult> => {
     // ── Token ────────────────────────────────────────────────────────────────
@@ -64,6 +96,9 @@ export function createSlackKbSource(deps: SlackSourceDeps, mode: "workspace" | "
       token = cap?.credentials?.userToken;
     }
     if (!token) throw new KbAuthError(`no slack token for ${mode} principal`);
+
+    const callBudget = deps.callBudget ?? (await config.getTyped<number>("kb.slackCallBudget", 40));
+    const recheckMs = (await config.getTyped<number>("kb.channelRecheckMinutes", 4)) * 60_000;
 
     const client = new webApi.WebClient(token);
     let calls = 0;
@@ -81,6 +116,8 @@ export function createSlackKbSource(deps: SlackSourceDeps, mode: "workspace" | "
     const horizonTs = String(Math.floor(horizonMs / 1000));
     let chunksUpserted = 0;
     let allBackfillDone = true;
+    let channelsVisited = 0;
+    let channelsShared = 0;
 
     // Team URL for permalinks (1 call, reused for every chunk this cycle).
     const auth = await call(() => client.auth.test());
@@ -89,21 +126,25 @@ export function createSlackKbSource(deps: SlackSourceDeps, mode: "workspace" | "
       teamUrl ? `${teamUrl}/archives/${channel}/p${ts.replace(".", "")}` : "";
 
     // ── Discovery ───────────────────────────────────────────────────────────
-    const types = mode === "workspace" ? "public_channel" : "im,mpim,private_channel";
-    const convs = await call(() =>
-      client.users.conversations({ types, limit: 200, exclude_archived: true }),
-    );
-    const channels = (convs.channels ?? []) as Array<{
-      id?: string;
-      name?: string;
-      is_im?: boolean;
-      is_mpim?: boolean;
-      user?: string;
-    }>;
+    // Personal principals include public channels: their token is the only way
+    // to reach the ones the bot never joined.
+    const types = mode === "workspace" ? "public_channel" : "im,mpim,private_channel,public_channel";
+    const convs = await call(() => client.users.conversations({ types, limit: 200, exclude_archived: true }));
+    const channels = (convs.channels ?? []) as SlackChannel[];
 
-    const source: KbChunk["source"] =
-      mode === "workspace" ? "slack_channel" : "slack_dm";
-    const label = (ch: (typeof channels)[number]): string =>
+    const targetFor = (ch: SlackChannel): Target => {
+      if (ch.is_im) return { scope: "private", userId: principal.userId, windowSource: "slack_dm", kind: "dm" };
+      if (ch.is_mpim) {
+        return { scope: "private", userId: principal.userId, windowSource: "slack_dm", kind: "group_dm" };
+      }
+      if (ch.is_private) {
+        return { scope: "private", userId: principal.userId, windowSource: "slack_dm", kind: "private_channel" };
+      }
+      // Public: shared, regardless of whose token found it.
+      return { scope: "workspace", userId: "", windowSource: "slack_channel", kind: "public_channel" };
+    };
+
+    const label = (ch: SlackChannel): string =>
       ch.is_im ? `DM ${ch.user ?? ch.id}` : ch.is_mpim ? `group DM ${ch.name ?? ch.id}` : `#${ch.name ?? ch.id}`;
 
     const upsert = async (chunks: KbChunk[]): Promise<void> => {
@@ -125,8 +166,24 @@ export function createSlackKbSource(deps: SlackSourceDeps, mode: "workspace" | "
         break;
       }
       const channelId = ch.id;
+      const target = targetFor(ch);
       const cursor: SlackCursor =
-        ((await store.getCursor(principal.scope, principal.userId, "slack", channelId)) as SlackCursor | null) ?? {};
+        ((await store.getCursor(target.scope, target.userId, "slack", channelId)) as SlackCursor | null) ?? {};
+
+      // A public channel several people are in only needs reading once per
+      // cycle; whoever got here first already did it.
+      if (
+        target.scope === "workspace" &&
+        mode === "personal" &&
+        cursor.lastRunAt !== undefined &&
+        Date.now() - cursor.lastRunAt < recheckMs
+      ) {
+        channelsShared++;
+        if (!cursor.backfillDone) allBackfillDone = false;
+        continue;
+      }
+      channelsVisited++;
+
       const active: Record<string, string> = { ...(cursor.activeThreads ?? {}) };
 
       const processPage = async (msgs: Array<Record<string, unknown>>): Promise<void> => {
@@ -136,15 +193,15 @@ export function createSlackKbSource(deps: SlackSourceDeps, mode: "workspace" | "
         const windows = windowMessages({ channelLabel: label(ch), messages: toKb(standalone as never) });
         await upsert(
           windows.map((wnd) => ({
-            scope: principal.scope,
-            userId: principal.userId,
-            source,
+            scope: target.scope,
+            userId: target.userId,
+            source: target.windowSource,
             sourceRef: `${channelId}:win:${wnd.refTs}`,
             chunkSeq: 0,
             text: wnd.text,
             ts: wnd.tsMs,
             permalink: permalink(channelId, wnd.refTs),
-            meta: { channelId, channelName: ch.name ?? "", kind: types },
+            meta: { channelId, channelName: ch.name ?? "", kind: target.kind },
           })),
         );
       };
@@ -181,7 +238,9 @@ export function createSlackKbSource(deps: SlackSourceDeps, mode: "workspace" | "
       }
       if (!cursor.backfillDone) allBackfillDone = false;
 
-      // Active threads: re-rollup ones with new replies.
+      // Active threads: re-rollup ones with new replies. Threads are their own
+      // source everywhere, so the browse filter means the same thing in both
+      // scopes.
       const threadIds = Object.keys(active).slice(0, ACTIVE_THREAD_CAP);
       for (const threadTs of threadIds) {
         if (calls >= callBudget) break;
@@ -194,24 +253,23 @@ export function createSlackKbSource(deps: SlackSourceDeps, mode: "workspace" | "
         const lastTs = (msgs[msgs.length - 1] as { ts?: string } | undefined)?.ts ?? "0";
         if (lastTs !== active[threadTs]) {
           const rolled = rollupThread({ channelLabel: label(ch), messages: toKb(msgs as never) });
-          const threadSource: KbChunk["source"] = mode === "workspace" ? "slack_thread" : "slack_dm";
           await upsert(
             rolled.map((c) => ({
-              scope: principal.scope,
-              userId: principal.userId,
-              source: threadSource,
+              scope: target.scope,
+              userId: target.userId,
+              source: "slack_thread" as KbSource,
               sourceRef: `${channelId}:thread:${threadTs}`,
               chunkSeq: c.chunkSeq,
               text: c.text,
               ts: c.tsMs,
               permalink: permalink(channelId, threadTs),
-              meta: { channelId, channelName: ch.name ?? "", threadTs },
+              meta: { channelId, channelName: ch.name ?? "", threadTs, kind: target.kind },
             })),
           );
           await store.deleteStaleSeqs(
-            principal.scope,
-            principal.userId,
-            threadSource,
+            target.scope,
+            target.userId,
+            "slack_thread",
             `${channelId}:thread:${threadTs}`,
             rolled.length - 1,
           );
@@ -220,10 +278,19 @@ export function createSlackKbSource(deps: SlackSourceDeps, mode: "workspace" | "
       }
 
       cursor.activeThreads = active;
-      await store.setCursor(principal.scope, principal.userId, "slack", channelId, cursor);
+      cursor.lastRunAt = Date.now();
+      await store.setCursor(target.scope, target.userId, "slack", channelId, cursor);
     }
 
+    const detail = [
+      `${channelsVisited}/${channels.length} channels`,
+      channelsShared > 0 ? `${channelsShared} already covered` : "",
+      `${calls} api calls`,
+    ]
+      .filter(Boolean)
+      .join(", ");
+
     logger.debug({ mode, userId: principal.userId, chunksUpserted, calls }, "slack kb slice done");
-    return { chunksUpserted, apiCalls: calls, backfillDone: allBackfillDone };
+    return { chunksUpserted, apiCalls: calls, backfillDone: allBackfillDone, detail };
   };
 }

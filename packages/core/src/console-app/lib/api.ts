@@ -125,13 +125,19 @@ export async function reloadSlack(): Promise<ReloadResult> {
 
 // ── Knowledge base ──────────────────────────────────────────────────────────
 
+export type KbScope = "workspace" | "private";
+
 export interface KbCycleSummary {
   at: number;
+  cycleId: string;
   principals: number;
   skipped: number;
   chunksUpserted: number;
   apiCalls: number;
   errors: number;
+  factsCreated: number;
+  factsUpdated: number;
+  chunksDistilled: number;
   ms: number;
 }
 
@@ -140,10 +146,13 @@ export interface KbScopeStats {
   oldestMs: number | null;
   newestMs: number | null;
   bySource: Array<{ source: string; chunks: number; newestMs: number | null }>;
+  /** Chunks indexed but not yet distilled into facts. */
+  pending: number;
+  facts: number;
 }
 
 export interface KbPrincipal {
-  scope: "workspace" | "user";
+  scope: KbScope;
   userId: string;
   source: "slack" | "gmail";
   status: "active" | "paused_auth" | "paused_error" | "disabled";
@@ -155,6 +164,8 @@ export interface KbPrincipal {
 
 export interface KbStatus {
   enabled: boolean;
+  /** False when no model is configured — nothing can be distilled. */
+  distilling?: boolean;
   indexer?: {
     running: boolean;
     intervalMs: number;
@@ -163,8 +174,45 @@ export interface KbStatus {
     lastCycle?: KbCycleSummary;
     cyclesCompleted: number;
   };
-  scopes?: { workspace: KbScopeStats; mine: KbScopeStats };
+  scopes?: { workspace: KbScopeStats; private: KbScopeStats };
   principals?: KbPrincipal[];
+}
+
+export type KbFactKind =
+  | "project"
+  | "person"
+  | "problem"
+  | "commitment"
+  | "decision"
+  | "preference"
+  | "fact";
+
+export interface KbEvidence {
+  source: string;
+  ts: string;
+  permalink?: string;
+  snippet: string;
+}
+
+export interface KbFact {
+  id: string;
+  kind: KbFactKind;
+  subject: string;
+  statement: string;
+  detail?: string;
+  confidence: number;
+  firstSeen: string;
+  lastSeen: string;
+  evidence: KbEvidence[];
+}
+
+export interface KbTopic {
+  id: string;
+  label: string;
+  summary: string;
+  chunks: number;
+  oldest: string | null;
+  newest: string | null;
 }
 
 export interface KbItem {
@@ -180,13 +228,52 @@ export interface KbItem {
   sim?: number;
 }
 
+export interface KbActivityEvent {
+  id: string;
+  cycleId: string;
+  at: string;
+  scope: KbScope;
+  userId: string;
+  source: "slack" | "gmail" | "synthesis" | "topics";
+  outcome: "ok" | "skipped" | "auth_error" | "error";
+  chunksUpserted: number;
+  apiCalls: number;
+  ms: number;
+  detail?: string;
+  error?: string;
+}
+
 export async function getKbStatus(): Promise<KbStatus> {
   const r = await fetch("/api/kb/status", { credentials: "include" });
   return unwrap<KbStatus>(r);
 }
 
+export async function getKnowledge(params: {
+  scope: KbScope;
+  kind?: string;
+  subject?: string;
+  limit?: number;
+}): Promise<{ total: number; kinds: Array<{ kind: KbFactKind; count: number }>; items: KbFact[] }> {
+  const qs = new URLSearchParams({ scope: params.scope });
+  if (params.kind) qs.set("kind", params.kind);
+  if (params.subject) qs.set("subject", params.subject);
+  if (params.limit) qs.set("limit", String(params.limit));
+  const r = await fetch("/api/kb/knowledge?" + qs, { credentials: "include" });
+  return unwrap(r);
+}
+
+export async function getKbTopics(scope: KbScope): Promise<{ items: KbTopic[] }> {
+  const r = await fetch("/api/kb/topics?scope=" + scope, { credentials: "include" });
+  return unwrap(r);
+}
+
+export async function getTopicChunks(scope: KbScope, topicId: string): Promise<{ items: KbItem[] }> {
+  const r = await fetch("/api/kb/topics/" + topicId + "/chunks?scope=" + scope, { credentials: "include" });
+  return unwrap(r);
+}
+
 export async function browseKb(params: {
-  scope: "workspace" | "mine";
+  scope: KbScope;
   q?: string;
   source?: string;
   limit?: number;
@@ -197,7 +284,12 @@ export async function browseKb(params: {
   if (params.source) qs.set("source", params.source);
   if (params.limit) qs.set("limit", String(params.limit));
   if (params.offset) qs.set("offset", String(params.offset));
-  const r = await fetch(`/api/kb/browse?${qs}`, { credentials: "include" });
+  const r = await fetch("/api/kb/browse?" + qs, { credentials: "include" });
+  return unwrap(r);
+}
+
+export async function getKbActivity(limit = 60): Promise<{ items: KbActivityEvent[] }> {
+  const r = await fetch("/api/kb/activity?limit=" + limit, { credentials: "include" });
   return unwrap(r);
 }
 

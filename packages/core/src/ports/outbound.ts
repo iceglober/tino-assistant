@@ -129,12 +129,17 @@ export interface Embedder {
   embedQuery(text: string): Promise<number[]>;
 }
 
-export type KbScope = "workspace" | "user";
+/**
+ * 'workspace' is what the company can see (public Slack channels); 'private' is
+ * one person's own DMs, private channels, and mail. The stored value matches
+ * these names — see the scope migration in the KB schema.
+ */
+export type KbScope = "workspace" | "private";
 export type KbSource = "slack_channel" | "slack_thread" | "slack_dm" | "gmail";
 
 export interface KbChunk {
   scope: KbScope;
-  /** tino UUID for scope='user'; '' for workspace rows. */
+  /** tino UUID for scope='private'; '' for workspace rows. */
   userId: string;
   source: KbSource;
   /** Idempotency key within (scope,userId,source) — e.g. 'C123:thread:<ts>'. */
@@ -200,6 +205,106 @@ export interface KbBrowseItem {
   indexedAt: number;
 }
 
+// ── Distilled knowledge ───────────────────────────────────────────────────────
+
+/** What a fact is *about* — browse groups by this, not by where it came from. */
+export type KbFactKind =
+  | "project"
+  | "person"
+  | "problem"
+  | "commitment"
+  | "decision"
+  | "preference"
+  | "fact";
+
+export const KB_FACT_KINDS: readonly KbFactKind[] = [
+  "project",
+  "problem",
+  "commitment",
+  "decision",
+  "person",
+  "preference",
+  "fact",
+];
+
+/** One chunk backing a fact — the receipt behind the claim. */
+export interface KbEvidence {
+  chunkId: string;
+  source: KbSource;
+  ts: number;
+  permalink?: string;
+  snippet: string;
+}
+
+/**
+ * An atomic thing Tino knows. `subject` groups related statements ("Stedi POC")
+ * and `statement` is the claim. Merge identity is (scope, userId, kind, key),
+ * where `key` is a slug of the statement, so re-observing a fact updates
+ * lastSeen and appends evidence instead of duplicating it.
+ */
+export interface KbFact {
+  id: string;
+  scope: KbScope;
+  userId: string;
+  kind: KbFactKind;
+  subject: string;
+  statement: string;
+  detail?: string;
+  key: string;
+  confidence: number;
+  firstSeenMs: number;
+  lastSeenMs: number;
+  evidence: KbEvidence[];
+  updatedAt: number;
+}
+
+/** A fact as the extractor emits it, before merge. Indexes refer to the batch. */
+export interface KbFactDraft {
+  kind: KbFactKind;
+  subject: string;
+  statement: string;
+  detail?: string;
+  confidence: number;
+  evidenceIdx: number[];
+}
+
+/** A labelled cluster of chunks — the "themes" browse mode. */
+export interface KbTopic {
+  id: string;
+  scope: KbScope;
+  userId: string;
+  label: string;
+  summary: string;
+  chunks: number;
+  oldestMs: number;
+  newestMs: number;
+  updatedAt: number;
+}
+
+/** A cluster as computed, before it is written. */
+export interface KbTopicDraft {
+  label: string;
+  summary: string;
+  chunkIds: string[];
+}
+
+/** One principal's slice of one indexer cycle — rows for the activity timeline. */
+export interface KbCycleEvent {
+  id: string;
+  cycleId: string;
+  at: number;
+  scope: KbScope;
+  userId: string;
+  source: "slack" | "gmail" | "synthesis" | "topics";
+  outcome: "ok" | "skipped" | "auth_error" | "error";
+  chunksUpserted: number;
+  apiCalls: number;
+  ms: number;
+  /** Human-readable one-liner: "12 channels, 3 new windows". */
+  detail?: string;
+  error?: string;
+}
+
 export interface KnowledgeStore {
   /** Idempotent upsert (skips unchanged content by hash). Returns rows written. */
   upsertChunks(chunks: KbChunk[], embeddings: number[][]): Promise<number>;
@@ -229,6 +334,63 @@ export interface KnowledgeStore {
   getIndexState(scope: KbScope, userId: string, source: "slack" | "gmail"): Promise<KbIndexState | null>;
   setIndexState(state: KbIndexState): Promise<void>;
   listIndexStates(): Promise<KbIndexState[]>;
+
+  // ── Distilled knowledge ────────────────────────────────────────────────────
+  /** Merge drafts into stored facts: new key → insert, seen key → extend. */
+  upsertFacts(
+    scope: KbScope,
+    userId: string,
+    facts: Array<Omit<KbFact, "id" | "updatedAt" | "scope" | "userId">>,
+    embeddings: number[][],
+  ): Promise<{ created: number; updated: number }>;
+  listFacts(
+    scope: KbScope,
+    userId: string,
+    opts: { limit: number; offset: number; kind?: KbFactKind; subject?: string },
+  ): Promise<{ items: KbFact[]; total: number; kinds: Array<{ kind: KbFactKind; count: number }> }>;
+  /** Semantic search over facts — what the agent asks when it wants conclusions. */
+  searchFacts(query: { scope: KbScope; userId: string; embedding: number[]; topK: number }): Promise<KbFact[]>;
+  /** Oldest chunks not yet folded into a fact — the synthesis work queue. */
+  pendingSynthesis(scope: KbScope, userId: string, limit: number): Promise<KbBrowseItem[]>;
+  markSynthesized(chunkIds: string[]): Promise<void>;
+  /** How much is still waiting to be distilled, per scope. */
+  pendingSynthesisCount(scope: KbScope, userId: string): Promise<number>;
+
+  // ── Topics (clustering) ────────────────────────────────────────────────────
+  /** Replace this scope's clusters and reassign chunk→topic in one transaction. */
+  replaceTopics(scope: KbScope, userId: string, topics: KbTopicDraft[]): Promise<void>;
+  listTopics(scope: KbScope, userId: string): Promise<KbTopic[]>;
+  chunksForTopic(scope: KbScope, userId: string, topicId: string, limit: number): Promise<KbBrowseItem[]>;
+  /** Chunk id + embedding for clustering, newest first. */
+  embeddingsForClustering(
+    scope: KbScope,
+    userId: string,
+    limit: number,
+  ): Promise<Array<{ id: string; text: string; embedding: number[] }>>;
+
+  // ── Activity ───────────────────────────────────────────────────────────────
+  recordCycleEvents(events: Array<Omit<KbCycleEvent, "id">>): Promise<void>;
+  /** Workspace events plus this user's own, newest first. */
+  listCycleEvents(userId: string, limit: number): Promise<KbCycleEvent[]>;
+}
+
+// ── Knowledge extraction ──────────────────────────────────────────────────────
+
+/**
+ * Turns raw chunks into knowledge. Separate from ChatModel because it returns
+ * structured data rather than a conversational turn; the adapter runs it on the
+ * configured provider via the AI SDK's schema-constrained generation.
+ */
+export interface KnowledgeExtractor {
+  /** Distill one batch. Drafts reference chunks by their index in `chunks`. */
+  extractFacts(input: {
+    scope: KbScope;
+    /** Display name of the private KB's owner, for correct framing. */
+    owner?: string;
+    chunks: Array<{ idx: number; source: KbSource; ts: number; text: string }>;
+  }): Promise<KbFactDraft[]>;
+  /** Name and summarize a cluster from a sample of its chunks. */
+  labelTopic(input: { scope: KbScope; samples: string[] }): Promise<{ label: string; summary: string }>;
 }
 
 // ── Crypto ────────────────────────────────────────────────────────────────────

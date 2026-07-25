@@ -57,7 +57,8 @@ export function createGmailKbSource(deps: GmailSourceDeps) {
     const horizonMs = Date.now() - backfillDays * 86_400_000;
 
     const cursor: GmailCursor =
-      ((await store.getCursor("user", principal.userId, "gmail", "inbox")) as GmailCursor | null) ?? {};
+      ((await store.getCursor(principal.scope, principal.userId, "gmail", "inbox")) as GmailCursor | null) ?? {};
+    let messagesIndexed = 0;
 
     const indexMessage = async (id: string): Promise<number> => {
       apiCalls++;
@@ -71,7 +72,7 @@ export function createGmailKbSource(deps: GmailSourceDeps) {
 
       const chunks = chunkEmail({ subject: h("Subject") || "(no subject)", from: h("From"), dateMs: internalMs, body });
       const kbChunks: KbChunk[] = chunks.map((c) => ({
-        scope: "user",
+        scope: principal.scope,
         userId: principal.userId,
         source: "gmail",
         sourceRef: id,
@@ -83,7 +84,8 @@ export function createGmailKbSource(deps: GmailSourceDeps) {
       }));
       const embeddings = await embedder.embedDocuments(kbChunks.map((c) => c.text));
       chunksUpserted += await store.upsertChunks(kbChunks, embeddings);
-      await store.deleteStaleSeqs("user", principal.userId, "gmail", id, chunks.length - 1);
+      await store.deleteStaleSeqs(principal.scope, principal.userId, "gmail", id, chunks.length - 1);
+      messagesIndexed++;
       return internalMs;
     };
 
@@ -131,9 +133,17 @@ export function createGmailKbSource(deps: GmailSourceDeps) {
         if (ids.length === 0) cursor.backfillDone = true;
       }
 
-      await store.setCursor("user", principal.userId, "gmail", "inbox", cursor);
+      await store.setCursor(principal.scope, principal.userId, "gmail", "inbox", cursor);
       logger.debug({ userId: principal.userId, chunksUpserted, apiCalls }, "gmail kb slice done");
-      return { chunksUpserted, apiCalls, backfillDone: cursor.backfillDone ?? false };
+      return {
+        chunksUpserted,
+        apiCalls,
+        backfillDone: cursor.backfillDone ?? false,
+        detail: [
+          messagesIndexed + " messages read",
+          cursor.backfillDone ? "backfill complete" : "backfilling",
+        ].join(", "),
+      };
     } catch (err) {
       if (isAuthError(err)) throw new KbAuthError((err as Error).message);
       throw err;

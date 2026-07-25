@@ -42,9 +42,13 @@ Tone:
   const hasSlack = tools.has("slack_list_channels") || tools.has("slack_read_channel");
   const hasSlackUser = tools.has("slack_search_my_messages") || tools.has("slack_list_my_conversations");
   const hasKb = tools.has("kb_search_workspace") || tools.has("kb_search_mine");
+  const hasKnow = tools.has("kb_what_you_know");
 
-  if (hasGmail || hasCalendar || hasSlack || hasSlackUser || hasKb) {
+  if (hasGmail || hasCalendar || hasSlack || hasSlackUser || hasKb || hasKnow) {
     prompt += `\n\nTools:`;
+    if (hasKnow) {
+      prompt += `\n- what you already know: \`kb_what_you_know\` — durable facts distilled from this user's history (projects, open problems, commitments, decisions, people, preferences), each with dated supporting excerpts. START HERE for "what am I working on", "what problems am I facing", "what do you know about me", "catch me up". Answer from these facts directly and cite their dates; drop to the search tools below only when you need the raw conversation or the facts don't cover the question.`;
+    }
     if (hasKb) {
       prompt += `\n- knowledge base: \`kb_search_mine\` / \`kb_search_workspace\` — semantic + recency-ranked search over ~90 days of indexed Slack${tools.has("kb_search_mine") ? " and email" : ""}. PREFER these FIRST for open-ended or historical questions: "what problems am I facing", "what have I been working on", "catch me up on X", "what did we decide about Y". Then open the underlying thread/email (permalink → \`slack_read_my_thread\`; gmail id → \`gmail_get_message\`) before answering in depth. Use live search tools instead for right-now questions or exact keywords/people/dates.`;
     }
