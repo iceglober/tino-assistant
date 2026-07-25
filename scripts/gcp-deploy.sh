@@ -5,6 +5,7 @@
 set -euo pipefail
 
 PROJECT="${GCP_PROJECT:-quiet-spirit-503422-u3}"
+export CLOUDSDK_CORE_PROJECT="$PROJECT"
 REGION="${GCP_REGION:-us-central1}"
 CLUSTER="tino"
 NAMESPACE="tino"

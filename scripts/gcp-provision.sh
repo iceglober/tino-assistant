@@ -15,6 +15,9 @@ CLUSTER="tino"
 NAMESPACE="tino"
 KSA="tino"   # chart serviceAccountName for release name "tino"
 
+# Neutralize any ambient project override from the parent shell (e.g.
+# CLOUDSDK_CORE_PROJECT) — it silently redirects every gcloud call.
+export CLOUDSDK_CORE_PROJECT="$PROJECT"
 gcloud config set project "$PROJECT"
 
 echo "=== 1/7 Enable APIs ==="
@@ -36,6 +39,7 @@ echo "=== 3/7 Cloud SQL Postgres 16 (db-g1-small) ==="
 gcloud sql instances create "$SQL_INSTANCE" \
   --database-version=POSTGRES_16 \
   --region="$REGION" \
+  --edition=enterprise \
   --tier=db-g1-small \
   --storage-size=10GB \
   --storage-auto-increase \
