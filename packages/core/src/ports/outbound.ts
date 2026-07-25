@@ -187,9 +187,33 @@ export interface KbIndexState {
   lastError?: string;
 }
 
+/** One row in the browse view (no embedding — human-readable only). */
+export interface KbBrowseItem {
+  id: string;
+  text: string;
+  source: KbSource;
+  sourceRef: string;
+  chunkSeq: number;
+  ts: number;
+  permalink?: string;
+  meta: Record<string, unknown>;
+  indexedAt: number;
+}
+
 export interface KnowledgeStore {
   /** Idempotent upsert (skips unchanged content by hash). Returns rows written. */
   upsertChunks(chunks: KbChunk[], embeddings: number[][]): Promise<number>;
+  /** Recent-first listing for the browse UI (no vector math). */
+  listChunks(
+    scope: KbScope,
+    userId: string,
+    opts: { limit: number; offset: number; source?: KbSource },
+  ): Promise<{ items: KbBrowseItem[]; total: number }>;
+  /** Chunk counts + newest content time per source, for the status view. */
+  statsBySource(
+    scope: KbScope,
+    userId: string,
+  ): Promise<Array<{ source: KbSource; chunks: number; newestMs: number | null }>>;
   /** Remove stale tails after a re-chunk produced fewer sequences. */
   deleteStaleSeqs(scope: KbScope, userId: string, source: KbSource, sourceRef: string, maxSeq: number): Promise<void>;
   /** ANN + recency-weighted rerank. */

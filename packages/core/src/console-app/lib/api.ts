@@ -123,6 +123,84 @@ export async function reloadSlack(): Promise<ReloadResult> {
   }
 }
 
+// ── Knowledge base ──────────────────────────────────────────────────────────
+
+export interface KbCycleSummary {
+  at: number;
+  principals: number;
+  skipped: number;
+  chunksUpserted: number;
+  apiCalls: number;
+  errors: number;
+  ms: number;
+}
+
+export interface KbScopeStats {
+  chunks: number;
+  oldestMs: number | null;
+  newestMs: number | null;
+  bySource: Array<{ source: string; chunks: number; newestMs: number | null }>;
+}
+
+export interface KbPrincipal {
+  scope: "workspace" | "user";
+  userId: string;
+  source: "slack" | "gmail";
+  status: "active" | "paused_auth" | "paused_error" | "disabled";
+  backfillDone: boolean;
+  lastCycleAt?: number;
+  pausedAt?: number;
+  lastError?: string;
+}
+
+export interface KbStatus {
+  enabled: boolean;
+  indexer?: {
+    running: boolean;
+    intervalMs: number;
+    startedAt?: number;
+    nextRunAt?: number;
+    lastCycle?: KbCycleSummary;
+    cyclesCompleted: number;
+  };
+  scopes?: { workspace: KbScopeStats; mine: KbScopeStats };
+  principals?: KbPrincipal[];
+}
+
+export interface KbItem {
+  id?: string;
+  text: string;
+  source: string;
+  sourceRef?: string;
+  ts: string;
+  permalink?: string;
+  meta: Record<string, unknown>;
+  indexedAt?: string;
+  score?: number;
+  sim?: number;
+}
+
+export async function getKbStatus(): Promise<KbStatus> {
+  const r = await fetch("/api/kb/status", { credentials: "include" });
+  return unwrap<KbStatus>(r);
+}
+
+export async function browseKb(params: {
+  scope: "workspace" | "mine";
+  q?: string;
+  source?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<{ mode: "recent" | "search"; total: number; items: KbItem[] }> {
+  const qs = new URLSearchParams({ scope: params.scope });
+  if (params.q) qs.set("q", params.q);
+  if (params.source) qs.set("source", params.source);
+  if (params.limit) qs.set("limit", String(params.limit));
+  if (params.offset) qs.set("offset", String(params.offset));
+  const r = await fetch(`/api/kb/browse?${qs}`, { credentials: "include" });
+  return unwrap(r);
+}
+
 // ── Chat ────────────────────────────────────────────────────────────────────
 
 /** Send one message to Tino and get the reply (same agent path as Slack). */

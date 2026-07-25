@@ -16,10 +16,12 @@ export function Chat({
   session,
   signOut,
   onSetup,
+  onKnowledge,
 }: {
   session: Session;
   signOut: () => Promise<void>;
   onSetup: () => void;
+  onKnowledge?: () => void;
 }): JSX.Element {
   const toast = useToast();
   const [messages, setMessages] = useState<Msg[]>([]);
@@ -68,6 +70,11 @@ export function Chat({
           <a className="btn-ghost" href="/api/oauth/google/authorize">
             connect Google
           </a>
+          {onKnowledge ? (
+            <button className="btn-ghost" type="button" onClick={onKnowledge}>
+              knowledge
+            </button>
+          ) : null}
           <button className="btn-ghost" type="button" onClick={onSetup}>
             settings
           </button>

@@ -21,6 +21,7 @@ import { buildSlackTools } from "../infrastructure/driven/tools/slack.js";
 import { buildSlackUserTools } from "../infrastructure/driven/tools/slack-user.js";
 import { createToolProvider } from "../infrastructure/driven/tools/provider.js";
 import { createSlackApp } from "../infrastructure/driving/slack/slack.js";
+import type { KbRoutesDeps } from "../infrastructure/driving/http/routes/kb.js";
 import { startServer } from "../infrastructure/driving/http/server.js";
 import { createConnectTokens } from "../infrastructure/security/connect-token.js";
 import { createLogger } from "../logging.js";
@@ -69,7 +70,7 @@ interface KbRuntime {
   buildTools: (userId: string) => Promise<ToolSet>;
   forgetUser: (userId: string) => Promise<void>;
   reactivate: (userId: string, source: "slack" | "gmail") => Promise<void>;
-  status: () => Promise<unknown>;
+  routes: KbRoutesDeps;
 }
 let kb: KbRuntime | null = null;
 const vertexProject =
@@ -116,11 +117,62 @@ if (pgPool && process.env.KB_ENABLED !== "0" && vertexProject) {
       reactivate: async (userId, source) => {
         await kbStore.setIndexState({ scope: "user", userId, source, status: "active", backfillDone: false });
       },
-      status: async () => ({
-        enabled: true,
-        workspace: await kbStore.stats("workspace", ""),
-        principals: await kbStore.listIndexStates(),
-      }),
+      routes: {
+        logger,
+        status: async (userId: string) => {
+          const [wsStats, wsBySource, mineStats, mineBySource, states] = await Promise.all([
+            kbStore.stats("workspace", ""),
+            kbStore.statsBySource("workspace", ""),
+            kbStore.stats("user", userId),
+            kbStore.statsBySource("user", userId),
+            kbStore.listIndexStates(),
+          ]);
+          return {
+            enabled: true,
+            indexer: indexer.status(),
+            scopes: {
+              workspace: { ...wsStats, bySource: wsBySource },
+              mine: { ...mineStats, bySource: mineBySource },
+            },
+            // Only this user's principals + the shared workspace ones.
+            principals: states.filter((s) => s.scope === "workspace" || s.userId === userId),
+          };
+        },
+        browse: async ({ scope, userId, q, source, limit, offset }) => {
+          const scopeArgs = scope === "workspace" ? (["workspace", ""] as const) : (["user", userId] as const);
+          if (q) {
+            const [w, tau] = await Promise.all([
+              config.getTyped<number>("kb.recencyWeight", 0.3),
+              config.getTyped<number>("kb.recencyTauDays", 30),
+            ]);
+            const embedding = await embedder.embedQuery(q);
+            const hits = await kbStore.search({
+              scope: scopeArgs[0],
+              userId: scopeArgs[1],
+              embedding,
+              topK: limit,
+              sources: source ? [source] : undefined,
+              recencyWeight: w,
+              recencyTauDays: tau,
+            });
+            return {
+              mode: "search",
+              total: hits.length,
+              items: hits.map((h) => ({ ...h, ts: new Date(h.ts).toISOString() })),
+            };
+          }
+          const { items, total } = await kbStore.listChunks(scopeArgs[0], scopeArgs[1], { limit, offset, source });
+          return {
+            mode: "recent",
+            total,
+            items: items.map((i) => ({
+              ...i,
+              ts: new Date(i.ts).toISOString(),
+              indexedAt: new Date(i.indexedAt).toISOString(),
+            })),
+          };
+        },
+      },
     };
     logger.info("knowledge base enabled");
   }
@@ -252,7 +304,7 @@ const consoleServer = await startServer({
   getGoogleRefreshToken,
   assistant: assistantFacade,
   connectTokens,
-  kbStatus: kb ? () => (kb as KbRuntime).status() : undefined,
+  kbRoutes: kb ? (kb as KbRuntime).routes : undefined,
   kbReactivate: kb ? (userId: string, source: "slack" | "gmail") => (kb as KbRuntime).reactivate(userId, source) : undefined,
 });
 

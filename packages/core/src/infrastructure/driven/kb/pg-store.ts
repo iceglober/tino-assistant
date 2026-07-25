@@ -88,6 +88,47 @@ export function createPgKnowledgeStore({ pool }: { pool: PgPool }): KnowledgeSto
       return written;
     },
 
+    async listChunks(scope, userId, opts) {
+      const params: unknown[] = [scope, userId, opts.source ?? null];
+      const res = await pool.query(
+        `SELECT id, text, source, source_ref, chunk_seq, ts, permalink, meta, indexed_at,
+                count(*) OVER () AS total
+         FROM kb_chunks
+         WHERE scope = $1 AND user_id = $2 AND ($3::text IS NULL OR source = $3)
+         ORDER BY ts DESC
+         LIMIT $4 OFFSET $5`,
+        [...params, opts.limit, opts.offset],
+      );
+      return {
+        total: res.rows[0] ? Number(res.rows[0].total) : 0,
+        items: res.rows.map((r) => ({
+          id: String(r.id),
+          text: r.text as string,
+          source: r.source as KbSource,
+          sourceRef: r.source_ref as string,
+          chunkSeq: Number(r.chunk_seq),
+          ts: (r.ts as Date).getTime(),
+          permalink: (r.permalink as string | null) ?? undefined,
+          meta: (r.meta as Record<string, unknown>) ?? {},
+          indexedAt: (r.indexed_at as Date).getTime(),
+        })),
+      };
+    },
+
+    async statsBySource(scope, userId) {
+      const res = await pool.query<{ source: string; chunks: string; newest: Date | null }>(
+        `SELECT source, count(*) AS chunks, max(ts) AS newest
+         FROM kb_chunks WHERE scope = $1 AND user_id = $2
+         GROUP BY source ORDER BY source`,
+        [scope, userId],
+      );
+      return res.rows.map((r) => ({
+        source: r.source as KbSource,
+        chunks: Number(r.chunks),
+        newestMs: r.newest ? r.newest.getTime() : null,
+      }));
+    },
+
     async deleteStaleSeqs(scope, userId, source, sourceRef, maxSeq): Promise<void> {
       await pool.query(
         "DELETE FROM kb_chunks WHERE scope=$1 AND user_id=$2 AND source=$3 AND source_ref=$4 AND chunk_seq > $5",

@@ -49,11 +49,33 @@ export interface KbIndexerDeps {
 
 const PAUSED_ERROR_RETRY_MS = 30 * 60 * 1000;
 
+/** What the last completed cycle did — surfaced in the console. */
+export interface KbCycleSummary {
+  at: number;
+  principals: number;
+  skipped: number;
+  chunksUpserted: number;
+  apiCalls: number;
+  errors: number;
+  ms: number;
+}
+
+export interface KbIndexerStatus {
+  running: boolean;
+  intervalMs: number;
+  startedAt?: number;
+  /** Epoch ms of the next scheduled tick (approximate). */
+  nextRunAt?: number;
+  lastCycle?: KbCycleSummary;
+  cyclesCompleted: number;
+}
+
 export interface KbIndexer {
   start(): void;
   stop(): void;
   /** Run one full cycle now (tests + manual kick). */
   runCycleOnce(): Promise<void>;
+  status(): KbIndexerStatus;
 }
 
 export function createKbIndexer(deps: KbIndexerDeps): KbIndexer {
@@ -62,6 +84,10 @@ export function createKbIndexer(deps: KbIndexerDeps): KbIndexer {
   let timer: ReturnType<typeof setInterval> | null = null;
   let running = false;
   let offset = 0; // rotates so no principal starves
+  let startedAt: number | undefined;
+  let lastTickAt: number | undefined;
+  let lastCycle: KbCycleSummary | undefined;
+  let cyclesCompleted = 0;
 
   async function discoverPrincipals(): Promise<KbPrincipal[]> {
     const principals: KbPrincipal[] = [];
@@ -130,9 +156,14 @@ export function createKbIndexer(deps: KbIndexerDeps): KbIndexer {
     }
     running = true;
     const start = Date.now();
+    lastTickAt = start;
     try {
       const principals = await discoverPrincipals();
-      if (principals.length === 0) return;
+      if (principals.length === 0) {
+        lastCycle = { at: start, principals: 0, skipped: 0, chunksUpserted: 0, apiCalls: 0, errors: 0, ms: 0 };
+        cyclesCompleted++;
+        return;
+      }
 
       const rotated = principals.slice(offset % principals.length).concat(principals.slice(0, offset % principals.length));
       offset++;
@@ -148,10 +179,17 @@ export function createKbIndexer(deps: KbIndexerDeps): KbIndexer {
         if (r.error) errors++;
         if (r.skipped) skipped++;
       }
-      logger.info(
-        { principals: principals.length, skipped, chunksUpserted: chunks, apiCalls: calls, errors, ms: Date.now() - start },
-        "kb cycle complete",
-      );
+      lastCycle = {
+        at: start,
+        principals: principals.length,
+        skipped,
+        chunksUpserted: chunks,
+        apiCalls: calls,
+        errors,
+        ms: Date.now() - start,
+      };
+      cyclesCompleted++;
+      logger.info({ ...lastCycle }, "kb cycle complete");
     } catch (err) {
       logger.error({ err: (err as Error).message }, "kb cycle failed");
     } finally {
@@ -164,6 +202,7 @@ export function createKbIndexer(deps: KbIndexerDeps): KbIndexer {
       if (timer) return;
       timer = setInterval(() => void cycle(), intervalMs);
       timer.unref?.();
+      startedAt = Date.now();
       // First cycle shortly after boot (don't block startup).
       setTimeout(() => void cycle(), 15_000).unref?.();
       logger.info({ intervalMs }, "kb indexer started");
@@ -171,7 +210,18 @@ export function createKbIndexer(deps: KbIndexerDeps): KbIndexer {
     stop(): void {
       if (timer) clearInterval(timer);
       timer = null;
+      startedAt = undefined;
     },
     runCycleOnce: cycle,
+    status(): KbIndexerStatus {
+      return {
+        running,
+        intervalMs,
+        startedAt,
+        nextRunAt: timer && lastTickAt ? lastTickAt + intervalMs : undefined,
+        lastCycle,
+        cyclesCompleted,
+      };
+    },
   };
 }

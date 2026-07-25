@@ -4,6 +4,7 @@ import { useAuth } from "./hooks/useAuth.js";
 import { ToastProvider } from "./hooks/useToast.js";
 import { getConfig, type Session } from "./lib/api.js";
 import { Chat } from "./pages/Chat.js";
+import { Knowledge } from "./pages/Knowledge.js";
 import { Login } from "./pages/Login.js";
 import { Setup } from "./pages/Setup.js";
 
@@ -44,6 +45,7 @@ function AppRouter(): JSX.Element {
   const { session, loading, signOut } = useAuth();
   const [phase, setPhase] = useState<Phase>("loading");
   const [forceSetup, setForceSetup] = useState(false);
+  const [view, setView] = useState<"chat" | "knowledge">("chat");
   const [checkKey, setCheckKey] = useState(0);
 
   useEffect(() => {
@@ -75,7 +77,16 @@ function AppRouter(): JSX.Element {
     );
   }
 
-  return <Chat session={session} signOut={signOut} onSetup={() => setForceSetup(true)} />;
+  if (view === "knowledge") return <Knowledge onBack={() => setView("chat")} />;
+
+  return (
+    <Chat
+      session={session}
+      signOut={signOut}
+      onSetup={() => setForceSetup(true)}
+      onKnowledge={() => setView("knowledge")}
+    />
+  );
 }
 
 export function App(): JSX.Element {

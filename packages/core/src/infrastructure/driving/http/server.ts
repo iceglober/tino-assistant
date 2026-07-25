@@ -11,6 +11,7 @@ import { createChatRoutes } from "./routes/chat.js";
 import { createConfigRoutes } from "./routes/config.js";
 import { createGoogleOAuthRoutes } from "./routes/google-oauth.js";
 import { createHealthRoutes } from "./routes/health.js";
+import { createKbRoutes, type KbRoutesDeps } from "./routes/kb.js";
 import { createReloadRoutes } from "./routes/reload.js";
 import { createSlackOAuthRoutes } from "./routes/slack-oauth.js";
 
@@ -44,8 +45,8 @@ export interface StartServerOptions {
   assistant: Assistant;
   /** Signs/verifies the connect tokens carried by the bot-DM'd Slack OAuth link. */
   connectTokens?: ConnectTokens;
-  /** Detailed KB state for the auth-gated /api/kb/status endpoint. */
-  kbStatus?: () => Promise<unknown>;
+  /** KB console endpoints (status + browse). Absent → KB disabled. */
+  kbRoutes?: KbRoutesDeps;
   /** Re-activate KB indexing after a user re-connects (fresh consent). */
   kbReactivate?: (userId: string, source: "slack" | "gmail") => Promise<void>;
 }
@@ -67,7 +68,7 @@ export async function startServer(opts: StartServerOptions): Promise<StartedServ
     getGoogleRefreshToken,
     assistant,
     connectTokens,
-    kbStatus,
+    kbRoutes,
     kbReactivate,
   } = opts;
   const port = opts.port ?? 3001;
@@ -167,12 +168,8 @@ export async function startServer(opts: StartServerOptions): Promise<StartedServ
     );
   }
 
-  // Auth-gated KB status (the public /api/health stays counts-free).
-  app.get("/api/kb/status", async (c) => {
-    if (!c.get("user")) return c.json({ error: "unauthorized" }, 401);
-    if (!kbStatus) return c.json({ enabled: false });
-    return c.json(await kbStatus());
-  });
+  // Auth-gated KB console endpoints (the public /api/health stays counts-free).
+  app.route("/api/kb", createKbRoutes(kbRoutes));
 
   // ── Logo asset ────────────────────────────────────────────────────────────
   app.get("/assets/tino-logo.png", (c) => {
