@@ -5,6 +5,19 @@
  */
 import type { KbFactDraft, KbFactKind } from "../ports/outbound.js";
 
+/**
+ * The model ran out of output budget before finishing its answer. Distinct
+ * from a generic failure because it is worth retrying with less input, and
+ * lives in the domain so the synthesizer can react to it without importing an
+ * infrastructure adapter.
+ */
+export class KbTruncatedOutputError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "KbTruncatedOutputError";
+  }
+}
+
 export const KB_FACT_KIND_SET: ReadonlySet<string> = new Set<KbFactKind>([
   "project",
   "person",

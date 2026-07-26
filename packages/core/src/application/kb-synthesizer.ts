@@ -10,6 +10,7 @@
 import {
   clusterCount,
   factKey,
+  KbTruncatedOutputError,
   keywordLabel,
   kmeans,
   representatives,
@@ -74,6 +75,14 @@ const MAX_BATCH_FAILURES = 3;
 const MAX_CONSECUTIVE_ERRORS = 6;
 const HALT_MS = 60 * 60 * 1000;
 
+/**
+ * When an answer overruns the model's output limit, halve the batch and ask
+ * again. How much fits depends on how dense the content is, not just how many
+ * chunks there are, so this finds the line per batch instead of forcing one
+ * conservative batch size on everything.
+ */
+const MIN_BATCH = 2;
+
 interface Health {
   /** Lead chunk of the batch that failed, to spot the same batch failing again. */
   leadId: string;
@@ -127,21 +136,38 @@ export function createKbSynthesizer(deps: KbSynthesizerDeps): KbSynthesizer {
         if (chunks.length === 0) break;
         const leadId = chunks[0]?.id ?? "";
 
-        try {
-          const drafts = await ex.extractFacts({
-            scope,
-            owner,
-            chunks: chunks.map((c, idx) => ({ idx, source: c.source, ts: c.ts, text: c.text })),
-          });
-          result.modelCalls++;
+        // `batch` narrows on a truncated answer, so evidence indexes and the
+        // rows we consume always refer to what the model actually saw.
+        let batch = chunks;
 
-          const usable = drafts.filter((d) => validateDraft(d, chunks.length));
+        try {
+          const ask = async (): Promise<Awaited<ReturnType<typeof ex.extractFacts>>> =>
+            ex.extractFacts({
+              scope,
+              owner,
+              chunks: batch.map((c, idx) => ({ idx, source: c.source, ts: c.ts, text: c.text })),
+            });
+
+          let drafts;
+          try {
+            drafts = await ask();
+            result.modelCalls++;
+          } catch (err) {
+            if (!(err instanceof KbTruncatedOutputError) || batch.length <= MIN_BATCH) throw err;
+            result.modelCalls++;
+            batch = batch.slice(0, Math.max(MIN_BATCH, Math.floor(batch.length / 2)));
+            logger.debug({ principal, retryWith: batch.length }, "kb synthesis answer too long, retrying smaller");
+            drafts = await ask();
+            result.modelCalls++;
+          }
+
+          const usable = drafts.filter((d) => validateDraft(d, batch.length));
           if (usable.length !== drafts.length) {
             logger.debug({ principal, dropped: drafts.length - usable.length }, "kb dropped malformed fact drafts");
           }
 
           const facts: Array<Omit<KbFact, "id" | "updatedAt" | "scope" | "userId">> = usable.map((d) => {
-            const cited = d.evidenceIdx.map((i) => chunks[i]).filter((c): c is (typeof chunks)[number] => Boolean(c));
+            const cited = d.evidenceIdx.map((i) => batch[i]).filter((c): c is (typeof batch)[number] => Boolean(c));
             const evidence: KbEvidence[] = cited.map((c) => ({
               chunkId: c.id,
               source: c.source,
@@ -175,8 +201,8 @@ export function createKbSynthesizer(deps: KbSynthesizerDeps): KbSynthesizer {
             result.factsUpdated += res.updated;
           }
 
-          await store.markSynthesized(chunks.map((c) => c.id));
-          result.chunksProcessed += chunks.length;
+          await store.markSynthesized(batch.map((c) => c.id));
+          result.chunksProcessed += batch.length;
           health.delete(principal);
         } catch (err) {
           const message = (err as Error).message;

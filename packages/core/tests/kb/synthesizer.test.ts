@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createKbSynthesizer } from "../../src/application/kb-synthesizer.js";
+import { KbTruncatedOutputError } from "../../src/domain/knowledge.js";
 import type { KbBrowseItem, KbFactDraft, KnowledgeExtractor, KnowledgeStore } from "../../src/ports/outbound.js";
 
 const noopLogger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
@@ -141,6 +142,67 @@ describe("kb synthesizer", () => {
 
     await synth.synthesize("private", "u1");
     expect(store.marked).toEqual(["1", "2"]);
+  });
+
+  it("halves the batch and retries when the answer overruns the output limit", async () => {
+    const chunks = [chunk("1"), chunk("2"), chunk("3"), chunk("4")];
+    const store = fakeStore([chunks]);
+    let attempt = 0;
+    const extractor: KnowledgeExtractor = {
+      extractFacts: vi.fn(async (input) => {
+        attempt++;
+        if (attempt === 1) throw new KbTruncatedOutputError("too long");
+        // Second attempt sees half the batch, and cites within it.
+        expect(input.chunks).toHaveLength(2);
+        return [
+          {
+            kind: "fact" as const,
+            subject: "A",
+            statement: "Something durable was said here.",
+            confidence: 0.7,
+            evidenceIdx: [1],
+          },
+        ];
+      }),
+      labelTopic: vi.fn(async () => ({ label: "x", summary: "y" })),
+    };
+
+    const synth = createKbSynthesizer({
+      store,
+      embedder: fakeEmbedder,
+      extractor: () => extractor,
+      config,
+      logger: noopLogger,
+    });
+
+    const res = await synth.synthesize("private", "u1");
+    expect(res.factsCreated).toBe(1);
+    expect(res.modelCalls).toBe(2);
+    // Only the chunks actually re-sent are consumed; the rest stay queued.
+    expect(store.marked).toEqual(["1", "2"]);
+    expect(store.upserted[0]?.[0]?.evidence[0]?.chunkId).toBe("2");
+  });
+
+  it("does not retry below the floor — a truncated 2-chunk batch is a real failure", async () => {
+    const store = fakeStore([[chunk("1"), chunk("2")]]);
+    const extractor: KnowledgeExtractor = {
+      extractFacts: vi.fn(async () => {
+        throw new KbTruncatedOutputError("still too long");
+      }),
+      labelTopic: vi.fn(async () => ({ label: "x", summary: "y" })),
+    };
+    const synth = createKbSynthesizer({
+      store,
+      embedder: fakeEmbedder,
+      extractor: () => extractor,
+      config,
+      logger: noopLogger,
+    });
+
+    const res = await synth.synthesize("private", "u1");
+    expect(res.errors).toBe(1);
+    expect(extractor.extractFacts).toHaveBeenCalledTimes(1);
+    expect(store.marked).toEqual([]);
   });
 
   it("does nothing when no model is configured", async () => {

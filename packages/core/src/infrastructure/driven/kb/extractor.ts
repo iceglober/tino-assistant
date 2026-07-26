@@ -18,6 +18,7 @@
  */
 import { generateText, stepCountIs, tool, type LanguageModel } from "ai";
 import { z } from "zod";
+import { KbTruncatedOutputError } from "../../../domain/knowledge.js";
 import type { KbFactDraft, KbSource, KnowledgeExtractor, Logger } from "../../../ports/outbound.js";
 
 /**
@@ -42,7 +43,7 @@ export const factSchema = z.object({
           .describe("Indexes of the numbered excerpts supporting this. At least one; never invent an index."),
       }),
     )
-    .describe("At most 12 facts. Fewer and better is preferred; an empty list is a valid answer."),
+    .describe("At most 8 facts. Fewer and better is preferred; an empty list is a valid answer."),
 });
 
 export const topicSchema = z.object({
@@ -85,14 +86,23 @@ function describeError(err: unknown): Record<string, unknown> {
 }
 
 /**
- * Output budgets. These are caps, not spend — but they must clear the model's
- * *reasoning* tokens, not just the answer. Kimi K2.6 thinks before it acts, and
- * a budget sized for the visible output (a four-word label needs ~20 tokens)
- * gets consumed entirely by reasoning, returning finishReason=length and no
- * tool call at all.
+ * Output budgets. This is a ceiling, not spend — and the deployment has the
+ * final say: Azure Foundry clamps this model to 4096 output tokens whatever we
+ * ask for, and a truncated answer yields NO tool call at all rather than a
+ * partial one. The real lever is therefore how much text goes IN: each excerpt
+ * is trimmed hard below, and the synthesizer retries with a smaller batch when
+ * an answer still does not fit.
  */
-const EXTRACT_MAX_TOKENS = 16_000;
+const EXTRACT_MAX_TOKENS = 8_000;
 const LABEL_MAX_TOKENS = 4_000;
+
+/**
+ * Excerpts are trimmed to this before extraction. A fact needs the gist, not
+ * the full email — the stored evidence keeps a snippet and a permalink for
+ * anyone who wants the original. Full-length excerpts reliably overran the
+ * output ceiling; 800 chars reliably does not.
+ */
+const EXCERPT_MAX_CHARS = 800;
 
 class NoToolCallError extends Error {
   constructor(toolName: string, finishReason: string, text: string) {
@@ -139,7 +149,14 @@ export function createKnowledgeExtractor({ model, logger }: ExtractorDeps): Know
     });
 
     const call = result.toolCalls[0];
-    if (!call) throw new NoToolCallError(opts.toolName, result.finishReason, result.text);
+    if (!call) {
+      if (result.finishReason === "length") {
+        throw new KbTruncatedOutputError(
+          opts.toolName + " answer exceeded the model's output limit (" + String(result.usage.outputTokens) + " tokens)",
+        );
+      }
+      throw new NoToolCallError(opts.toolName, result.finishReason, result.text);
+    }
     // Reasoning tokens are billed and invisible — log them so the running cost
     // of distillation is observable rather than inferred.
     logger.debug({ tool: opts.toolName, usage: result.usage }, "kb extraction call");
@@ -170,7 +187,8 @@ export function createKnowledgeExtractor({ model, logger }: ExtractorDeps): Know
       const excerpts = input.chunks
         .map((c) => {
           const when = new Date(c.ts).toISOString().slice(0, 10);
-          return ["[" + c.idx + "] (" + c.source + ", " + when + ")", c.text].join("\n");
+          const body = c.text.length > EXCERPT_MAX_CHARS ? c.text.slice(0, EXCERPT_MAX_CHARS) + "…" : c.text;
+          return ["[" + c.idx + "] (" + c.source + ", " + when + ")", body].join("\n");
         })
         .join("\n\n---\n\n");
 
