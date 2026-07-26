@@ -3,7 +3,28 @@
  * and how chunks are grouped into themes. No I/O, no SDKs — the synthesizer
  * application service supplies the data and writes the results.
  */
-import type { KbFactDraft, KbFactKind } from "../ports/outbound.js";
+import type { KbFactDraft, KbFactKind, KbSource } from "../ports/outbound.js";
+
+/**
+ * Bulk mail: newsletters, marketing, automated notifications. It dominates an
+ * inbox by volume and contains no durable knowledge about the person, so it is
+ * kept out of distillation entirely — otherwise it decides what the themes are
+ * and burns a model call per batch producing nothing worth reading.
+ */
+const BULK_MAIL = [
+  /unsubscribe/,
+  /view (this )?(e-?mail|message) in (your )?browser/,
+  /manage (your )?(e-?mail )?preferences/,
+  /no-?reply@|do-?not-?reply@|newsletter@|notifications?@|mailer@|postmaster@/,
+  /beehiiv|mailchimp|substack|sendgrid|constantcontact|hubspot/,
+  /you (are )?receiv(ed|ing) this (e-?mail|message) because/,
+];
+
+export function isLikelyNoise(source: KbSource, text: string): boolean {
+  if (source !== "gmail") return false;
+  const head = text.slice(0, 800).toLowerCase();
+  return BULK_MAIL.some((re) => re.test(head));
+}
 
 /**
  * The model ran out of output budget before finishing its answer. Distinct
@@ -32,6 +53,11 @@ const STOPWORDS = new Set([
   "the", "a", "an", "is", "are", "was", "were", "to", "of", "and", "or", "in",
   "on", "for", "with", "that", "this", "it", "as", "at", "by", "from", "has",
   "have", "had", "be", "been", "will", "would", "their", "they", "there",
+  // Email and Slack scaffolding — present in nearly every excerpt, so it
+  // describes the format rather than the subject.
+  "subject", "from", "date", "sent", "com", "http", "https", "www", "org",
+  "net", "email", "mail", "message", "re", "fwd", "hi", "hello", "thanks",
+  "please", "team", "click", "view", "here", "new", "get", "you", "your",
 ]);
 
 /**

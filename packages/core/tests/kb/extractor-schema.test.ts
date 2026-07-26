@@ -9,7 +9,8 @@
  */
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { factSchema, isLikelyNoise, topicSchema } from "../../src/infrastructure/driven/kb/extractor.js";
+import { factSchema, topicSchema } from "../../src/infrastructure/driven/kb/extractor.js";
+import { isLikelyNoise } from "../../src/domain/knowledge.js";
 
 /** Every property must reject `undefined` — i.e. none of them are optional. */
 function expectNoOptionalFields(shape: Record<string, z.ZodTypeAny>, where: string): void {
@@ -74,9 +75,11 @@ describe("extraction schemas are strict-structured-output safe", () => {
 });
 
 describe("isLikelyNoise", () => {
-  it("flags bulk mail by its footer", () => {
+  it("flags bulk mail by its footer, sender, or platform", () => {
     expect(isLikelyNoise("gmail", "Big sale today! Unsubscribe here.")).toBe(true);
     expect(isLikelyNoise("gmail", "From: no-reply@example.com\nYour receipt")).toBe(true);
+    expect(isLikelyNoise("gmail", "Sent via beehiiv to subscribers")).toBe(true);
+    expect(isLikelyNoise("gmail", "You are receiving this email because you signed up")).toBe(true);
   });
 
   it("leaves real mail and all slack content alone", () => {

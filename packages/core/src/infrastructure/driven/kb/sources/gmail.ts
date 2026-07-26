@@ -7,6 +7,7 @@
  */
 import { google } from "googleapis";
 import { chunkEmail } from "../../../../domain/kb.js";
+import { isLikelyNoise } from "../../../../domain/knowledge.js";
 import { KbAuthError, type KbPrincipal, type KbRunResult } from "../../../../application/kb-indexer.js";
 import type { ConfigStore, Embedder, KbChunk, KnowledgeStore, Logger, UserCapabilityStore } from "../../../../ports/outbound.js";
 import { extractBody, stripQuotedReply } from "../../tools/google/gmail-body.js";
@@ -59,6 +60,7 @@ export function createGmailKbSource(deps: GmailSourceDeps) {
     const cursor: GmailCursor =
       ((await store.getCursor(principal.scope, principal.userId, "gmail", "inbox")) as GmailCursor | null) ?? {};
     let messagesIndexed = 0;
+    let skippedNoise = 0;
 
     const indexMessage = async (id: string): Promise<number> => {
       apiCalls++;
@@ -69,6 +71,14 @@ export function createGmailKbSource(deps: GmailSourceDeps) {
       const internalMs = Number(data.internalDate ?? 0);
       const body = stripQuotedReply(extractBody(data.payload ?? undefined)).slice(0, 100_000);
       if (!body && !h("Subject")) return internalMs;
+
+      // Newsletters and automated mail dominate an inbox by volume and hold no
+      // durable knowledge — keeping them out costs nothing and keeps the KB
+      // about the person rather than about their subscriptions.
+      if (isLikelyNoise("gmail", [h("From"), h("Subject"), body].join("\n"))) {
+        skippedNoise++;
+        return internalMs;
+      }
 
       const chunks = chunkEmail({ subject: h("Subject") || "(no subject)", from: h("From"), dateMs: internalMs, body });
       const kbChunks: KbChunk[] = chunks.map((c) => ({
@@ -141,8 +151,9 @@ export function createGmailKbSource(deps: GmailSourceDeps) {
         backfillDone: cursor.backfillDone ?? false,
         detail: [
           messagesIndexed + " messages read",
+          skippedNoise > 0 ? skippedNoise + " bulk mail skipped" : "",
           cursor.backfillDone ? "backfill complete" : "backfilling",
-        ].join(", "),
+        ].filter(Boolean).join(", "),
       };
     } catch (err) {
       if (isAuthError(err)) throw new KbAuthError((err as Error).message);

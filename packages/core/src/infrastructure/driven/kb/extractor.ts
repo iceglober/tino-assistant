@@ -19,6 +19,7 @@
 import { generateText, stepCountIs, tool, type LanguageModel } from "ai";
 import { z } from "zod";
 import { KbTruncatedOutputError } from "../../../domain/knowledge.js";
+export { isLikelyNoise } from "../../../domain/knowledge.js";
 import type { KbFactDraft, KbSource, KnowledgeExtractor, Logger } from "../../../ports/outbound.js";
 
 /**
@@ -230,10 +231,3 @@ export function createKnowledgeExtractor({ model, logger }: ExtractorDeps): Know
     },
   };
 }
-
-/** Sources whose content is almost always machine-generated bulk mail. */
-export const isLikelyNoise = (source: KbSource, text: string): boolean => {
-  if (source !== "gmail") return false;
-  const head = text.slice(0, 600).toLowerCase();
-  return /unsubscribe|view (this )?email in your browser|manage (your )?preferences|no-?reply@/.test(head);
-};

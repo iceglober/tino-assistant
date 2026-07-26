@@ -254,6 +254,52 @@ describe("kb synthesizer", () => {
     expect(store.marked).toEqual([]);
   });
 
+  it("retires bulk mail from the queue without spending a model call on it", async () => {
+    const store = fakeStore([
+      [
+        chunk("1", { source: "gmail", text: "Weekly digest — click here. Unsubscribe at any time." }),
+        chunk("2", { source: "gmail", text: "From: no-reply@notifications.example\nYour build finished." }),
+        chunk("3", { source: "slack_dm", text: "the stedi sandbox creds finally landed, unblocking us" }),
+      ],
+    ]);
+    const extractor = extractorReturning([]);
+    const synth = createKbSynthesizer({
+      store,
+      embedder: fakeEmbedder,
+      extractor: () => extractor,
+      config,
+      logger: noopLogger,
+    });
+
+    await synth.synthesize("private", "u1");
+
+    // All three leave the queue, but only the real conversation reaches the model.
+    expect(store.marked.sort()).toEqual(["1", "2", "3"]);
+    const seen = (extractor.extractFacts as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
+    expect(seen.chunks).toHaveLength(1);
+    expect(seen.chunks[0].text).toContain("stedi");
+  });
+
+  it("does not call the model at all when a batch is entirely bulk mail", async () => {
+    const store = fakeStore([
+      [chunk("1", { source: "gmail", text: "Newsletter. Unsubscribe." })],
+      [],
+    ]);
+    const extractor = extractorReturning([]);
+    const synth = createKbSynthesizer({
+      store,
+      embedder: fakeEmbedder,
+      extractor: () => extractor,
+      config,
+      logger: noopLogger,
+    });
+
+    const res = await synth.synthesize("private", "u1");
+    expect(extractor.extractFacts).not.toHaveBeenCalled();
+    expect(res.modelCalls).toBe(0);
+    expect(store.marked).toEqual(["1"]);
+  });
+
   it("does nothing when no model is configured", async () => {
     const store = fakeStore([[chunk("1")]]);
     const synth = createKbSynthesizer({

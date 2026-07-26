@@ -10,6 +10,7 @@
 import {
   clusterCount,
   factKey,
+  isLikelyNoise,
   KbTruncatedOutputError,
   keywordLabel,
   kmeans,
@@ -141,8 +142,19 @@ export function createKbSynthesizer(deps: KbSynthesizerDeps): KbSynthesizer {
         const learned = healthOf(principal).batchSize;
         const size = learned ? Math.min(batchSize, learned + 2) : batchSize;
 
-        const chunks = await store.pendingSynthesis(scope, userId, size);
-        if (chunks.length === 0) break;
+        const queued = await store.pendingSynthesis(scope, userId, size);
+        if (queued.length === 0) break;
+
+        // Retire bulk mail straight from the queue. It is already indexed and
+        // still searchable; it just never reaches the model, so it cannot shape
+        // the facts or the themes and costs nothing to skip.
+        const noise = queued.filter((c) => isLikelyNoise(c.source, c.text));
+        if (noise.length > 0) {
+          await store.markSynthesized(noise.map((c) => c.id));
+          result.chunksProcessed += noise.length;
+        }
+        const chunks = queued.filter((c) => !isLikelyNoise(c.source, c.text));
+        if (chunks.length === 0) continue;
         const leadId = chunks[0]?.id ?? "";
 
         // `batch` narrows on a truncated answer, so evidence indexes and the
