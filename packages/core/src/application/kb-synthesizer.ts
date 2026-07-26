@@ -280,7 +280,12 @@ export function createKbSynthesizer(deps: KbSynthesizerDeps): KbSynthesizer {
       if (Date.now() - lastAt < everyHours * 3_600_000) return { topics: 0, modelCalls: 0, refreshed: false };
 
       const sampleSize = await config.getTyped<number>("kb.topicSampleSize", 1500);
-      const rows = await store.embeddingsForClustering(scope, userId, sampleSize);
+      // Same exclusion as distillation: bulk mail already indexed would
+      // otherwise form the largest clusters and name the themes after
+      // newsletters instead of work.
+      const rows = (await store.embeddingsForClustering(scope, userId, sampleSize)).filter(
+        (r) => !isLikelyNoise(r.source, r.text),
+      );
       if (rows.length < 8) {
         await store.setCursor(scope, userId, "synthesis", "topics", { at: Date.now() });
         return { topics: 0, modelCalls: 0, refreshed: true };

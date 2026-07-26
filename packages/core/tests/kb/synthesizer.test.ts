@@ -378,11 +378,13 @@ describe("kb synthesizer", () => {
       ...Array.from({ length: 5 }, (_, i) => ({
         id: "a" + i,
         text: "sandbox credentials for stedi are missing",
+        source: "slack_dm" as const,
         embedding: [1, 0.01 * i, 0],
       })),
       ...Array.from({ length: 5 }, (_, i) => ({
         id: "b" + i,
         text: "hiring pipeline candidate interviews",
+        source: "slack_dm" as const,
         embedding: [0, 1, 0.01 * i],
       })),
     ]);
@@ -415,7 +417,7 @@ describe("kb synthesizer", () => {
   it("keeps existing themes when every label call fails", async () => {
     const store = fakeStore([[]]);
     store.embeddingsForClustering = vi.fn(async () =>
-      Array.from({ length: 10 }, (_, i) => ({ id: "a" + i, text: "alpha", embedding: [1, 0.01 * i, 0] })),
+      Array.from({ length: 10 }, (_, i) => ({ id: "a" + i, text: "alpha", source: "slack_dm" as const, embedding: [1, 0.01 * i, 0] })),
     );
     const synth = createKbSynthesizer({
       store,
@@ -455,8 +457,8 @@ describe("kb synthesizer", () => {
     const store = fakeStore([[]]);
     store.embeddingsForClustering = vi.fn(async () =>
       [
-        ...Array.from({ length: 5 }, (_, i) => ({ id: "a" + i, text: "alpha", embedding: [1, 0.01 * i, 0] })),
-        ...Array.from({ length: 5 }, (_, i) => ({ id: "b" + i, text: "beta", embedding: [0, 1, 0.01 * i] })),
+        ...Array.from({ length: 5 }, (_, i) => ({ id: "a" + i, text: "alpha", source: "slack_dm" as const, embedding: [1, 0.01 * i, 0] })),
+        ...Array.from({ length: 5 }, (_, i) => ({ id: "b" + i, text: "beta", source: "slack_dm" as const, embedding: [0, 1, 0.01 * i] })),
       ],
     );
     const extractor = extractorReturning([]);

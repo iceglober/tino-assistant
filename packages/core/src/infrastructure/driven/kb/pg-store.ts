@@ -568,14 +568,19 @@ export function createPgKnowledgeStore({ pool }: { pool: PgPool }): KnowledgeSto
     },
 
     async embeddingsForClustering(scope, userId, limit) {
-      const res = await pool.query<{ id: string; text: string; vec: string }>(
-        `SELECT id, text, subvector(embedding::vector(${KB_EMBED_DIMS}), 1, ${KB_CLUSTER_DIMS})::text AS vec
+      const res = await pool.query<{ id: string; text: string; source: string; vec: string }>(
+        `SELECT id, text, source, subvector(embedding::vector(${KB_EMBED_DIMS}), 1, ${KB_CLUSTER_DIMS})::text AS vec
          FROM kb_chunks
          WHERE scope=$1 AND user_id=$2
          ORDER BY ts DESC LIMIT $3`,
         [scope, userId, limit],
       );
-      return res.rows.map((r) => ({ id: String(r.id), text: r.text, embedding: parseVectorLiteral(r.vec) }));
+      return res.rows.map((r) => ({
+        id: String(r.id),
+        text: r.text,
+        source: r.source as KbSource,
+        embedding: parseVectorLiteral(r.vec),
+      }));
     },
 
     // ── Activity ─────────────────────────────────────────────────────────────

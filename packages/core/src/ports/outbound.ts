@@ -370,7 +370,7 @@ export interface KnowledgeStore {
     scope: KbScope,
     userId: string,
     limit: number,
-  ): Promise<Array<{ id: string; text: string; embedding: number[] }>>;
+  ): Promise<Array<{ id: string; text: string; source: KbSource; embedding: number[] }>>;
 
   // ── Activity ───────────────────────────────────────────────────────────────
   recordCycleEvents(events: Array<Omit<KbCycleEvent, "id">>): Promise<void>;
