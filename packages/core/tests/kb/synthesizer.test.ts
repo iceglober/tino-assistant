@@ -183,6 +183,55 @@ describe("kb synthesizer", () => {
     expect(store.upserted[0]?.[0]?.evidence[0]?.chunkId).toBe("2");
   });
 
+  it("keeps halving until the answer fits, rather than giving up after one retry", async () => {
+    const store = fakeStore([[chunk("1"), chunk("2"), chunk("3"), chunk("4"), chunk("5"), chunk("6"), chunk("7"), chunk("8")]]);
+    let attempt = 0;
+    const synth = createKbSynthesizer({
+      store,
+      embedder: fakeEmbedder,
+      extractor: () => ({
+        extractFacts: vi.fn(async (input) => {
+          attempt++;
+          if (input.chunks.length > 2) throw new KbTruncatedOutputError("too long");
+          return [];
+        }),
+        labelTopic: vi.fn(async () => ({ label: "x", summary: "y" })),
+      }),
+      config,
+      logger: noopLogger,
+    });
+
+    await synth.synthesize("private", "u1");
+    expect(attempt).toBe(3); // 8 → 4 → 2
+    expect(store.marked).toEqual(["1", "2"]);
+  });
+
+  it("reuses the batch size that worked instead of rediscovering it every cycle", async () => {
+    const wide = Array.from({ length: 8 }, (_, i) => chunk(String(i + 1)));
+    const store = fakeStore([wide, wide.slice(4), wide.slice(6)]);
+    const sizesSeen: number[] = [];
+    const synth = createKbSynthesizer({
+      store,
+      embedder: fakeEmbedder,
+      extractor: () => ({
+        extractFacts: vi.fn(async (input) => {
+          sizesSeen.push(input.chunks.length);
+          if (input.chunks.length > 2) throw new KbTruncatedOutputError("too long");
+          return [];
+        }),
+        labelTopic: vi.fn(async () => ({ label: "x", summary: "y" })),
+      }),
+      config,
+      logger: noopLogger,
+    });
+
+    await synth.synthesize("private", "u1"); // learns 2 the expensive way
+    const afterFirst = sizesSeen.length;
+    await synth.synthesize("private", "u1");
+    // Second run starts near the learned size (2+2=4) rather than back at 8.
+    expect(sizesSeen[afterFirst]).toBeLessThanOrEqual(4);
+  });
+
   it("does not retry below the floor — a truncated 2-chunk batch is a real failure", async () => {
     const store = fakeStore([[chunk("1"), chunk("2")]]);
     const extractor: KnowledgeExtractor = {

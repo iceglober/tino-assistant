@@ -90,6 +90,8 @@ interface Health {
   /** Failures in a row across any batch — catches a broken model, not a bad batch. */
   consecutive: number;
   haltedUntil: number;
+  /** Batch size that last produced an answer, so the limit is learned once. */
+  batchSize?: number;
 }
 
 const snippet = (text: string): string => (text.length > 220 ? text.slice(0, 220) + "…" : text);
@@ -126,13 +128,20 @@ export function createKbSynthesizer(deps: KbSynthesizerDeps): KbSynthesizer {
         };
       }
 
-      const batchSize = await config.getTyped<number>("kb.synthesisBatchSize", 24);
+      const batchSize = await config.getTyped<number>("kb.synthesisBatchSize", 12);
       const maxBatches = await config.getTyped<number>("kb.synthesisBatchesPerCycle", 2);
 
       const result = emptyResult();
 
       for (let b = 0; b < maxBatches; b++) {
-        const chunks = await store.pendingSynthesis(scope, userId, batchSize);
+        // Start from the size that last worked for this principal, easing back
+        // up by two. A dense stretch of content should not shrink the batch
+        // permanently, and a limit already discovered should not be rediscovered
+        // from scratch — each rediscovery costs a full wasted model call.
+        const learned = healthOf(principal).batchSize;
+        const size = learned ? Math.min(batchSize, learned + 2) : batchSize;
+
+        const chunks = await store.pendingSynthesis(scope, userId, size);
         if (chunks.length === 0) break;
         const leadId = chunks[0]?.id ?? "";
 
@@ -149,16 +158,17 @@ export function createKbSynthesizer(deps: KbSynthesizerDeps): KbSynthesizer {
             });
 
           let drafts;
-          try {
-            drafts = await ask();
-            result.modelCalls++;
-          } catch (err) {
-            if (!(err instanceof KbTruncatedOutputError) || batch.length <= MIN_BATCH) throw err;
-            result.modelCalls++;
-            batch = batch.slice(0, Math.max(MIN_BATCH, Math.floor(batch.length / 2)));
-            logger.debug({ principal, retryWith: batch.length }, "kb synthesis answer too long, retrying smaller");
-            drafts = await ask();
-            result.modelCalls++;
+          for (;;) {
+            try {
+              drafts = await ask();
+              result.modelCalls++;
+              break;
+            } catch (err) {
+              result.modelCalls++;
+              if (!(err instanceof KbTruncatedOutputError) || batch.length <= MIN_BATCH) throw err;
+              batch = batch.slice(0, Math.max(MIN_BATCH, Math.floor(batch.length / 2)));
+              logger.debug({ principal, retryWith: batch.length }, "kb synthesis answer too long, retrying smaller");
+            }
           }
 
           const usable = drafts.filter((d) => validateDraft(d, batch.length));
@@ -203,7 +213,13 @@ export function createKbSynthesizer(deps: KbSynthesizerDeps): KbSynthesizer {
 
           await store.markSynthesized(batch.map((c) => c.id));
           result.chunksProcessed += batch.length;
-          health.delete(principal);
+          health.set(principal, {
+            leadId: "",
+            failures: 0,
+            consecutive: 0,
+            haltedUntil: 0,
+            batchSize: batch.length,
+          });
         } catch (err) {
           const message = (err as Error).message;
           result.errors++;
@@ -212,7 +228,7 @@ export function createKbSynthesizer(deps: KbSynthesizerDeps): KbSynthesizer {
           const prev = healthOf(principal);
           const failures = prev.leadId === leadId ? prev.failures + 1 : 1;
           const consecutive = prev.consecutive + 1;
-          const next: Health = { leadId, failures, consecutive, haltedUntil: 0 };
+          const next: Health = { leadId, failures, consecutive, haltedUntil: 0, batchSize: prev.batchSize };
           logger.warn({ principal, attempt: failures, err: message }, "kb synthesis batch failed");
 
           // This particular batch is the problem — drop it and let the rest through.
