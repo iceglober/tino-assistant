@@ -86,10 +86,13 @@ export interface KbIndexerStatus {
   cyclesCompleted: number;
 }
 
+/**
+ * One org's indexer. It has no timer of its own: the server's scheduler calls
+ * `runCycleOnce` for every org in turn, so a hundred orgs never run a hundred
+ * cycles at once.
+ */
 export interface KbIndexer {
-  start(): void;
-  stop(): void;
-  /** Run one full cycle now (tests + manual kick). */
+  /** Run one full cycle now. A call while a cycle is running is a no-op. */
   runCycleOnce(): Promise<void>;
   status(): KbIndexerStatus;
 }
@@ -97,7 +100,6 @@ export interface KbIndexer {
 export function createKbIndexer(deps: KbIndexerDeps): KbIndexer {
   const { store, users, userCapabilities, config, logger, runners, synthesizer, notifyAuthLoss } = deps;
   const intervalMs = deps.intervalMs ?? 5 * 60 * 1000;
-  let timer: ReturnType<typeof setInterval> | null = null;
   let running = false;
   let offset = 0; // rotates so no principal starves
   let synthOffset = 0;
@@ -322,27 +324,13 @@ export function createKbIndexer(deps: KbIndexerDeps): KbIndexer {
   }
 
   return {
-    start(): void {
-      if (timer) return;
-      timer = setInterval(() => void cycle(), intervalMs);
-      timer.unref?.();
-      startedAt = Date.now();
-      // First cycle shortly after boot (don't block startup).
-      setTimeout(() => void cycle(), 15_000).unref?.();
-      logger.info({ intervalMs }, "kb indexer started");
-    },
-    stop(): void {
-      if (timer) clearInterval(timer);
-      timer = null;
-      startedAt = undefined;
-    },
     runCycleOnce: cycle,
     status(): KbIndexerStatus {
       return {
         running,
         intervalMs,
         startedAt,
-        nextRunAt: timer && lastTickAt ? lastTickAt + intervalMs : undefined,
+        nextRunAt: lastTickAt ? lastTickAt + intervalMs : undefined,
         lastCycle,
         cyclesCompleted,
       };

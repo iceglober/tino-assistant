@@ -13,6 +13,21 @@ const makeUser = (overrides: Partial<TinoUser> = {}): TinoUser => ({
   ...overrides,
 });
 
+/** A config fake whose typed reads go through the `get` mock, as the real stores do. */
+const makeConfig = (): SenderDeps["config"] => {
+  const config: SenderDeps["config"] = {
+    get: vi.fn().mockResolvedValue(null),
+    set: vi.fn(),
+    delete: vi.fn(),
+    list: vi.fn().mockResolvedValue([]),
+    getTyped: (async (key: string, fallback: unknown) => {
+      const raw = await config.get(key);
+      return raw === null ? fallback : JSON.parse(raw);
+    }) as SenderDeps["config"]["getTyped"],
+  };
+  return config;
+};
+
 const makeDeps = (overrides: Partial<SenderDeps> = {}): SenderDeps => ({
   resolver: {
     resolveSlack: vi.fn().mockResolvedValue(null),
@@ -26,13 +41,7 @@ const makeDeps = (overrides: Partial<SenderDeps> = {}): SenderDeps => ({
     list: vi.fn().mockResolvedValue([]),
     update: vi.fn(),
   },
-  config: {
-    get: vi.fn().mockResolvedValue(null),
-    set: vi.fn(),
-    delete: vi.fn(),
-    list: vi.fn().mockResolvedValue([]),
-    getTyped: vi.fn(),
-  },
+  config: makeConfig(),
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
   ...overrides,
 });
