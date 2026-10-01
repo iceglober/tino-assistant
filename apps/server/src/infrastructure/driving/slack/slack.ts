@@ -2,16 +2,19 @@
  * Slack driving adapter. Turns Slack DMs and channel @mentions into calls on the
  * inbound ports (SenderResolver + Assistant) and presents the results. It knows
  * nothing about the model, tools, or persistence — only Slack and the ports.
+ *
+ * One app per org, fed over HTTP: the events route verifies the request with
+ * the org's signing secret, acks, and hands the body to `processEvent`. The
+ * app's receiver is therefore passive — it never listens on anything itself.
  */
-import { App, LogLevel } from "@slack/bolt";
-import type { Env } from "../../../env.js";
+import { App, LogLevel, type Receiver } from "@slack/bolt";
 import type { Assistant, SenderResolver } from "@tino/core/ports/inbound";
 import type { Logger } from "@tino/core/ports/outbound";
 import { toSlackMrkdwn } from "./mrkdwn.js";
 import type { DmMessageEvent } from "./types.js";
 
 export interface CreateSlackAppOpts {
-  env: Env;
+  botToken: string;
   assistant: Assistant;
   senderResolver: SenderResolver;
   logger: Logger;
@@ -21,13 +24,21 @@ export interface CreateSlackAppOpts {
   kbForgetUser?: (userId: string) => Promise<void>;
 }
 
+/** Events reach the app through `processEvent`, called by the HTTP route; nothing to start or stop. */
+const passiveReceiver: Receiver = {
+  init: () => {},
+  start: async () => undefined,
+  stop: async () => undefined,
+};
+
 export function createSlackApp(opts: CreateSlackAppOpts): App {
-  const { env, assistant, senderResolver, logger, connectLink, kbForgetUser } = opts;
+  const { botToken, assistant, senderResolver, logger, connectLink, kbForgetUser } = opts;
 
   const app = new App({
-    token: env.SLACK_BOT_TOKEN,
-    appToken: env.SLACK_APP_TOKEN,
-    socketMode: true,
+    token: botToken,
+    receiver: passiveReceiver,
+    // No auth.test round trip at construction; a bad token shows up on first use.
+    tokenVerificationEnabled: false,
     logLevel: LogLevel.WARN,
   });
 

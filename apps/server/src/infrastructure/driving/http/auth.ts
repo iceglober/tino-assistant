@@ -1,309 +1,182 @@
+/**
+ * Accounts and sessions, and how a session becomes a member of an org.
+ *
+ * An *account* (better-auth's `user`) is a person on the platform: an email,
+ * a password and/or "Sign in with Google" — tino's own Google client asking
+ * for openid/email/profile only, which needs no Google review. Signing in
+ * grants no data access; Gmail and Calendar are connected separately, per org,
+ * through the org's client (see routes/connections.ts).
+ *
+ * A *member* (`tino_user`) is that person inside one org. The `orgScope`
+ * middleware resolves it by email on every org-scoped request: an invited
+ * member is activated, a suspended one refused. Invites and domain joins only
+ * ever honour a *verified* email — otherwise anyone could sign up as
+ * ceo@yourcompany.com and walk into your org.
+ */
 import { type Auth, betterAuth } from "better-auth";
+import { APIError } from "better-auth/api";
 import { getMigrations } from "better-auth/db/migration";
 import type { MiddlewareHandler } from "hono";
-import type { IdentityStore, UserStore } from "@tino/core/ports/outbound";
-import type { ConfigStore } from "@tino/core/ports/outbound";
-import type { UserCapabilityStore } from "@tino/core/ports/outbound";
-import type { Logger } from "@tino/core/ports/outbound";
+import type { OrgMember } from "@tino/contracts";
+import type { Logger, MembershipDirectory } from "@tino/core/ports/outbound";
+import type { OrgRuntime } from "../../../bootstrap/org-runtime.js";
+import type { EmailSender } from "../../driven/email/sender.js";
+import type { PgPool } from "../../driven/persistence/db.js";
 
-const GOOGLE_CAPABILITY_SCOPES = [
-  "https://www.googleapis.com/auth/gmail.readonly",
-  "https://www.googleapis.com/auth/calendar.readonly",
-];
+/** The signed-in platform account. */
+export interface Account {
+  id: string;
+  email: string;
+  name: string | null;
+  emailVerified: boolean;
+}
 
-/**
- * Build a better-auth instance.
- *
- * `database` is an opaque handle from the persistence layer: a pg Pool
- * (postgres — better-auth wraps it in its kysely PostgresDialect) or a
- * bun:sqlite Database (local dev). Sessions are database-backed and durable
- * either way. The auth secret persists in the config store, so sessions
- * survive restarts without a BETTER_AUTH_SECRET env var.
- */
-export async function createAuth(opts: {
-  config?: ConfigStore;
-  googleClientId?: string;
-  googleClientSecret?: string;
-  allowedDomain?: string;
+/** Variables every request may carry. */
+export type AccountVariables = { account: Account | null };
+
+/** Variables on org-scoped routes: the member and their org's runtime. */
+export type AuthVariables = AccountVariables & {
+  user: OrgMember;
+  org: OrgRuntime;
+};
+
+export interface AuthOptions {
   baseUrl: string;
-  /** pg Pool or bun:sqlite Database — Persistence.authDatabase. */
-  database: unknown;
-  logger?: Logger;
-  emailPassword?: boolean;
-}): Promise<Auth> {
-  let secret = opts.config ? await opts.config.getTyped<string>("auth.secret", "") : "";
-  if (!secret) secret = process.env.BETTER_AUTH_SECRET ?? "";
-  if (!secret) {
-    secret = crypto.randomUUID();
-    if (opts.config) {
-      await opts.config.set("auth.secret", secret);
-      opts.logger?.info("auth secret auto-generated and persisted to config store");
-    } else {
-      opts.logger?.warn(
-        { fix: "set BETTER_AUTH_SECRET env var or provide a config store" },
-        "BETTER_AUTH_SECRET not set — sessions will be invalidated on every restart",
-      );
-    }
-  }
+  secret: string;
+  database: PgPool;
+  email: EmailSender;
+  /** Require the emailed link before sign-in (production). */
+  requireEmailVerification: boolean;
+  /** Tino's Google client for sign-in only (basic scopes). */
+  googleSignIn?: { clientId: string; clientSecret: string };
+  /** `closed`: only addresses already invited to an org may create an account. */
+  signups: "open" | "closed";
+  memberships: MembershipDirectory;
+  /** Extra origins allowed to call the auth API (the Vite dev server). */
+  trustedOrigins?: string[];
+  logger: Logger;
+}
 
-  const googleClientId = (opts.config ? await opts.config.getTyped<string>("google.oauth.clientId", "") : "") || opts.googleClientId;
-  const googleClientSecret = (opts.config ? await opts.config.getTyped<string>("google.oauth.clientSecret", "") : "") || opts.googleClientSecret;
-
-  // biome-ignore lint/suspicious/noExplicitAny: better-auth social provider types are loose
-  const socialProviders: Record<string, any> = {};
-  if (googleClientId && googleClientSecret) {
-    socialProviders.google = {
-      clientId: googleClientId,
-      clientSecret: googleClientSecret,
-      scope: GOOGLE_CAPABILITY_SCOPES,
-      accessType: "offline",
-      prompt: "consent",
-    };
-  }
-
-  const authConfig: Parameters<typeof betterAuth>[0] = {
+export async function createAuth(opts: AuthOptions): Promise<Auth> {
+  const { email, logger } = opts;
+  const auth = betterAuth({
     baseURL: opts.baseUrl,
-    secret,
-    database: opts.database as Parameters<typeof betterAuth>[0]["database"],
-    socialProviders: Object.keys(socialProviders).length > 0 ? socialProviders : undefined,
-    emailAndPassword: opts.emailPassword ? { enabled: true } : undefined,
-    session: { expiresIn: 60 * 60 * 24 },
-    user: {
-      additionalFields: {
-        role: { type: "string", defaultValue: "member" },
-        status: { type: "string", defaultValue: "active" },
-        slackUserId: { type: "string", required: false, defaultValue: null },
+    basePath: "/api/auth",
+    secret: opts.secret,
+    database: opts.database,
+    trustedOrigins: [opts.baseUrl, ...(opts.trustedOrigins ?? [])],
+    emailAndPassword: {
+      enabled: true,
+      requireEmailVerification: opts.requireEmailVerification,
+      minPasswordLength: 10,
+      sendResetPassword: async ({ user, url }) => {
+        await email.send({
+          to: user.email,
+          subject: "Reset your Tino password",
+          text: `Someone asked to reset the password for ${user.email} on Tino. If it was you:\n\n${url}\n\nIf not, ignore this email.`,
+        });
       },
     },
-  };
+    emailVerification: {
+      sendOnSignUp: true,
+      autoSignInAfterVerification: true,
+      sendVerificationEmail: async ({ user, url }) => {
+        await email.send({
+          to: user.email,
+          subject: "Confirm your email for Tino",
+          text: `Confirm ${user.email} to finish setting up Tino:\n\n${url}\n\nThe link expires in an hour.`,
+        });
+      },
+    },
+    socialProviders: opts.googleSignIn
+      ? { google: { clientId: opts.googleSignIn.clientId, clientSecret: opts.googleSignIn.clientSecret } }
+      : undefined,
+    session: { expiresIn: 60 * 60 * 24 * 14, updateAge: 60 * 60 * 24 },
+    databaseHooks: {
+      user: {
+        create: {
+          before: async (user) => {
+            if (opts.signups === "open") return;
+            const invited = await opts.memberships.byEmail(user.email);
+            if (invited.length === 0) {
+              throw new APIError("FORBIDDEN", { message: "Tino is invite-only right now — ask your admin for an invite." });
+            }
+          },
+        },
+      },
+    },
+  }) as unknown as Auth;
 
-  const auth = betterAuth(authConfig) as unknown as Auth;
-
-  // Auto-create tables on first run.
-  // `auth.options` is a BetterAuthOptions but the public type is loose; cast
-  // through `any` matches the legacy behaviour at the old `console/auth.ts:28`.
-  // biome-ignore lint/suspicious/noExplicitAny: better-auth options bag is untyped
+  // biome-ignore lint/suspicious/noExplicitAny: better-auth's options bag is untyped on the public Auth type
   const { runMigrations } = await getMigrations((auth as any).options);
   await runMigrations();
-
+  logger.info({ google: !!opts.googleSignIn, verification: opts.requireEmailVerification }, "auth ready");
   return auth;
 }
 
-/**
- * Hono variables we set on the request context after auth passes.
- *
- * `id` is the tino-UUID (resolved from better-auth's session via the identity
- * store), NOT better-auth's internal user id.
- */
-export type AuthVariables = {
-  user: {
-    id: string;
-    email: string;
-    name?: string;
-    role: "admin" | "member";
-    status: "active" | "invited" | "suspended";
-    slackUserId?: string | null;
+/** Attach the signed-in account (or null) to every request. */
+export function sessionMiddleware(auth: Auth): MiddlewareHandler<{ Variables: AccountVariables }> {
+  return async (c, next) => {
+    const session = await auth.api.getSession({ headers: c.req.raw.headers }).catch(() => null);
+    c.set(
+      "account",
+      session
+        ? {
+            id: session.user.id,
+            email: session.user.email.toLowerCase(),
+            name: session.user.name || null,
+            emailVerified: !!session.user.emailVerified,
+          }
+        : null,
+    );
+    await next();
   };
+}
+
+/** 401 unless signed in. */
+export const requireAccount: MiddlewareHandler<{ Variables: AccountVariables }> = async (c, next) => {
+  if (!c.get("account")) return c.json({ error: "unauthorized", message: "sign in required" }, 401);
+  await next();
 };
 
 /**
- * Build the auth-enforcement middleware for Hono.
- *
- * - Public allowlist (`/api/auth/*`, `/api/health`, `/assets/*`) bypasses the check.
- * - Protected API routes get 401 JSON when no session. Non-API falls through to SPA.
- * - Domain allowlist checked when `allowedDomain` is set.
- * - When `identities` + `users` are provided, resolves session email → tino-UUID
- *   and stashes the full tino user on context. Suspended users get 403.
- * - When stores are absent (local dev), falls back to session-only context.
- *
- * `auth === null` (local dev — no `GOOGLE_OAUTH_CLIENT_ID`) → no-op pass-through.
+ * Resolve `:slug` to the org's runtime and the account to a member of it.
+ * `trustUnverified` lets local dev skip email verification.
  */
-export function buildAuthMiddleware(opts: {
-  authRef: { current: Auth | null };
-  allowedDomain?: string;
+export function orgScope(opts: {
+  runtimeBySlug: (slug: string) => Promise<OrgRuntime | null>;
+  trustUnverified: boolean;
   logger: Logger;
-  identities?: IdentityStore;
-  users?: UserStore;
-  configStore?: ConfigStore;
-  userCapabilities?: UserCapabilityStore;
-  /** Reads better-auth's stored Google refresh token — Persistence.getGoogleRefreshToken. */
-  getGoogleRefreshToken?: (betterAuthUserId: string) => Promise<string | null>;
-  localDev?: boolean;
 }): MiddlewareHandler<{ Variables: AuthVariables }> {
-  const { authRef, logger, identities, users, configStore, userCapabilities, getGoogleRefreshToken, localDev } = opts;
-
-  const synced = new Set<string>();
-
-  async function syncGoogleCredentials(tinoUserId: string, betterAuthUserId: string): Promise<void> {
-    if (!userCapabilities || !getGoogleRefreshToken || synced.has(tinoUserId)) return;
-    synced.add(tinoUserId);
-
-    const existing = await userCapabilities.get(tinoUserId, "gmail");
-    if (existing?.credentials?.refreshToken) return;
-
-    try {
-      const refreshToken = await getGoogleRefreshToken(betterAuthUserId);
-      if (!refreshToken) return;
-
-      let clientId = opts.configStore ? await opts.configStore.getTyped<string>("google.oauth.clientId", "") : "";
-      let clientSecret = opts.configStore ? await opts.configStore.getTyped<string>("google.oauth.clientSecret", "") : "";
-      if (!clientId) clientId = process.env.GOOGLE_OAUTH_CLIENT_ID ?? "";
-      if (!clientSecret) clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET ?? "";
-      if (!clientId || !clientSecret) return;
-
-      const creds = { clientId, clientSecret, refreshToken };
-      await userCapabilities.set(tinoUserId, "gmail", { enabled: true, credentials: creds, settings: {} });
-      await userCapabilities.set(tinoUserId, "calendar", { enabled: true, credentials: creds, settings: { calendarId: "primary" } });
-      logger.info({ tinoUserId }, "google capability credentials synced from SSO");
-    } catch (err) {
-      logger.warn({ tinoUserId, err: (err as Error).message }, "failed to sync google credentials from SSO");
-    }
-  }
-
   return async (c, next) => {
-    const url = c.req.path;
+    const account = c.get("account");
+    if (!account) return c.json({ error: "unauthorized", message: "sign in required" }, 401);
+    const org = await opts.runtimeBySlug(c.req.param("slug") ?? "");
+    if (!org) return c.json({ error: "not_found", message: "no such org" }, 404);
 
-    // Slack OAuth is authorized by its own signed connect token, not a console
-    // session — a workspace member connects without logging into the console.
-    if (
-      url.startsWith("/api/auth/") ||
-      url === "/api/health" ||
-      url.startsWith("/assets/") ||
-      url.startsWith("/api/oauth/slack/")
-    ) {
-      await next();
-      return;
+    const { users } = org.stores;
+    const member = await users.getByEmail(account.email);
+    // Same answer for "no such org" and "not yours": slugs aren't secrets, but membership is.
+    if (!member) return c.json({ error: "not_found", message: "no such org" }, 404);
+    if (member.status === "suspended") {
+      return c.json({ error: "forbidden", message: "your access to this org has been revoked" }, 403);
     }
-
-    const auth = authRef.current;
-    if (!auth) {
-      await next();
-      return;
-    }
-
-    const session = await auth.api.getSession({ headers: c.req.raw.headers });
-
-    if (!session) {
-      if (url.startsWith("/api/")) {
-        return c.json({ error: "unauthorized", message: "sign in required" }, 401);
+    let current = member;
+    if (member.status === "invited") {
+      if (!account.emailVerified && !opts.trustUnverified) {
+        return c.json({ error: "verify_email", message: "confirm your email address to accept this invite" }, 403);
       }
-      await next();
-      return;
+      current = await users.update(member.id, { status: "active", name: member.name ?? account.name ?? undefined });
+      opts.logger.info({ org: org.org.slug, tinoUserId: member.id }, "invite accepted on sign-in");
     }
-
-    let allowedDomain = opts.allowedDomain;
-    if (configStore) {
-      const stored = await configStore.getTyped<string>("console.allowedDomain", "");
-      if (stored) allowedDomain = stored;
-    }
-    if (allowedDomain && !localDev && !session.user.email?.endsWith(`@${allowedDomain}`)) {
-      return c.json({ error: "forbidden", message: `Only @${allowedDomain} accounts allowed` }, 403);
-    }
-
-    const email = session.user.email?.toLowerCase();
-
-    if (identities && users && email) {
-      let tinoUserId = await identities.resolve("google", email);
-      if (!tinoUserId) tinoUserId = await identities.resolve("email", email);
-
-      if (tinoUserId) {
-        const tinoUser = await users.get(tinoUserId);
-        if (!tinoUser) {
-          logger.error({ email, tinoUserId }, "identity link exists but user record missing");
-          return c.json({ error: "forbidden", message: "account not provisioned in tino" }, 403);
-        }
-        if (tinoUser.status === "suspended") {
-          return c.json({ error: "forbidden", message: "your access has been revoked" }, 403);
-        }
-        // An admin invited this address; signing in is what accepts the invite.
-        const current =
-          tinoUser.status === "invited"
-            ? await users.update(tinoUser.id, { status: "active", name: tinoUser.name ?? session.user.name ?? undefined })
-            : tinoUser;
-        if (tinoUser.status === "invited") logger.info({ tinoUserId: tinoUser.id }, "invited user activated on console sign-in");
-        c.set("user", {
-          id: current.id,
-          email: current.email,
-          name: current.name ?? session.user.name,
-          role: current.role,
-          status: current.status,
-          slackUserId: current.slackUserId,
-        });
-        await syncGoogleCredentials(tinoUser.id, session.user.id);
-        await next();
-        return;
-      }
-
-      // No tino identity — check auto-provisioning.
-      // Localhost auto-provisions all users. Production uses org-domain matching.
-      let mode = "allowlist";
-      let orgDomain: string | undefined;
-
-      if (configStore) {
-        const rawMode = await configStore.get("org.accessControl.mode");
-        mode = rawMode ? (JSON.parse(rawMode) as string) : (allowedDomain ? "org-domain" : "allowlist");
-        const rawDomain = await configStore.get("org.accessControl.orgDomain");
-        orgDomain = rawDomain ? (JSON.parse(rawDomain) as string) : allowedDomain;
-      } else if (allowedDomain) {
-        mode = "org-domain";
-        orgDomain = allowedDomain;
-      }
-
-      // A fresh install with no domain configured has no other way in: the
-      // first person to sign in becomes the admin. With a domain configured,
-      // the org-domain rule below decides (and the first match is the admin).
-      const existingUsers = await users.list();
-      const shouldAutoProvision =
-        localDev ||
-        (existingUsers.length === 0 && !orgDomain) ||
-        (mode === "org-domain" && orgDomain && email.endsWith(`@${orgDomain}`));
-
-      if (shouldAutoProvision) {
-        const hasAdmin = existingUsers.some((u) => u.role === "admin");
-        const role = hasAdmin ? "member" : "admin";
-        const provider = localDev ? "email" : "google";
-
-        const newUser = await users.create({
-          id: crypto.randomUUID(),
-          email,
-          name: session.user.name ?? undefined,
-          role,
-          status: "active",
-          slackUserId: null,
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-        });
-        await identities.link({
-          provider,
-          externalId: email,
-          tinoUserId: newUser.id,
-          linkedAt: Date.now(),
-        });
-        logger.info({ tinoUserId: newUser.id, email, role, provider }, "auto-provisioned user (console)");
-        c.set("user", {
-          id: newUser.id,
-          email: newUser.email,
-          name: newUser.name,
-          role: newUser.role,
-          status: newUser.status,
-          slackUserId: newUser.slackUserId,
-        });
-        await syncGoogleCredentials(newUser.id, session.user.id);
-        await next();
-        return;
-      }
-
-      return c.json({ error: "forbidden", message: "account not provisioned in tino — ask your admin" }, 403);
-    }
-
-    // Fallback: no identity/user stores (local dev or stores not wired)
+    c.set("org", org);
     c.set("user", {
-      id: session.user.id,
-      email: session.user.email ?? "",
-      name: session.user.name,
-      role: "admin",
-      status: "active",
-      slackUserId: null,
+      id: current.id,
+      email: current.email,
+      name: current.name ?? null,
+      role: current.role,
+      status: current.status,
+      slackUserId: current.slackUserId,
     });
     await next();
   };
@@ -311,7 +184,7 @@ export function buildAuthMiddleware(opts: {
 
 /**
  * Gate a route group to admins. Members get 403; no session gets 401. Used for
- * everything that exposes or changes deployment-wide settings and secrets.
+ * everything that exposes or changes org-wide settings and secrets.
  */
 export const requireAdmin: MiddlewareHandler<{ Variables: AuthVariables }> = async (c, next) => {
   const user = c.get("user");

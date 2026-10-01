@@ -11,6 +11,7 @@ import type {
   TinoUser,
 } from "../domain/types.js";
 import type { DontLearnFrom } from "../domain/dont-learn-from.js";
+import type { Org } from "../domain/org.js";
 import type { Readers, WhoCanSee } from "../domain/who-can-see.js";
 
 // ── Opaque handles ────────────────────────────────────────────────────────────
@@ -142,7 +143,38 @@ export interface ConfigStore {
   delete(key: string): Promise<boolean>;
 }
 
+// ── Orgs (tenants) ────────────────────────────────────────────────────────────
+
+/** Platform-wide org registry. Everything else is bound to one org. */
+export interface OrgStore {
+  /** Throws OrgSlugTakenError when the slug is in use. */
+  create(org: Org): Promise<Org>;
+  get(id: string): Promise<Org | null>;
+  getBySlug(slug: string): Promise<Org | null>;
+  /** The org whose Slack app is installed in this workspace. */
+  getBySlackTeam(teamId: string): Promise<Org | null>;
+  list(): Promise<Org[]>;
+  update(id: string, patch: Partial<Pick<Org, "name" | "status" | "slackTeamId">>): Promise<Org>;
+}
+
+/** One person's account in one org. */
+export interface Membership {
+  org: Org;
+  user: TinoUser;
+}
+
+/** Cross-org lookups by email — the only reads that span orgs, used at sign-in. */
+export interface MembershipDirectory {
+  /** Every org this address has an account in (any status). */
+  byEmail(email: string): Promise<Membership[]>;
+  /** Orgs whose join policy admits this address by domain (and where they have no account). */
+  joinableByDomain(email: string): Promise<Org[]>;
+}
+
 // ── Users + identities ────────────────────────────────────────────────────────
+
+// UserStore, IdentityStore, ConfigStore and ConversationLog are bound to one org
+// by the composition root; their methods never take an org id.
 
 export interface UserStore {
   create(user: TinoUser): Promise<TinoUser>;

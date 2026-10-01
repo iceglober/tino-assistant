@@ -1,13 +1,11 @@
 /**
- * Postgres ConversationLog. Same behaviour as the sqlite adapter: one row per
- * message in insertion order, each thread trimmed to its newest
- * `keepPerThread` messages. message_json is TEXT, not JSONB, because model
- * output can contain \u0000 escapes JSONB rejects.
+ * Org-bound ConversationLog: one row per message in insertion order, each
+ * thread trimmed to its newest `keepPerThread` messages. message_json is TEXT,
+ * not JSONB, because model output can contain \u0000 escapes JSONB rejects.
  */
 import { describeWhoCanSee, parseWhoCanSee } from "@tino/core/domain/who-can-see";
-import type { AskedWhere, ConversationLog, LoggedMessage, Logger } from "@tino/core/ports/outbound";
-import { importLegacyHistory } from "../legacy-history.js";
-import type { PgPool } from "./client.js";
+import type { AskedWhere, ConversationLog, LoggedMessage } from "@tino/core/ports/outbound";
+import type { PgPool } from "../db.js";
 
 interface Row {
   thread_key: string;
@@ -35,9 +33,11 @@ const toMessage = (r: Row): LoggedMessage => ({
 
 export function createPgConversationLog({
   pool,
+  orgId,
   keepPerThread = 200,
 }: {
   pool: PgPool;
+  orgId: string;
   keepPerThread?: number;
 }): ConversationLog {
   return {
@@ -49,8 +49,8 @@ export function createPgConversationLog({
         for (const m of messages) {
           await client.query(
             `INSERT INTO conversation_message
-               (thread_key, turn_id, asked_by, asked_where, who_can_see, role, text, message_json, created_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+               (thread_key, turn_id, asked_by, asked_where, who_can_see, role, text, message_json, created_at, org_id)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
             [
               m.threadKey,
               m.turnId,
@@ -61,14 +61,15 @@ export function createPgConversationLog({
               m.text,
               JSON.stringify(m.message),
               m.createdAt,
+              orgId,
             ],
           );
         }
         for (const threadKey of new Set(messages.map((m) => m.threadKey))) {
           await client.query(
-            `DELETE FROM conversation_message WHERE thread_key = $1 AND id NOT IN
-               (SELECT id FROM conversation_message WHERE thread_key = $1 ORDER BY id DESC LIMIT $2)`,
-            [threadKey, keepPerThread],
+            `DELETE FROM conversation_message WHERE org_id = $3 AND thread_key = $1 AND id NOT IN
+               (SELECT id FROM conversation_message WHERE org_id = $3 AND thread_key = $1 ORDER BY id DESC LIMIT $2)`,
+            [threadKey, keepPerThread, orgId],
           );
         }
         await client.query("COMMIT");
@@ -82,59 +83,22 @@ export function createPgConversationLog({
 
     async recentInThread(threadKey, limit) {
       const res = await pool.query<Row>(
-        "SELECT * FROM conversation_message WHERE thread_key = $1 ORDER BY id DESC LIMIT $2",
-        [threadKey, limit],
+        "SELECT * FROM conversation_message WHERE org_id = $3 AND thread_key = $1 ORDER BY id DESC LIMIT $2",
+        [threadKey, limit, orgId],
       );
       return res.rows.reverse().map(toMessage);
     },
 
     async recentAskedBy(userId, limit) {
       const res = await pool.query<Row>(
-        "SELECT * FROM conversation_message WHERE asked_by = $1 ORDER BY id DESC LIMIT $2",
-        [userId, limit],
+        "SELECT * FROM conversation_message WHERE org_id = $3 AND asked_by = $1 ORDER BY id DESC LIMIT $2",
+        [userId, limit, orgId],
       );
       return res.rows.reverse().map(toMessage);
     },
 
     async clearThread(threadKey) {
-      await pool.query("DELETE FROM conversation_message WHERE thread_key = $1", [threadKey]);
+      await pool.query("DELETE FROM conversation_message WHERE org_id = $2 AND thread_key = $1", [threadKey, orgId]);
     },
   };
-}
-
-/**
- * Move the old per-user history table (`conversation`) into the log, once, then
- * rename it out of the way. Runs at boot after ensureSchema.
- */
-export async function importOldHistoryOnce(pool: PgPool, logger: Logger): Promise<void> {
-  const exists = await pool.query<{ t: string | null }>("SELECT to_regclass('public.conversation') AS t");
-  if (!exists.rows[0]?.t) return;
-
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    const old = await client.query<{ user_id: string; messages_json: string; updated_at: string }>(
-      "SELECT user_id, messages_json, updated_at FROM conversation",
-    );
-    let count = 0;
-    for (const row of old.rows) {
-      for (const r of importLegacyHistory(row.user_id, row.messages_json, Number(row.updated_at))) {
-        await client.query(
-          `INSERT INTO conversation_message
-             (thread_key, turn_id, asked_by, asked_where, who_can_see, role, text, message_json, created_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-          [r.threadKey, r.turnId, r.askedBy, r.askedWhere, r.whoCanSee, r.role, r.text, r.messageJson, r.createdAt],
-        );
-        count += 1;
-      }
-    }
-    await client.query("ALTER TABLE conversation RENAME TO conversation_before_log");
-    await client.query("COMMIT");
-    logger.info({ conversations: old.rows.length, messages: count }, "imported old conversation history");
-  } catch (err) {
-    await client.query("ROLLBACK").catch(() => {});
-    throw err;
-  } finally {
-    client.release();
-  }
 }

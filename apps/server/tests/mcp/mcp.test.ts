@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
-import { MCP_WORKSPACE_OWNER, mcpToolName, mcpUrlProblem } from "@tino/core/domain/mcp";
+import { mcpToolName, mcpUrlProblem } from "@tino/core/domain/mcp";
 import type { CapabilityConfig } from "@tino/core/domain/types";
 import { everyoneInWorkspace, onlyUser } from "@tino/core/domain/who-can-see";
 import type { McpClientPool } from "../../src/infrastructure/driven/mcp/client-pool.js";
@@ -53,7 +53,7 @@ describe("mcp server store + tool groups", () => {
   const base = { url: "https://example.com/mcp", transport: "http" as const, auth: { kind: "none" as const } };
 
   it("one group per enabled server, labelled by who may see its results", async () => {
-    const store = createMcpServerStore(memCaps());
+    const store = createMcpServerStore(memCaps(), "org:o1");
     await store.save("admin", {
       ...base,
       id: "ws-private",
@@ -111,11 +111,11 @@ describe("mcp server store + tool groups", () => {
     expect(pool.tools).not.toHaveBeenCalled();
     const shared = groups.find((g) => g.name === "mcp:workspace:ws-shared");
     expect(Object.keys(await shared!.build())).toEqual(["mcp_ws_shared_ws-shared_tool"]);
-    expect(pool.tools).toHaveBeenCalledWith(MCP_WORKSPACE_OWNER, expect.objectContaining({ id: "ws-shared" }));
+    expect(pool.tools).toHaveBeenCalledWith("org:o1", expect.objectContaining({ id: "ws-shared" }));
   });
 
   it("an unreachable server builds to nothing", async () => {
-    const store = createMcpServerStore(memCaps());
+    const store = createMcpServerStore(memCaps(), "org:o1");
     await store.save("u1", {
       ...base,
       id: "down",
@@ -131,7 +131,7 @@ describe("mcp server store + tool groups", () => {
 
   it("keeps the token encrypted-store side, not in settings", async () => {
     const caps = memCaps();
-    const store = createMcpServerStore(caps);
+    const store = createMcpServerStore(caps, "org:o1");
     await store.save("u1", {
       ...base,
       id: "mine",
@@ -149,7 +149,7 @@ describe("mcp server store + tool groups", () => {
 
 describe("/api/mcp", () => {
   function setup(role: "admin" | "member") {
-    const store = createMcpServerStore(memCaps());
+    const store = createMcpServerStore(memCaps(), "org:o1");
     const pool = {
       probe: vi.fn(async () => ["a", "b"]),
       evict: vi.fn(async () => {}),

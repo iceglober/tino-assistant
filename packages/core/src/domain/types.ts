@@ -53,6 +53,14 @@ export class IdentityLinkConflictError extends Error {
   }
 }
 
+/** Raised when creating an org whose slug is taken. */
+export class OrgSlugTakenError extends Error {
+  constructor(slug: string) {
+    super(`org slug "${slug}" is taken`);
+    this.name = "OrgSlugTakenError";
+  }
+}
+
 // ── Credentials ───────────────────────────────────────────────────────────────
 
 /** Stored per (userId, capabilityId) — JSON blob, credentials encrypted at rest. */

@@ -5,7 +5,7 @@
  * Tool names are namespaced `mcp_<server>_<tool>`; unreachable servers add none.
  */
 import type { ToolSet } from "ai";
-import { MCP_WORKSPACE_OWNER, mcpToolName } from "@tino/core/domain/mcp";
+import { mcpToolName } from "@tino/core/domain/mcp";
 import { everyoneInWorkspace, onlyUser } from "@tino/core/domain/who-can-see";
 import type { McpClientPool } from "../mcp/client-pool.js";
 import type { McpServerStore } from "../mcp/store.js";
@@ -21,8 +21,7 @@ export async function mcpToolGroups(
     whoCanSeeResults:
       server.scope === "workspace" && server.resultsVisibleTo === "workspace" ? everyoneInWorkspace : onlyUser(userId),
     async build(): Promise<ToolSet> {
-      const owner = server.scope === "workspace" ? MCP_WORKSPACE_OWNER : userId;
-      const tools = await deps.pool.tools(owner, server);
+      const tools = await deps.pool.tools(deps.servers.ownerOf(server.scope, userId), server);
       const out: ToolSet = {};
       for (const [name, def] of Object.entries(tools ?? {})) out[mcpToolName(server.id, name)] = def;
       return out;

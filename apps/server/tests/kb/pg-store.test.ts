@@ -1,23 +1,28 @@
 /**
- * KnowledgeStore contract tests against real pgvector (halfvec 3072 + HNSW).
- *   TEST_DATABASE_URL=postgres://tino:tino@localhost:5433/tino bun run test
- * Skipped without TEST_DATABASE_URL.
- *
- * The last block exercises the scope migration against a table built with the
- * pre-rename DDL, so a bad migration fails here rather than at boot in prod.
+ * KnowledgeStore contract tests against pgvector (halfvec 3072 + HNSW), on an
+ * in-memory PGlite. The store is bound to one org; the last block checks that
+ * a second org's store sees none of it.
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createPgKnowledgeStore, KB_CLUSTER_DIMS } from "../../src/infrastructure/driven/kb/pg-store.js";
-import { ensureKbSchema, KB_EMBED_DIMS } from "../../src/infrastructure/driven/kb/schema.js";
-import { createFakeEmbedder, l2Normalize } from "../../src/infrastructure/driven/kb/vertex-embedder.js";
-import { createPgPool } from "../../src/infrastructure/driven/persistence/postgres/client.js";
-import type { KbChunk, KbEvidence, KbFact } from "@tino/core/ports/outbound";
+import { KB_EMBED_DIMS } from "../../src/infrastructure/driven/kb/schema.js";
+import { createFakeEmbedder, l2Normalize } from "../../src/infrastructure/driven/kb/embedders.js";
+import type { KbChunk, KbEvidence, KbFact, KnowledgeStore } from "@tino/core/ports/outbound";
 
-const DB_URL = process.env.TEST_DATABASE_URL;
-const noopLogger = { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
+import type { PgPool } from "../../src/infrastructure/driven/persistence/db.js";
+import { testDb } from "../_db.js";
 
-const pool = DB_URL ? createPgPool(DB_URL) : (null as never);
-const store = DB_URL ? createPgKnowledgeStore({ pool }) : (null as never);
+let pool: PgPool;
+let store: KnowledgeStore;
+let otherOrgStore: KnowledgeStore;
+
+beforeAll(async () => {
+  const db = await testDb();
+  pool = db.pool;
+  const [org, other] = [await db.makeOrg("kb-org"), await db.makeOrg("kb-other")];
+  store = createPgKnowledgeStore({ pool, orgId: org.id, embedModel: "fake@3072" });
+  otherOrgStore = createPgKnowledgeStore({ pool, orgId: other.id, embedModel: "fake@3072" });
+});
 
 afterAll(async () => {
   await pool?.end();
@@ -61,13 +66,7 @@ const fact = (over: Partial<Omit<KbFact, "id" | "updatedAt" | "scope" | "userId"
   ...over,
 });
 
-describe.skipIf(!DB_URL)("pg knowledge store (pgvector halfvec)", () => {
-  beforeAll(async () => {
-    const ok = await ensureKbSchema(pool, noopLogger);
-    expect(ok).toBe(true); // pgvector image must support halfvec
-    await pool.query("TRUNCATE kb_chunks, kb_cursors, kb_index_state, kb_facts, kb_topics, kb_cycle_events");
-  });
-
+describe("pg knowledge store (pgvector halfvec)", () => {
   it("upsert is idempotent by content hash; changed text rewrites", async () => {
     const c = chunk({ sourceRef: "D1:win:idem" });
     expect(await store.upsertChunks([c], [basis(0)])).toBe(1);
@@ -346,108 +345,9 @@ describe.skipIf(!DB_URL)("pg knowledge store (pgvector halfvec)", () => {
   });
 });
 
-/**
- * Runs last: rebuilds the pre-rename schema from scratch, seeds it, and checks
- * that ensureKbSchema carries the data across. Leaves the DB on the current
- * schema so nothing downstream sees the old shape.
- */
-describe.skipIf(!DB_URL)("kb scope migration (user → private)", () => {
-  beforeAll(async () => {
-    await pool.query(
-      "DROP TABLE IF EXISTS kb_cycle_events, kb_facts, kb_chunks, kb_topics, kb_cursors, kb_index_state CASCADE",
-    );
-    // The schema exactly as it shipped before the rename.
-    await pool.query(`
-      CREATE TABLE kb_chunks (
-        id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-        scope TEXT NOT NULL CHECK (scope IN ('workspace','user')),
-        user_id TEXT NOT NULL DEFAULT '',
-        source TEXT NOT NULL CHECK (source IN ('slack_channel','slack_thread','slack_dm','gmail')),
-        source_ref TEXT NOT NULL,
-        chunk_seq INT NOT NULL DEFAULT 0,
-        text TEXT NOT NULL,
-        embedding halfvec(${KB_EMBED_DIMS}) NOT NULL,
-        embed_model TEXT NOT NULL,
-        ts TIMESTAMPTZ NOT NULL,
-        permalink TEXT,
-        meta JSONB NOT NULL DEFAULT '{}',
-        content_hash TEXT NOT NULL,
-        indexed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-        UNIQUE (scope, user_id, source, source_ref, chunk_seq)
-      );
-      CREATE TABLE kb_cursors (
-        scope TEXT NOT NULL, user_id TEXT NOT NULL DEFAULT '', source TEXT NOT NULL,
-        stream TEXT NOT NULL, state JSONB NOT NULL DEFAULT '{}',
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-        PRIMARY KEY (scope, user_id, source, stream)
-      );
-      CREATE TABLE kb_index_state (
-        scope TEXT NOT NULL, user_id TEXT NOT NULL DEFAULT '', source TEXT NOT NULL,
-        status TEXT NOT NULL DEFAULT 'active'
-          CHECK (status IN ('active','paused_auth','paused_error','disabled')),
-        backfill_done BOOLEAN NOT NULL DEFAULT false,
-        last_cycle_at TIMESTAMPTZ, paused_at TIMESTAMPTZ, last_error TEXT,
-        PRIMARY KEY (scope, user_id, source)
-      );
-    `);
-    await pool.query(
-      `INSERT INTO kb_chunks (scope, user_id, source, source_ref, chunk_seq, text, embedding, embed_model, ts, content_hash)
-       VALUES ('user','u-mig','gmail','m1',0,'legacy row',$1::halfvec(${KB_EMBED_DIMS}),'m',now(),'h1'),
-              ('workspace','','slack_channel','c1',0,'workspace row',$1::halfvec(${KB_EMBED_DIMS}),'m',now(),'h2')`,
-      ["[" + basis(0).join(",") + "]"],
-    );
-    await pool.query("INSERT INTO kb_cursors (scope,user_id,source,stream) VALUES ('user','u-mig','gmail','inbox')");
-    await pool.query(
-      "INSERT INTO kb_index_state (scope,user_id,source,backfill_done) VALUES ('user','u-mig','gmail',true)",
-    );
-  });
-
-  it("rewrites legacy rows and admits the new scope value", async () => {
-    expect(await ensureKbSchema(pool, noopLogger)).toBe(true);
-
-    const chunks = await pool.query("SELECT scope, user_id, text FROM kb_chunks ORDER BY user_id");
-    expect(chunks.rows.map((r) => r.scope).sort()).toEqual(["private", "workspace"]);
-    expect(chunks.rows.find((r) => r.user_id === "u-mig")?.text).toBe("legacy row"); // data intact
-
-    expect((await pool.query("SELECT scope FROM kb_cursors")).rows[0].scope).toBe("private");
-    const state = await pool.query("SELECT scope, backfill_done FROM kb_index_state");
-    expect(state.rows[0].scope).toBe("private");
-    expect(state.rows[0].backfill_done).toBe(true); // progress preserved, no re-backfill
-
-    // The CHECK now admits 'private' and still rejects the old value.
-    await expect(
-      pool.query(
-        `INSERT INTO kb_chunks (scope,user_id,source,source_ref,chunk_seq,text,embedding,embed_model,ts,content_hash)
-         VALUES ('user','x','gmail','bad',0,'t',$1::halfvec(${KB_EMBED_DIMS}),'m',now(),'h')`,
-        ["[" + basis(0).join(",") + "]"],
-      ),
-    ).rejects.toThrow();
-  });
-
-  it("is idempotent — a second boot changes nothing", async () => {
-    expect(await ensureKbSchema(pool, noopLogger)).toBe(true);
-    expect(await ensureKbSchema(pool, noopLogger)).toBe(true);
-    const n = await pool.query("SELECT count(*) FROM kb_chunks");
-    expect(Number(n.rows[0].count)).toBe(2);
-  });
-
-  it("adds the columns the distillation layer needs, defaulted to unprocessed", async () => {
-    const cols = await pool.query(
-      "SELECT column_name FROM information_schema.columns WHERE table_name='kb_chunks' AND column_name IN ('synthesized_at','topic_id')",
-    );
-    expect(cols.rows).toHaveLength(2);
-    const pending = await pool.query("SELECT count(*) FROM kb_chunks WHERE synthesized_at IS NULL");
-    expect(Number(pending.rows[0].count)).toBe(2); // legacy rows queue for distillation
-  });
-});
-
-describe.skipIf(!DB_URL)("forgetting specific source items", () => {
+describe("forgetting specific source items", () => {
   const user = `u-forget-${Date.now()}`;
   const other = `${user}-other`;
-
-  beforeAll(async () => {
-    await ensureKbSchema(pool, noopLogger);
-  });
 
   it("removes the items' excerpts and the facts resting only on them; trims the rest", async () => {
     const day = 86_400_000;
@@ -492,5 +392,40 @@ describe.skipIf(!DB_URL)("forgetting specific source items", () => {
   it("does nothing for an empty list or unknown ids", async () => {
     expect(await store.forgetSourceItems("private", user, "gmail", [])).toEqual({ excerptsRemoved: 0, factsRemoved: 0, factsTrimmed: 0 });
     expect(await store.forgetSourceItems("private", user, "gmail", ["nope"])).toEqual({ excerptsRemoved: 0, factsRemoved: 0, factsTrimmed: 0 });
+  });
+});
+
+describe("isolation between orgs", () => {
+  it("another org's store finds, counts, distills and forgets none of this org's knowledge", async () => {
+    const ws = chunk({ scope: "workspace", userId: "", source: "slack_channel", sourceRef: "C1:iso", text: "acme only" });
+    await store.upsertChunks([ws], [basis(42)]);
+    await store.upsertFacts("workspace", "", [fact({ key: "iso-fact" })], [basis(42)]);
+    await store.setIndexState({ scope: "workspace", userId: "", source: "slack", status: "active", backfillDone: true });
+
+    const hits = await otherOrgStore.search({
+      scope: "workspace",
+      userId: "",
+      embedding: basis(42),
+      topK: 10,
+      recencyWeight: 0,
+      recencyTauDays: 30,
+    });
+    expect(hits).toEqual([]);
+    expect((await otherOrgStore.stats("workspace", "")).chunks).toBe(0);
+    expect((await otherOrgStore.listFacts("workspace", "", { limit: 10, offset: 0 })).total).toBe(0);
+    expect(await otherOrgStore.searchFacts({ scope: "workspace", userId: "", embedding: basis(42), topK: 5 })).toEqual([]);
+    expect(await otherOrgStore.pendingSynthesis("workspace", "", 10)).toEqual([]);
+    expect(await otherOrgStore.listIndexStates()).toEqual([]);
+
+    // Same source ref in the other org is a different row, not an overwrite.
+    expect(await otherOrgStore.upsertChunks([{ ...ws, text: "globex only" }], [basis(42)])).toBe(1);
+    const mine = await store.listChunks("workspace", "", { limit: 50, offset: 0 });
+    expect(mine.items.map((i) => i.text)).toContain("acme only");
+    expect(mine.items.map((i) => i.text)).not.toContain("globex only");
+
+    // Marking another org's chunk ids does nothing here.
+    const pending = await store.pendingSynthesis("workspace", "", 50);
+    await otherOrgStore.markSynthesized(pending.map((p) => p.id));
+    expect(await store.pendingSynthesisCount("workspace", "")).toBe(pending.length);
   });
 });

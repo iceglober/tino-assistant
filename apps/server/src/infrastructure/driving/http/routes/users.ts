@@ -1,10 +1,11 @@
 import { Hono } from "hono";
+import { ACCESS_DOMAIN_KEY, ACCESS_MODE_KEY, readAccessPolicy } from "@tino/core/domain/access-policy";
 import type { TinoUser } from "@tino/core/domain/types";
-import type { ConfigStore, IdentityStore, Logger, UserCapabilityStore, UserStore } from "@tino/core/ports/outbound";
+import type { Logger, UserCapabilityStore } from "@tino/core/ports/outbound";
 import { type AuthVariables, requireAdmin } from "../auth.js";
 
 /**
- * /api/users — user management (admin only).
+ * /api/orgs/:slug/users — member management (admin only).
  *
  *   GET    /          → every user plus which personal connections they have
  *   POST   /          → invite { email, role } — the person activates by signing
@@ -14,21 +15,19 @@ import { type AuthVariables, requireAdmin } from "../auth.js";
  *   PUT    /access    → { mode: "org-domain" | "invite-only", domain? }
  *
  * The last active admin can't be demoted or suspended — otherwise nobody could
- * reach Setup again without editing the database.
+ * reach Settings again without editing the database.
  */
 export function createUserRoutes(opts: {
-  users: UserStore;
-  identities: IdentityStore;
-  userCapabilities: UserCapabilityStore;
-  config: ConfigStore;
   logger: Logger;
+  /** Tell an invited person about their invite (email). Failures don't fail the invite. */
+  onInvite?: (invite: { email: string; orgName: string; orgSlug: string; invitedBy: string }) => Promise<void>;
 }): Hono<{ Variables: AuthVariables }> {
   const app = new Hono<{ Variables: AuthVariables }>();
-  const { users, identities, userCapabilities, config, logger } = opts;
+  const { logger, onInvite } = opts;
 
   app.use("*", requireAdmin);
 
-  const view = async (u: TinoUser) => {
+  const view = async (userCapabilities: UserCapabilityStore, u: TinoUser) => {
     const caps = await userCapabilities.list(u.id).catch(() => []);
     return {
       id: u.id,
@@ -51,12 +50,15 @@ export function createUserRoutes(opts: {
   };
 
   app.get("/", async (c) => {
+    const { users, userCapabilities } = c.get("org").stores;
     const all = await users.list();
     all.sort((a, b) => a.createdAt - b.createdAt);
-    return c.json({ items: await Promise.all(all.map(view)) });
+    return c.json({ items: await Promise.all(all.map((u) => view(userCapabilities, u))) });
   });
 
   app.post("/", async (c) => {
+    const rt = c.get("org");
+    const { users, identities, userCapabilities } = rt.stores;
     let body: { email?: string; role?: string };
     try {
       body = (await c.req.json()) as typeof body;
@@ -82,10 +84,14 @@ export function createUserRoutes(opts: {
     // Console sign-in resolves by email identity; Slack links by profile email.
     await identities.link({ provider: "email", externalId: email, tinoUserId: user.id, linkedAt: now });
     logger.info({ by: c.get("user").id, tinoUserId: user.id, role }, "user invited");
-    return c.json(await view(user), 201);
+    await onInvite?.({ email, orgName: rt.org.name, orgSlug: rt.org.slug, invitedBy: c.get("user").email }).catch((err: Error) =>
+      logger.warn({ err: err.message }, "invite email failed"),
+    );
+    return c.json(await view(userCapabilities, user), 201);
   });
 
   app.patch("/:id", async (c) => {
+    const { users, userCapabilities } = c.get("org").stores;
     const id = c.req.param("id");
     let body: { role?: string; status?: string };
     try {
@@ -120,12 +126,13 @@ export function createUserRoutes(opts: {
 
     const updated = await users.update(id, patch);
     logger.info({ by: c.get("user").id, tinoUserId: id, ...patch }, "user updated");
-    return c.json(await view(updated));
+    return c.json(await view(userCapabilities, updated));
   });
 
-  app.get("/access", async (c) => c.json(await readAccessPolicy(config)));
+  app.get("/access", async (c) => c.json(await readAccessPolicy(c.get("org").stores.config)));
 
   app.put("/access", async (c) => {
+    const { config } = c.get("org").stores;
     let body: { mode?: string; domain?: string };
     try {
       body = (await c.req.json()) as typeof body;
@@ -133,12 +140,12 @@ export function createUserRoutes(opts: {
       return c.json({ error: "Request body must be valid JSON" }, 400);
     }
     if (body.mode === "invite-only") {
-      await config.set("org.accessControl.mode", "allowlist");
+      await config.set(ACCESS_MODE_KEY, "allowlist");
     } else if (body.mode === "org-domain") {
       const domain = (body.domain ?? "").trim().toLowerCase().replace(/^@/, "");
       if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(domain)) return c.json({ error: "a valid domain is required" }, 400);
-      await config.set("org.accessControl.mode", "org-domain");
-      await config.set("org.accessControl.orgDomain", domain);
+      await config.set(ACCESS_MODE_KEY, "org-domain");
+      await config.set(ACCESS_DOMAIN_KEY, domain);
     } else {
       return c.json({ error: "mode must be org-domain or invite-only" }, 400);
     }
@@ -147,28 +154,4 @@ export function createUserRoutes(opts: {
   });
 
   return app;
-}
-
-/**
- * The effective join policy, resolved the same way the Slack sender resolver
- * and console auth middleware resolve it: explicit mode first, otherwise
- * org-domain whenever any domain is configured.
- */
-export async function readAccessPolicy(
-  config: ConfigStore,
-): Promise<{ mode: "org-domain" | "invite-only"; domain: string | null }> {
-  const rawMode = await config.getTyped<string>("org.accessControl.mode", "");
-  const domain =
-    (await config.getTyped<string>("org.accessControl.orgDomain", "")) ||
-    (await config.getTyped<string>("console.allowedDomain", "")) ||
-    process.env.CONSOLE_ALLOWED_DOMAIN ||
-    null;
-  const mode = rawMode
-    ? rawMode === "org-domain"
-      ? "org-domain"
-      : "invite-only"
-    : domain
-      ? "org-domain"
-      : "invite-only";
-  return { mode, domain };
 }

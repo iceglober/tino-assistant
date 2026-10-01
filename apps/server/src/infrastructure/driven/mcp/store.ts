@@ -1,11 +1,10 @@
 /**
  * MCP server configs, kept in the encrypted UserCapabilityStore under
- * `mcp.<id>`: personal servers under the user's id, workspace servers under
- * MCP_WORKSPACE_OWNER. Non-secret fields live in `settings`; the token lives in
+ * `mcp.<id>`: personal servers under the user's id, workspace servers under the
+ * org's owner id (`org:<orgId>`), which also keys their pooled connections. Non-secret fields live in `settings`; the token lives in
  * `credentials.token`, so it is encrypted at rest like every other credential.
  */
 import {
-  MCP_WORKSPACE_OWNER,
   type McpAuth,
   type McpScope,
   type McpServer,
@@ -19,6 +18,8 @@ export interface StoredMcpServer extends McpServer {
 }
 
 export interface McpServerStore {
+  /** Who a server's credentials and pooled connection belong to. */
+  ownerOf(scope: McpScope, userId: string): string;
   /** Workspace servers plus this user's personal ones (enabled or not). */
   listFor(userId: string): Promise<StoredMcpServer[]>;
   get(scope: McpScope, userId: string, id: string): Promise<StoredMcpServer | null>;
@@ -26,9 +27,9 @@ export interface McpServerStore {
   remove(scope: McpScope, userId: string, id: string): Promise<boolean>;
 }
 
-const ownerOf = (scope: McpScope, userId: string): string => (scope === "workspace" ? MCP_WORKSPACE_OWNER : userId);
+export function createMcpServerStore(caps: UserCapabilityStore, workspaceOwner: string): McpServerStore {
+  const ownerOf = (scope: McpScope, userId: string): string => (scope === "workspace" ? workspaceOwner : userId);
 
-export function createMcpServerStore(caps: UserCapabilityStore): McpServerStore {
   async function listOwner(owner: string, scope: McpScope): Promise<StoredMcpServer[]> {
     const rows = await caps.list(owner);
     const out: StoredMcpServer[] = [];
@@ -60,9 +61,10 @@ export function createMcpServerStore(caps: UserCapabilityStore): McpServerStore 
   }
 
   return {
+    ownerOf,
     async listFor(userId) {
       const [ws, mine] = await Promise.all([
-        listOwner(MCP_WORKSPACE_OWNER, "workspace"),
+        listOwner(workspaceOwner, "workspace"),
         listOwner(userId, "personal"),
       ]);
       return [...ws, ...mine];

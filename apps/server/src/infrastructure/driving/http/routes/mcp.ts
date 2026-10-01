@@ -1,18 +1,17 @@
 import { Hono } from "hono";
 import {
   isValidMcpId,
-  MCP_WORKSPACE_OWNER,
   type McpAuth,
   type McpScope,
   mcpUrlProblem,
 } from "@tino/core/domain/mcp";
 import type { Logger } from "@tino/core/ports/outbound";
 import type { McpClientPool } from "../../../driven/mcp/client-pool.js";
-import type { McpServerStore, StoredMcpServer } from "../../../driven/mcp/store.js";
+import type { StoredMcpServer } from "../../../driven/mcp/store.js";
 import type { AuthVariables } from "../auth.js";
 
 /**
- * /api/mcp — remote MCP servers.
+ * /api/orgs/:slug/mcp — remote MCP servers.
  *
  *   GET    /servers              → workspace servers + the caller's personal ones
  *   PUT    /servers/:scope/:id   → create/update (workspace scope: admins only)
@@ -22,13 +21,9 @@ import type { AuthVariables } from "../auth.js";
  * Tokens are write-only: responses carry `hasToken`, never the token. Omitting
  * `token` on update keeps the stored one; sending "" clears it.
  */
-export function createMcpRoutes(opts: {
-  servers: McpServerStore;
-  pool: McpClientPool;
-  logger: Logger;
-}): Hono<{ Variables: AuthVariables }> {
+export function createMcpRoutes(opts: { pool: McpClientPool; logger: Logger }): Hono<{ Variables: AuthVariables }> {
   const app = new Hono<{ Variables: AuthVariables }>();
-  const { servers, pool, logger } = opts;
+  const { pool, logger } = opts;
 
   app.use("*", async (c, next) => {
     if (!c.get("user")) return c.json({ error: "unauthorized" }, 401);
@@ -36,7 +31,6 @@ export function createMcpRoutes(opts: {
   });
 
   const view = ({ token, ...s }: StoredMcpServer) => ({ ...s, hasToken: !!token });
-  const ownerOf = (scope: McpScope, userId: string) => (scope === "workspace" ? MCP_WORKSPACE_OWNER : userId);
 
   interface Body {
     name?: string;
@@ -80,6 +74,7 @@ export function createMcpRoutes(opts: {
   const scopeParam = (raw: string): McpScope | null => (raw === "workspace" || raw === "personal" ? raw : null);
 
   app.get("/servers", async (c) => {
+    const servers = c.get("org").mcpServers;
     const user = c.get("user");
     const all = await servers.listFor(user.id);
     return c.json({
@@ -90,6 +85,7 @@ export function createMcpRoutes(opts: {
   });
 
   app.put("/servers/:scope/:id", async (c) => {
+    const servers = c.get("org").mcpServers;
     const user = c.get("user");
     const scope = scopeParam(c.req.param("scope"));
     const id = c.req.param("id");
@@ -113,24 +109,26 @@ export function createMcpRoutes(opts: {
     if (typeof parsed === "string") return c.json({ error: parsed }, 400);
 
     await servers.save(user.id, parsed);
-    await pool.evict(ownerOf(scope, user.id), id);
+    await pool.evict(servers.ownerOf(scope, user.id), id);
     logger.info({ by: user.id, scope, server: id }, existing ? "mcp server updated" : "mcp server added");
     return c.json(view(parsed));
   });
 
   app.delete("/servers/:scope/:id", async (c) => {
+    const servers = c.get("org").mcpServers;
     const user = c.get("user");
     const scope = scopeParam(c.req.param("scope"));
     const id = c.req.param("id");
     if (!scope) return c.json({ error: "scope must be workspace or personal" }, 400);
     if (scope === "workspace" && user.role !== "admin") return c.json({ error: "admins only" }, 403);
     const removed = await servers.remove(scope, user.id, id);
-    await pool.evict(ownerOf(scope, user.id), id);
+    await pool.evict(servers.ownerOf(scope, user.id), id);
     if (removed) logger.info({ by: user.id, scope, server: id }, "mcp server removed");
     return c.json({ ok: true, removed });
   });
 
   app.post("/test", async (c) => {
+    const servers = c.get("org").mcpServers;
     const user = c.get("user");
     let body: Body & { id?: string; scope?: string };
     try {

@@ -1,41 +1,80 @@
 /**
- * Postgres persistence assembly: one pg Pool, ensure-DDL (+ the one-time move
- * of old history into the conversation log), the five stores, plus
- * the auth-DB handle better-auth uses directly (the same pool) and the raw
- * account-table read for Google credential sync.
+ * Persistence assembly: one database handle, ensure-DDL, the platform-wide
+ * stores (orgs, memberships), and `forOrg(id)` — the only way to reach an org's
+ * data, returning stores that can't address any other org.
  */
-import type { Env } from "../../../../env.js";
-import type { CryptoAdapter, Logger } from "@tino/core/ports/outbound";
-import type { Persistence } from "../factory.js";
-import { getGoogleRefreshTokenPg } from "./auth-account.js";
-import { createPgPool } from "./client.js";
+import type {
+  ConfigStore,
+  ConversationLog,
+  CryptoAdapter,
+  IdentityStore,
+  KnowledgeStore,
+  Logger,
+  MembershipDirectory,
+  OrgStore,
+  UserCapabilityStore,
+  UserStore,
+} from "@tino/core/ports/outbound";
+import { createPgKnowledgeStore } from "../../kb/pg-store.js";
+import type { PgPool } from "../db.js";
 import { createPgConfigStore } from "./config.js";
-import { createPgConversationLog, importOldHistoryOnce } from "./conversation-log.js";
+import { createPgConversationLog } from "./conversation-log.js";
+import { createPgMembershipDirectory, createPgOrgStore } from "./orgs.js";
 import { ensureSchema } from "./schema.js";
 import { createPgUserCapabilityStore } from "./user-capabilities.js";
 import { createPgIdentityStore, createPgUserStore } from "./users.js";
 
-export async function createPgPersistence(env: Env, logger: Logger, cryptoAdapter?: CryptoAdapter): Promise<Persistence> {
-  if (!env.DATABASE_URL) {
-    throw new Error("DATABASE_URL is required when PERSISTENCE_ADAPTER=postgres");
-  }
-  if (!cryptoAdapter) {
-    throw new Error("CryptoAdapter is required for the Postgres persistence layer");
-  }
+/** Everything one org owns, bound to its id. */
+export interface OrgStores {
+  orgId: string;
+  config: ConfigStore;
+  users: UserStore;
+  identities: IdentityStore;
+  userCapabilities: UserCapabilityStore;
+  conversations: ConversationLog;
+  /** The org's knowledge base, recording `embedModel` on what it writes. Null without pgvector. */
+  knowledge: ((embedModel: string) => KnowledgeStore) | null;
+}
 
-  const pool = createPgPool(env.DATABASE_URL);
-  await ensureSchema(pool, logger);
-  await importOldHistoryOnce(pool, logger);
+export interface Persistence {
+  pool: PgPool;
+  orgs: OrgStore;
+  memberships: MembershipDirectory;
+  forOrg(orgId: string): OrgStores;
+  /** Whether the knowledge-base tables exist (pgvector ≥ 0.7). */
+  kbAvailable: boolean;
+}
 
-  logger.info({ adapter: "postgres" }, "persistence initialized");
+export async function createPersistence(
+  pool: PgPool,
+  logger: Logger,
+  cryptoAdapter: CryptoAdapter,
+): Promise<Persistence> {
+  const { kb } = await ensureSchema(pool, logger);
+
+  const cache = new Map<string, OrgStores>();
+  const forOrg = (orgId: string): OrgStores => {
+    let stores = cache.get(orgId);
+    if (!stores) {
+      stores = {
+        orgId,
+        config: createPgConfigStore({ pool, orgId, cryptoAdapter }),
+        users: createPgUserStore({ pool, orgId }),
+        identities: createPgIdentityStore({ pool, orgId }),
+        userCapabilities: createPgUserCapabilityStore({ pool, orgId, cryptoAdapter }),
+        conversations: createPgConversationLog({ pool, orgId }),
+        knowledge: kb ? (embedModel) => createPgKnowledgeStore({ pool, orgId, embedModel }) : null,
+      };
+      cache.set(orgId, stores);
+    }
+    return stores;
+  };
+
   return {
-    conversations: createPgConversationLog({ pool }),
-    config: createPgConfigStore({ pool }),
-    users: createPgUserStore({ pool }),
-    identities: createPgIdentityStore({ pool }),
-    userCapabilities: createPgUserCapabilityStore({ pool, cryptoAdapter }),
-    authDatabase: pool,
-    getGoogleRefreshToken: (betterAuthUserId) => getGoogleRefreshTokenPg(pool, betterAuthUserId),
-    pgPool: pool,
+    pool,
+    orgs: createPgOrgStore({ pool }),
+    memberships: createPgMembershipDirectory({ pool, configFor: (orgId) => forOrg(orgId).config }),
+    forOrg,
+    kbAvailable: kb,
   };
 }

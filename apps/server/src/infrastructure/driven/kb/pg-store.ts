@@ -6,6 +6,9 @@
  * then a recency-weighted rerank in SQL:
  *   score = (1−w)·sim + w·exp(−age/τ)
  * so a 2-month-old chunk must beat a fresh one by a decisive similarity margin.
+ *
+ * Bound to one org: `org_id` is the last parameter of every statement, so the
+ * port's (scope, userId) addressing never reaches past it.
  */
 import { createHash } from "node:crypto";
 import type {
@@ -24,8 +27,8 @@ import type {
   KbTopicDraft,
   KnowledgeStore,
 } from "@tino/core/ports/outbound";
-import type { PgPool } from "../persistence/postgres/client.js";
-import { KB_EMBED_DIMS, KB_EMBED_MODEL, KB_EVENT_RETENTION_DAYS } from "./schema.js";
+import type { PgPool } from "../persistence/db.js";
+import { KB_EMBED_DIMS, KB_EVENT_RETENTION_DAYS } from "./schema.js";
 
 const toVectorLiteral = (v: number[]): string => `[${v.join(",")}]`;
 const sha256 = (text: string): string => createHash("sha256").update(text).digest("hex");
@@ -133,7 +136,16 @@ function rowToState(r: StateRow): KbIndexState {
   };
 }
 
-export function createPgKnowledgeStore({ pool }: { pool: PgPool }): KnowledgeStore {
+export function createPgKnowledgeStore({
+  pool,
+  orgId,
+  embedModel,
+}: {
+  pool: PgPool;
+  orgId: string;
+  /** Recorded on every chunk, so a later change of embedder is detectable. */
+  embedModel: string;
+}): KnowledgeStore {
   return {
     async upsertChunks(chunks: KbChunk[], embeddings: number[][]): Promise<number> {
       if (chunks.length !== embeddings.length) {
@@ -147,9 +159,9 @@ export function createPgKnowledgeStore({ pool }: { pool: PgPool }): KnowledgeSto
           throw new Error(`embedding dims ${emb.length} != ${KB_EMBED_DIMS} for ${c.sourceRef}`);
         }
         const res = await pool.query(
-          `INSERT INTO kb_chunks (scope, user_id, source, source_ref, chunk_seq, text, embedding, embed_model, ts, permalink, meta, content_hash)
-           VALUES ($1,$2,$3,$4,$5,$6,$7::halfvec(${KB_EMBED_DIMS}),$8,$9,$10,$11::jsonb,$12)
-           ON CONFLICT (scope, user_id, source, source_ref, chunk_seq) DO UPDATE SET
+          `INSERT INTO kb_chunks (scope, user_id, source, source_ref, chunk_seq, text, embedding, embed_model, ts, permalink, meta, content_hash, org_id)
+           VALUES ($1,$2,$3,$4,$5,$6,$7::halfvec(${KB_EMBED_DIMS}),$8,$9,$10,$11::jsonb,$12,$13)
+           ON CONFLICT (org_id, scope, user_id, source, source_ref, chunk_seq) DO UPDATE SET
              text = EXCLUDED.text, embedding = EXCLUDED.embedding, embed_model = EXCLUDED.embed_model,
              ts = EXCLUDED.ts, permalink = EXCLUDED.permalink, meta = EXCLUDED.meta,
              content_hash = EXCLUDED.content_hash, indexed_at = now(),
@@ -164,11 +176,12 @@ export function createPgKnowledgeStore({ pool }: { pool: PgPool }): KnowledgeSto
             c.chunkSeq,
             c.text,
             toVectorLiteral(emb),
-            KB_EMBED_MODEL,
+            embedModel,
             new Date(c.ts).toISOString(),
             c.permalink ?? null,
             JSON.stringify(c.meta ?? {}),
             sha256(c.text),
+            orgId,
           ],
         );
         written += res.rowCount ?? 0;
@@ -182,10 +195,10 @@ export function createPgKnowledgeStore({ pool }: { pool: PgPool }): KnowledgeSto
         `SELECT id, text, source, source_ref, chunk_seq, ts, permalink, meta, indexed_at,
                 count(*) OVER () AS total
          FROM kb_chunks
-         WHERE scope = $1 AND user_id = $2 AND ($3::text IS NULL OR source = $3)
+         WHERE scope = $1 AND user_id = $2 AND ($3::text IS NULL OR source = $3) AND org_id = $6
          ORDER BY ts DESC
          LIMIT $4 OFFSET $5`,
-        [...params, opts.limit, opts.offset],
+        [...params, opts.limit, opts.offset, orgId],
       );
       return {
         total: res.rows[0] ? Number(res.rows[0].total) : 0,
@@ -196,9 +209,9 @@ export function createPgKnowledgeStore({ pool }: { pool: PgPool }): KnowledgeSto
     async statsBySource(scope, userId) {
       const res = await pool.query<{ source: string; chunks: string; newest: Date | null }>(
         `SELECT source, count(*) AS chunks, max(ts) AS newest
-         FROM kb_chunks WHERE scope = $1 AND user_id = $2
+         FROM kb_chunks WHERE scope = $1 AND user_id = $2 AND org_id = $3
          GROUP BY source ORDER BY source`,
-        [scope, userId],
+        [scope, userId, orgId],
       );
       return res.rows.map((r) => ({
         source: r.source as KbSource,
@@ -209,8 +222,8 @@ export function createPgKnowledgeStore({ pool }: { pool: PgPool }): KnowledgeSto
 
     async deleteStaleSeqs(scope, userId, source, sourceRef, maxSeq): Promise<void> {
       await pool.query(
-        "DELETE FROM kb_chunks WHERE scope=$1 AND user_id=$2 AND source=$3 AND source_ref=$4 AND chunk_seq > $5",
-        [scope, userId, source, sourceRef, maxSeq],
+        "DELETE FROM kb_chunks WHERE scope=$1 AND user_id=$2 AND source=$3 AND source_ref=$4 AND chunk_seq > $5 AND org_id=$6",
+        [scope, userId, source, sourceRef, maxSeq, orgId],
       );
     },
 
@@ -225,7 +238,7 @@ export function createPgKnowledgeStore({ pool }: { pool: PgPool }): KnowledgeSto
              SELECT text, source, ts, permalink, meta,
                     1 - (embedding <=> $1::halfvec(${KB_EMBED_DIMS})) AS sim
              FROM kb_chunks
-             WHERE scope = $2 AND user_id = $3
+             WHERE scope = $2 AND user_id = $3 AND org_id = $10
                AND ($4::timestamptz IS NULL OR ts >= $4)
                AND ($5::timestamptz IS NULL OR ts <= $5)
                AND ($6::text[] IS NULL OR source = ANY($6))
@@ -248,6 +261,7 @@ export function createPgKnowledgeStore({ pool }: { pool: PgPool }): KnowledgeSto
             q.topK,
             w,
             q.recencyTauDays,
+            orgId,
           ],
         );
         await client.query("COMMIT");
@@ -270,8 +284,8 @@ export function createPgKnowledgeStore({ pool }: { pool: PgPool }): KnowledgeSto
 
     async stats(scope, userId) {
       const res = await pool.query<{ chunks: string; oldest: Date | null; newest: Date | null }>(
-        "SELECT count(*) AS chunks, min(ts) AS oldest, max(ts) AS newest FROM kb_chunks WHERE scope=$1 AND user_id=$2",
-        [scope, userId],
+        "SELECT count(*) AS chunks, min(ts) AS oldest, max(ts) AS newest FROM kb_chunks WHERE scope=$1 AND user_id=$2 AND org_id=$3",
+        [scope, userId, orgId],
       );
       const row = res.rows[0];
       return {
@@ -287,18 +301,18 @@ export function createPgKnowledgeStore({ pool }: { pool: PgPool }): KnowledgeSto
         await client.query("BEGIN");
         // Derived knowledge first — facts and topics are worthless without the
         // chunks they cite, and leaving them would leak content after a wipe.
-        await client.query("DELETE FROM kb_facts WHERE scope='private' AND user_id=$1", [userId]);
-        await client.query("DELETE FROM kb_topics WHERE scope='private' AND user_id=$1", [userId]);
-        await client.query("DELETE FROM kb_chunks WHERE scope='private' AND user_id=$1", [userId]);
-        await client.query("DELETE FROM kb_cursors WHERE scope='private' AND user_id=$1", [userId]);
+        await client.query("DELETE FROM kb_facts WHERE scope='private' AND user_id=$1 AND org_id=$2", [userId, orgId]);
+        await client.query("DELETE FROM kb_topics WHERE scope='private' AND user_id=$1 AND org_id=$2", [userId, orgId]);
+        await client.query("DELETE FROM kb_chunks WHERE scope='private' AND user_id=$1 AND org_id=$2", [userId, orgId]);
+        await client.query("DELETE FROM kb_cursors WHERE scope='private' AND user_id=$1 AND org_id=$2", [userId, orgId]);
         // Tombstone (not delete) — auto-consent must not re-index next cycle.
         for (const source of ["slack", "gmail"]) {
           await client.query(
-            `INSERT INTO kb_index_state (scope, user_id, source, status, backfill_done, paused_at)
-             VALUES ('private', $1, $2, 'disabled', false, now())
-             ON CONFLICT (scope, user_id, source)
+            `INSERT INTO kb_index_state (org_id, scope, user_id, source, status, backfill_done, paused_at)
+             VALUES ($3, 'private', $1, $2, 'disabled', false, now())
+             ON CONFLICT (org_id, scope, user_id, source)
              DO UPDATE SET status='disabled', backfill_done=false, paused_at=now(), last_error=NULL`,
-            [userId, source],
+            [userId, source, orgId],
           );
         }
         await client.query("COMMIT");
@@ -317,8 +331,8 @@ export function createPgKnowledgeStore({ pool }: { pool: PgPool }): KnowledgeSto
       try {
         await client.query("BEGIN");
         const deleted = await client.query<{ id: string }>(
-          "DELETE FROM kb_chunks WHERE scope=$1 AND user_id=$2 AND source=$3 AND source_ref = ANY($4) RETURNING id",
-          [scope, userId, source, sourceRefs],
+          "DELETE FROM kb_chunks WHERE scope=$1 AND user_id=$2 AND source=$3 AND source_ref = ANY($4) AND org_id=$5 RETURNING id",
+          [scope, userId, source, sourceRefs, orgId],
         );
         const gone = new Set(deleted.rows.map((r) => String(r.id)));
         if (gone.size === 0) {
@@ -330,26 +344,27 @@ export function createPgKnowledgeStore({ pool }: { pool: PgPool }): KnowledgeSto
         // nothing left to stand on goes too.
         const citing = await client.query<{ id: string; evidence: KbEvidence[] }>(
           `SELECT id, evidence FROM kb_facts
-           WHERE scope=$1 AND user_id=$2
+           WHERE scope=$1 AND user_id=$2 AND org_id=$4
              AND EXISTS (SELECT 1 FROM jsonb_array_elements(evidence) e WHERE e->>'chunkId' = ANY($3))`,
-          [scope, userId, [...gone]],
+          [scope, userId, [...gone], orgId],
         );
         let factsRemoved = 0;
         let factsTrimmed = 0;
         for (const fact of citing.rows) {
           const remaining = (Array.isArray(fact.evidence) ? fact.evidence : []).filter((e) => !gone.has(String(e.chunkId)));
           if (remaining.length === 0) {
-            await client.query("DELETE FROM kb_facts WHERE id=$1", [fact.id]);
+            await client.query("DELETE FROM kb_facts WHERE id=$1 AND org_id=$2", [fact.id, orgId]);
             factsRemoved++;
           } else {
             const times = remaining.map((e) => e.ts);
             await client.query(
-              "UPDATE kb_facts SET evidence=$2::jsonb, first_seen=$3, last_seen=$4, updated_at=now() WHERE id=$1",
+              "UPDATE kb_facts SET evidence=$2::jsonb, first_seen=$3, last_seen=$4, updated_at=now() WHERE id=$1 AND org_id=$5",
               [
                 fact.id,
                 JSON.stringify(remaining),
                 new Date(Math.min(...times)).toISOString(),
                 new Date(Math.max(...times)).toISOString(),
+                orgId,
               ],
             );
             factsTrimmed++;
@@ -367,35 +382,35 @@ export function createPgKnowledgeStore({ pool }: { pool: PgPool }): KnowledgeSto
 
     async getCursor(scope, userId, source, stream) {
       const res = await pool.query<{ state: Record<string, unknown> }>(
-        "SELECT state FROM kb_cursors WHERE scope=$1 AND user_id=$2 AND source=$3 AND stream=$4",
-        [scope, userId, source, stream],
+        "SELECT state FROM kb_cursors WHERE scope=$1 AND user_id=$2 AND source=$3 AND stream=$4 AND org_id=$5",
+        [scope, userId, source, stream, orgId],
       );
       return res.rows[0]?.state ?? null;
     },
 
     async setCursor(scope, userId, source, stream, state) {
       await pool.query(
-        `INSERT INTO kb_cursors (scope, user_id, source, stream, state, updated_at)
-         VALUES ($1,$2,$3,$4,$5::jsonb,now())
-         ON CONFLICT (scope, user_id, source, stream)
+        `INSERT INTO kb_cursors (org_id, scope, user_id, source, stream, state, updated_at)
+         VALUES ($6,$1,$2,$3,$4,$5::jsonb,now())
+         ON CONFLICT (org_id, scope, user_id, source, stream)
          DO UPDATE SET state = EXCLUDED.state, updated_at = now()`,
-        [scope, userId, source, stream, JSON.stringify(state)],
+        [scope, userId, source, stream, JSON.stringify(state), orgId],
       );
     },
 
     async getIndexState(scope, userId, source) {
       const res = await pool.query<StateRow>(
-        "SELECT * FROM kb_index_state WHERE scope=$1 AND user_id=$2 AND source=$3",
-        [scope, userId, source],
+        "SELECT * FROM kb_index_state WHERE scope=$1 AND user_id=$2 AND source=$3 AND org_id=$4",
+        [scope, userId, source, orgId],
       );
       return res.rows[0] ? rowToState(res.rows[0]) : null;
     },
 
     async setIndexState(state: KbIndexState) {
       await pool.query(
-        `INSERT INTO kb_index_state (scope, user_id, source, status, backfill_done, last_cycle_at, paused_at, last_error)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-         ON CONFLICT (scope, user_id, source) DO UPDATE SET
+        `INSERT INTO kb_index_state (scope, user_id, source, status, backfill_done, last_cycle_at, paused_at, last_error, org_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+         ON CONFLICT (org_id, scope, user_id, source) DO UPDATE SET
            status = EXCLUDED.status, backfill_done = EXCLUDED.backfill_done,
            last_cycle_at = EXCLUDED.last_cycle_at, paused_at = EXCLUDED.paused_at,
            last_error = EXCLUDED.last_error`,
@@ -408,12 +423,15 @@ export function createPgKnowledgeStore({ pool }: { pool: PgPool }): KnowledgeSto
           state.lastCycleAt !== undefined ? new Date(state.lastCycleAt).toISOString() : null,
           state.pausedAt !== undefined ? new Date(state.pausedAt).toISOString() : null,
           state.lastError ?? null,
+          orgId,
         ],
       );
     },
 
     async listIndexStates() {
-      const res = await pool.query<StateRow>("SELECT * FROM kb_index_state ORDER BY scope, user_id, source");
+      const res = await pool.query<StateRow>("SELECT * FROM kb_index_state WHERE org_id=$1 ORDER BY scope, user_id, source", [
+        orgId,
+      ]);
       return res.rows.map(rowToState);
     },
 
@@ -432,8 +450,8 @@ export function createPgKnowledgeStore({ pool }: { pool: PgPool }): KnowledgeSto
         // clearer and easier to test than a jsonb dedupe inside ON CONFLICT.
         const prior = await client.query<FactRow>(
           `SELECT * FROM kb_facts
-           WHERE scope=$1 AND user_id=$2 AND fact_key = ANY($3::text[])`,
-          [scope, userId, facts.map((f) => f.key)],
+           WHERE scope=$1 AND user_id=$2 AND fact_key = ANY($3::text[]) AND org_id=$4`,
+          [scope, userId, facts.map((f) => f.key), orgId],
         );
         const priorByKey = new Map(prior.rows.map((r) => [`${r.kind} ${r.fact_key}`, rowToFact(r)]));
 
@@ -452,9 +470,9 @@ export function createPgKnowledgeStore({ pool }: { pool: PgPool }): KnowledgeSto
 
           await client.query(
             `INSERT INTO kb_facts (scope, user_id, kind, subject, statement, detail, fact_key,
-                                   confidence, first_seen, last_seen, evidence, embedding, updated_at)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12::halfvec(${KB_EMBED_DIMS}),now())
-             ON CONFLICT (scope, user_id, kind, fact_key) DO UPDATE SET
+                                   confidence, first_seen, last_seen, evidence, embedding, updated_at, org_id)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12::halfvec(${KB_EMBED_DIMS}),now(),$13)
+             ON CONFLICT (org_id, scope, user_id, kind, fact_key) DO UPDATE SET
                subject = EXCLUDED.subject, statement = EXCLUDED.statement, detail = EXCLUDED.detail,
                confidence = EXCLUDED.confidence, first_seen = EXCLUDED.first_seen,
                last_seen = EXCLUDED.last_seen, evidence = EXCLUDED.evidence,
@@ -472,6 +490,7 @@ export function createPgKnowledgeStore({ pool }: { pool: PgPool }): KnowledgeSto
               new Date(lastSeen).toISOString(),
               JSON.stringify(evidence),
               toVectorLiteral(emb),
+              orgId,
             ],
           );
           if (existing) updated++;
@@ -491,16 +510,16 @@ export function createPgKnowledgeStore({ pool }: { pool: PgPool }): KnowledgeSto
       const [rows, kinds] = await Promise.all([
         pool.query<FactRow & { total: string }>(
           `SELECT *, count(*) OVER () AS total FROM kb_facts
-           WHERE scope=$1 AND user_id=$2
+           WHERE scope=$1 AND user_id=$2 AND org_id=$7
              AND ($3::text IS NULL OR kind = $3)
              AND ($4::text IS NULL OR subject = $4)
            ORDER BY last_seen DESC
            LIMIT $5 OFFSET $6`,
-          [scope, userId, opts.kind ?? null, opts.subject ?? null, opts.limit, opts.offset],
+          [scope, userId, opts.kind ?? null, opts.subject ?? null, opts.limit, opts.offset, orgId],
         ),
         pool.query<{ kind: string; count: string }>(
-          "SELECT kind, count(*) AS count FROM kb_facts WHERE scope=$1 AND user_id=$2 GROUP BY kind",
-          [scope, userId],
+          "SELECT kind, count(*) AS count FROM kb_facts WHERE scope=$1 AND user_id=$2 AND org_id=$3 GROUP BY kind",
+          [scope, userId, orgId],
         ),
       ]);
       return {
@@ -513,10 +532,10 @@ export function createPgKnowledgeStore({ pool }: { pool: PgPool }): KnowledgeSto
     async searchFacts(q) {
       const res = await pool.query<FactRow>(
         `SELECT * FROM kb_facts
-         WHERE scope=$1 AND user_id=$2
+         WHERE scope=$1 AND user_id=$2 AND org_id=$5
          ORDER BY embedding <=> $3::halfvec(${KB_EMBED_DIMS})
          LIMIT $4`,
-        [q.scope, q.userId, toVectorLiteral(q.embedding), q.topK],
+        [q.scope, q.userId, toVectorLiteral(q.embedding), q.topK, orgId],
       );
       return res.rows.map(rowToFact);
     },
@@ -527,22 +546,25 @@ export function createPgKnowledgeStore({ pool }: { pool: PgPool }): KnowledgeSto
       const res = await pool.query<ChunkRow>(
         `SELECT id, text, source, source_ref, chunk_seq, ts, permalink, meta, indexed_at
          FROM kb_chunks
-         WHERE scope=$1 AND user_id=$2 AND synthesized_at IS NULL
+         WHERE scope=$1 AND user_id=$2 AND synthesized_at IS NULL AND org_id=$4
          ORDER BY ts DESC LIMIT $3`,
-        [scope, userId, limit],
+        [scope, userId, limit, orgId],
       );
       return res.rows.map(rowToChunk);
     },
 
     async markSynthesized(chunkIds) {
       if (chunkIds.length === 0) return;
-      await pool.query("UPDATE kb_chunks SET synthesized_at = now() WHERE id = ANY($1::bigint[])", [chunkIds]);
+      await pool.query("UPDATE kb_chunks SET synthesized_at = now() WHERE id = ANY($1::bigint[]) AND org_id=$2", [
+        chunkIds,
+        orgId,
+      ]);
     },
 
     async pendingSynthesisCount(scope, userId) {
       const res = await pool.query<{ n: string }>(
-        "SELECT count(*) AS n FROM kb_chunks WHERE scope=$1 AND user_id=$2 AND synthesized_at IS NULL",
-        [scope, userId],
+        "SELECT count(*) AS n FROM kb_chunks WHERE scope=$1 AND user_id=$2 AND synthesized_at IS NULL AND org_id=$3",
+        [scope, userId, orgId],
       );
       return Number(res.rows[0]?.n ?? 0);
     },
@@ -554,17 +576,18 @@ export function createPgKnowledgeStore({ pool }: { pool: PgPool }): KnowledgeSto
       try {
         await client.query("BEGIN");
         // FK is ON DELETE SET NULL, so this also clears stale assignments.
-        await client.query("DELETE FROM kb_topics WHERE scope=$1 AND user_id=$2", [scope, userId]);
+        await client.query("DELETE FROM kb_topics WHERE scope=$1 AND user_id=$2 AND org_id=$3", [scope, userId, orgId]);
         for (const t of topics) {
           const ins = await client.query<{ id: string }>(
-            "INSERT INTO kb_topics (scope, user_id, label, summary) VALUES ($1,$2,$3,$4) RETURNING id",
-            [scope, userId, t.label, t.summary],
+            "INSERT INTO kb_topics (scope, user_id, label, summary, org_id) VALUES ($1,$2,$3,$4,$5) RETURNING id",
+            [scope, userId, t.label, t.summary, orgId],
           );
           const topicId = ins.rows[0]?.id;
           if (topicId && t.chunkIds.length > 0) {
-            await client.query("UPDATE kb_chunks SET topic_id=$1 WHERE id = ANY($2::bigint[])", [
+            await client.query("UPDATE kb_chunks SET topic_id=$1 WHERE id = ANY($2::bigint[]) AND org_id=$3", [
               topicId,
               t.chunkIds,
+              orgId,
             ]);
           }
         }
@@ -593,10 +616,10 @@ export function createPgKnowledgeStore({ pool }: { pool: PgPool }): KnowledgeSto
                 count(c.id) AS chunks, min(c.ts) AS oldest, max(c.ts) AS newest
          FROM kb_topics t
          LEFT JOIN kb_chunks c ON c.topic_id = t.id
-         WHERE t.scope=$1 AND t.user_id=$2
+         WHERE t.scope=$1 AND t.user_id=$2 AND t.org_id=$3
          GROUP BY t.id
          ORDER BY count(c.id) DESC`,
-        [scope, userId],
+        [scope, userId, orgId],
       );
       return res.rows.map((r) => ({
         id: String(r.id),
@@ -615,9 +638,9 @@ export function createPgKnowledgeStore({ pool }: { pool: PgPool }): KnowledgeSto
       const res = await pool.query<ChunkRow>(
         `SELECT id, text, source, source_ref, chunk_seq, ts, permalink, meta, indexed_at
          FROM kb_chunks
-         WHERE scope=$1 AND user_id=$2 AND topic_id=$3::bigint
+         WHERE scope=$1 AND user_id=$2 AND topic_id=$3::bigint AND org_id=$5
          ORDER BY ts DESC LIMIT $4`,
-        [scope, userId, topicId, limit],
+        [scope, userId, topicId, limit, orgId],
       );
       return res.rows.map(rowToChunk);
     },
@@ -626,9 +649,9 @@ export function createPgKnowledgeStore({ pool }: { pool: PgPool }): KnowledgeSto
       const res = await pool.query<{ id: string; text: string; source: string; vec: string }>(
         `SELECT id, text, source, subvector(embedding::vector(${KB_EMBED_DIMS}), 1, ${KB_CLUSTER_DIMS})::text AS vec
          FROM kb_chunks
-         WHERE scope=$1 AND user_id=$2
+         WHERE scope=$1 AND user_id=$2 AND org_id=$4
          ORDER BY ts DESC LIMIT $3`,
-        [scope, userId, limit],
+        [scope, userId, limit, orgId],
       );
       return res.rows.map((r) => ({
         id: String(r.id),
@@ -645,8 +668,8 @@ export function createPgKnowledgeStore({ pool }: { pool: PgPool }): KnowledgeSto
       for (const e of events) {
         await pool.query(
           `INSERT INTO kb_cycle_events (cycle_id, at, scope, user_id, source, outcome,
-                                        chunks_upserted, api_calls, ms, detail, error)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+                                        chunks_upserted, api_calls, ms, detail, error, org_id)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
           [
             e.cycleId,
             new Date(e.at).toISOString(),
@@ -659,6 +682,7 @@ export function createPgKnowledgeStore({ pool }: { pool: PgPool }): KnowledgeSto
             e.ms,
             e.detail ?? null,
             e.error ?? null,
+            orgId,
           ],
         );
       }
@@ -681,9 +705,9 @@ export function createPgKnowledgeStore({ pool }: { pool: PgPool }): KnowledgeSto
         error: string | null;
       }>(
         `SELECT * FROM kb_cycle_events
-         WHERE scope='workspace' OR user_id=$1
+         WHERE org_id=$3 AND (scope='workspace' OR user_id=$1)
          ORDER BY at DESC, id DESC LIMIT $2`,
-        [userId, limit],
+        [userId, limit, orgId],
       );
       return res.rows.map((r) => ({
         id: String(r.id),
@@ -701,4 +725,25 @@ export function createPgKnowledgeStore({ pool }: { pool: PgPool }): KnowledgeSto
       }));
     },
   };
+}
+
+/**
+ * Delete everything an org's knowledge base holds — chunks, facts, topics,
+ * cursors, indexer state, activity. Used when the org changes embedding model
+ * (old vectors aren't comparable with new ones) and when an org is deleted.
+ */
+export async function wipeOrgKnowledge(pool: PgPool, orgId: string): Promise<void> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    for (const table of ["kb_facts", "kb_chunks", "kb_topics", "kb_cursors", "kb_index_state", "kb_cycle_events"]) {
+      await client.query(`DELETE FROM ${table} WHERE org_id = $1`, [orgId]);
+    }
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
 }

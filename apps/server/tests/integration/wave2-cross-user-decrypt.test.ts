@@ -9,15 +9,13 @@
  */
 
 import { describe, expect, it } from "vitest";
+import type { Env } from "../../src/env.js";
 import { createCryptoAdapter } from "../../src/infrastructure/driven/crypto/factory.js";
 import type { EncryptionContext } from "@tino/core/ports/outbound";
 
 describe("Cross-user decrypt isolation", () => {
   it("fails to decrypt user A's credentials with user B's encryption context", async () => {
-    const cryptoAdapter = await createCryptoAdapter({
-      KMS_KEY_ARN: undefined,
-      LOCAL_DEV_CRYPTO_KEY: "test-key-for-testing-only-32bytes",
-    } as any);
+    const cryptoAdapter = await createCryptoAdapter({ ENCRYPTION_KEY: "test-key-for-testing-only-32bytes" } as Env);
 
     // User A encrypts a refresh token
     const userAId = "user-uuid-aaa";
@@ -51,10 +49,7 @@ describe("Cross-user decrypt isolation", () => {
   });
 
   it("fails to decrypt with mismatched capabilityId even if userId matches", async () => {
-    const cryptoAdapter = await createCryptoAdapter({
-      KMS_KEY_ARN: undefined,
-      LOCAL_DEV_CRYPTO_KEY: "test-key-for-testing-only-32bytes",
-    } as any);
+    const cryptoAdapter = await createCryptoAdapter({ ENCRYPTION_KEY: "test-key-for-testing-only-32bytes" } as Env);
 
     const userId = "user-uuid-123";
     const plaintext = "secret-token";
@@ -81,10 +76,7 @@ describe("Cross-user decrypt isolation", () => {
   });
 
   it("succeeds with matching context on both sides of encrypt/decrypt", async () => {
-    const cryptoAdapter = await createCryptoAdapter({
-      KMS_KEY_ARN: undefined,
-      LOCAL_DEV_CRYPTO_KEY: "test-key-for-testing-only-32bytes",
-    } as any);
+    const cryptoAdapter = await createCryptoAdapter({ ENCRYPTION_KEY: "test-key-for-testing-only-32bytes" } as Env);
 
     const userId = "user-uuid-consistent";
     const capabilityId = "gmail";

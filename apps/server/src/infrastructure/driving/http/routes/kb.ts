@@ -1,5 +1,5 @@
 /**
- * /api/kb — knowledge-base visibility for the console.
+ * /api/orgs/:slug/kb — knowledge-base visibility for the console.
  *
  *   GET /status                     → indexer state + per-scope coverage
  *   GET /knowledge?scope=&kind=     → distilled facts (the default browse view)
@@ -13,7 +13,7 @@
  * Auth-gated. `scope=private` is bound to the signed-in user server-side — the
  * user id is never taken from the query string.
  */
-import { Hono } from "hono";
+import { type Context, Hono } from "hono";
 import type { KbFactKind, KbSource, Logger } from "@tino/core/ports/outbound";
 import type { AuthVariables } from "../auth.js";
 
@@ -67,7 +67,14 @@ const readScope = (raw: string | undefined): KbConsoleScope => (raw === "workspa
 const readLimit = (raw: string | undefined, def: number, max: number): number =>
   Math.min(Number(raw ?? def) || def, max);
 
-export function createKbRoutes(deps?: KbRoutesDeps): Hono<{ Variables: AuthVariables }> {
+/**
+ * `depsFor` finds the org's KB for a request (undefined while it is off);
+ * `offReason` says why it's off, for the status view.
+ */
+export function createKbRoutes(
+  depsFor: (c: Context<{ Variables: AuthVariables }>) => KbRoutesDeps | undefined,
+  offReason: (c: Context<{ Variables: AuthVariables }>) => Promise<string | undefined> = async () => undefined,
+): Hono<{ Variables: AuthVariables }> {
   const app = new Hono<{ Variables: AuthVariables }>();
 
   app.use("*", async (c, next) => {
@@ -78,27 +85,30 @@ export function createKbRoutes(deps?: KbRoutesDeps): Hono<{ Variables: AuthVaria
   /** Every handler shares the same failure shape so the page can render it. */
   const guard = async (
     c: { json: (body: unknown, status?: 500) => Response },
+    deps: KbRoutesDeps,
     what: string,
     fn: () => Promise<unknown>,
   ): Promise<Response> => {
     try {
       return c.json(await fn());
     } catch (err) {
-      deps?.logger.warn({ err: (err as Error).message }, "kb " + what + " failed");
+      deps.logger.warn({ err: (err as Error).message }, "kb " + what + " failed");
       return c.json({ error: "kb_error", message: (err as Error).message }, 500);
     }
   };
 
   app.get("/status", async (c) => {
-    if (!deps) return c.json({ enabled: false });
-    return guard(c, "status", () => deps.status(c.get("user").id));
+    const deps = depsFor(c);
+    if (!deps) return c.json({ enabled: false, reason: await offReason(c) });
+    return guard(c, deps, "status", () => deps.status(c.get("user").id));
   });
 
   app.get("/knowledge", async (c) => {
+    const deps = depsFor(c);
     if (!deps) return c.json({ enabled: false, items: [], total: 0, kinds: [] });
     const rawKind = c.req.query("kind");
     const rawSubject = c.req.query("subject");
-    return guard(c, "knowledge", () =>
+    return guard(c, deps, "knowledge", () =>
       deps.knowledge({
         scope: readScope(c.req.query("scope")),
         userId: c.get("user").id,
@@ -111,22 +121,25 @@ export function createKbRoutes(deps?: KbRoutesDeps): Hono<{ Variables: AuthVaria
   });
 
   app.get("/topics", async (c) => {
+    const deps = depsFor(c);
     if (!deps) return c.json({ enabled: false, items: [] });
-    return guard(c, "topics", () => deps.topics(readScope(c.req.query("scope")), c.get("user").id));
+    return guard(c, deps, "topics", () => deps.topics(readScope(c.req.query("scope")), c.get("user").id));
   });
 
   app.get("/topics/:id/chunks", async (c) => {
+    const deps = depsFor(c);
     if (!deps) return c.json({ enabled: false, items: [] });
-    return guard(c, "topic chunks", () =>
+    return guard(c, deps, "topic chunks", () =>
       deps.topicChunks(readScope(c.req.query("scope")), c.get("user").id, c.req.param("id")),
     );
   });
 
   app.get("/browse", async (c) => {
+    const deps = depsFor(c);
     if (!deps) return c.json({ enabled: false, items: [], total: 0 });
     const rawSource = c.req.query("source");
     const q = (c.req.query("q") ?? "").trim();
-    return guard(c, "browse", () =>
+    return guard(c, deps, "browse", () =>
       deps.browse({
         scope: readScope(c.req.query("scope")),
         userId: c.get("user").id,
@@ -139,11 +152,13 @@ export function createKbRoutes(deps?: KbRoutesDeps): Hono<{ Variables: AuthVaria
   });
 
   app.get("/activity", async (c) => {
+    const deps = depsFor(c);
     if (!deps) return c.json({ enabled: false, items: [] });
-    return guard(c, "activity", () => deps.activity(c.get("user").id, readLimit(c.req.query("limit"), 60, 200)));
+    return guard(c, deps, "activity", () => deps.activity(c.get("user").id, readLimit(c.req.query("limit"), 60, 200)));
   });
 
   app.get("/dont-learn-from", async (c) => {
+    const deps = depsFor(c);
     const user = c.get("user");
     if (!user) return c.json({ error: "unauthorized" }, 401);
     if (!deps) return c.json({ enabled: false });
@@ -151,6 +166,7 @@ export function createKbRoutes(deps?: KbRoutesDeps): Hono<{ Variables: AuthVaria
   });
 
   app.put("/dont-learn-from", async (c) => {
+    const deps = depsFor(c);
     const user = c.get("user");
     if (!user) return c.json({ error: "unauthorized" }, 401);
     if (!deps) return c.json({ error: "the knowledge base is off" }, 409);
