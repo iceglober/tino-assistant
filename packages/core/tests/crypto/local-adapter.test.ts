@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 
-import { LocalAdapter } from "../../src/crypto/local-adapter.js";
-import type { EncryptionContext } from "../../src/crypto/types.js";
+import { LocalAdapter } from "../../src/infrastructure/driven/crypto/local-adapter.js";
+import type { EncryptionContext } from "../../src/ports/outbound.js";
 
 describe("LocalAdapter", () => {
   const testContext: EncryptionContext = {

@@ -1,19 +1,17 @@
 /**
- * Wave 3 (v2.2) — § 3.1 server route tests for /api/config.
+ * Server route tests for /api/config.
  *
  * GET    /api/config       → list entries
- * PUT    /api/config/:key  → write + audit + return { ok: true, key }
- * DELETE /api/config/:key  → write audit on hit, return { ok: true, deleted }
+ * PUT    /api/config/:key  → write + return { ok: true, key }
+ * DELETE /api/config/:key  → return { ok: true, deleted }
  *
- * Mirrors `admin-routes.test.ts`: real Hono mount, real route, in-memory
- * ConfigStore + memory audit logger. The store/logger doubles let us assert
- * that every write fires an audit entry.
+ * Auth-gated by the top-level middleware; `fakeAdmin()` supplies a signed-in
+ * user. Burned-down surface: no audit logger.
  */
 
 import { Hono } from "hono";
 import { describe, expect, it } from "vitest";
-import { createMemoryAuditLogger } from "../../src/audit/memory.js";
-import { createConfigRoutes } from "../../src/server/routes/config.js";
+import { createConfigRoutes } from "../../src/infrastructure/driving/http/routes/config.js";
 import { fakeAdmin, makeConfigStore, noopLogger } from "./_helpers.js";
 
 function mountConfig(opts: Parameters<typeof createConfigRoutes>[0]): Hono {
@@ -25,18 +23,18 @@ function mountConfig(opts: Parameters<typeof createConfigRoutes>[0]): Hono {
 
 describe("GET /api/config", () => {
   it("returns the list of stored entries", async () => {
-    const config = makeConfigStore({ "bedrock.modelId": "claude-3-5-sonnet" });
-    const app = mountConfig({ config, logger: noopLogger(), auditLogger: undefined });
+    const config = makeConfigStore({ "azure.deployment": "gpt-4o" });
+    const app = mountConfig({ config, logger: noopLogger() });
 
     const res = await app.request("/api/config");
     expect(res.status).toBe(200);
     const body = (await res.json()) as Array<{ key: string; value: string; updatedAt: number }>;
     expect(body).toHaveLength(1);
-    expect(body[0]?.key).toBe("bedrock.modelId");
+    expect(body[0]?.key).toBe("azure.deployment");
   });
 
   it("returns an empty array when the store is empty", async () => {
-    const app = mountConfig({ config: makeConfigStore(), logger: noopLogger(), auditLogger: undefined });
+    const app = mountConfig({ config: makeConfigStore(), logger: noopLogger() });
     const res = await app.request("/api/config");
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual([]);
@@ -44,33 +42,25 @@ describe("GET /api/config", () => {
 });
 
 describe("PUT /api/config/:key", () => {
-  it("writes the value, audit-logs, and returns { ok: true, key }", async () => {
+  it("writes the value and returns { ok: true, key }", async () => {
     const config = makeConfigStore();
-    const audit = createMemoryAuditLogger();
-    const app = mountConfig({ config, logger: noopLogger(), auditLogger: audit });
+    const app = mountConfig({ config, logger: noopLogger() });
 
-    const res = await app.request("/api/config/bedrock.modelId", {
+    const res = await app.request("/api/config/azure.deployment", {
       method: "PUT",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ value: "claude-3-5-sonnet" }),
+      body: JSON.stringify({ value: "gpt-4o" }),
     });
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, key: "bedrock.modelId" });
+    expect(await res.json()).toEqual({ ok: true, key: "azure.deployment" });
 
     // Round-tripped via the store.
-    const stored = await config.get("bedrock.modelId");
-    expect(stored).toBe(JSON.stringify("claude-3-5-sonnet"));
-
-    // Audit-logged the change.
-    const entries = await audit.query({ action: "config_change" });
-    expect(entries).toHaveLength(1);
-    expect(entries[0]?.toolName).toBe("bedrock.modelId");
-    expect(entries[0]?.userId).toBe("console");
-    expect(entries[0]?.status).toBe("success");
+    const stored = await config.get("azure.deployment");
+    expect(stored).toBe(JSON.stringify("gpt-4o"));
   });
 
   it("returns 400 when the body is missing the value field", async () => {
-    const app = mountConfig({ config: makeConfigStore(), logger: noopLogger(), auditLogger: undefined });
+    const app = mountConfig({ config: makeConfigStore(), logger: noopLogger() });
 
     const res = await app.request("/api/config/foo", {
       method: "PUT",
@@ -83,7 +73,7 @@ describe("PUT /api/config/:key", () => {
   });
 
   it("returns 400 when the body is not valid JSON", async () => {
-    const app = mountConfig({ config: makeConfigStore(), logger: noopLogger(), auditLogger: undefined });
+    const app = mountConfig({ config: makeConfigStore(), logger: noopLogger() });
 
     const res = await app.request("/api/config/foo", {
       method: "PUT",
@@ -97,32 +87,22 @@ describe("PUT /api/config/:key", () => {
 });
 
 describe("DELETE /api/config/:key", () => {
-  it("removes the entry, audit-logs, and returns deleted=true", async () => {
-    const config = makeConfigStore({ "bedrock.modelId": "claude" });
-    const audit = createMemoryAuditLogger();
-    const app = mountConfig({ config, logger: noopLogger(), auditLogger: audit });
+  it("removes the entry and returns deleted=true", async () => {
+    const config = makeConfigStore({ "azure.deployment": "gpt-4o" });
+    const app = mountConfig({ config, logger: noopLogger() });
 
-    const res = await app.request("/api/config/bedrock.modelId", { method: "DELETE" });
+    const res = await app.request("/api/config/azure.deployment", { method: "DELETE" });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true, deleted: true });
-
-    expect(await config.get("bedrock.modelId")).toBeNull();
-
-    const entries = await audit.query({ action: "config_change" });
-    expect(entries).toHaveLength(1);
-    expect(entries[0]?.toolName).toBe("bedrock.modelId");
+    expect(await config.get("azure.deployment")).toBeNull();
   });
 
-  it("returns deleted=false and skips audit when the key did not exist", async () => {
+  it("returns deleted=false when the key did not exist", async () => {
     const config = makeConfigStore();
-    const audit = createMemoryAuditLogger();
-    const app = mountConfig({ config, logger: noopLogger(), auditLogger: audit });
+    const app = mountConfig({ config, logger: noopLogger() });
 
     const res = await app.request("/api/config/missing.key", { method: "DELETE" });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true, deleted: false });
-
-    // No audit entry written for a no-op delete.
-    expect(await audit.count()).toBe(0);
   });
 });

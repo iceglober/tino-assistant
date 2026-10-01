@@ -9,8 +9,8 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { createCryptoAdapter } from "../../src/crypto/factory.js";
-import type { EncryptionContext } from "../../src/crypto/types.js";
+import { createCryptoAdapter } from "../../src/infrastructure/driven/crypto/factory.js";
+import type { EncryptionContext } from "../../src/ports/outbound.js";
 
 describe("Cross-user decrypt isolation", () => {
   it("fails to decrypt user A's credentials with user B's encryption context", async () => {

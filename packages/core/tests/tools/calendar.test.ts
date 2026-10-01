@@ -1,6 +1,6 @@
 import type { calendar_v3 } from "googleapis";
 import { describe, expect, it, vi } from "vitest";
-import { _executeCalendarListEvents } from "../../src/tools/google/calendar.js";
+import { _executeCalendarListEvents } from "../../src/infrastructure/driven/tools/google/calendar.js";
 
 // ---------------------------------------------------------------------------
 // Mock helper

@@ -12,9 +12,9 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { createCryptoAdapter } from "../../src/crypto/factory.js";
-import { createSqliteUserCapabilityStore } from "../../src/persistence/user-capabilities.js";
-import type { CapabilityConfig } from "../../src/capabilities/types.js";
+import { createCryptoAdapter } from "../../src/infrastructure/driven/crypto/factory.js";
+import { createSqliteUserCapabilityStore } from "../../src/infrastructure/driven/persistence/user-capabilities.js";
+import type { CapabilityConfig } from "../../src/domain/types.js";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";

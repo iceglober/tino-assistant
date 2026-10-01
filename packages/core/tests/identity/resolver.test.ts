@@ -2,10 +2,10 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createIdentityResolver } from "../../src/identity/resolver.js";
-import type { SlackWebClient } from "../../src/identity/resolver.js";
-import { createSqliteIdentityStore, createSqliteUserStore } from "../../src/identity/store.js";
-import type { Identity, TinoUser } from "../../src/identity/types.js";
+import { createIdentityResolver } from "../../src/infrastructure/driven/identity/resolver.js";
+import type { SlackWebClient } from "../../src/infrastructure/driven/identity/resolver.js";
+import { createSqliteIdentityStore, createSqliteUserStore } from "../../src/infrastructure/driven/identity/store.js";
+import type { Identity, TinoUser } from "../../src/domain/types.js";
 
 const tempFiles: string[] = [];
 

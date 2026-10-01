@@ -1,95 +1,78 @@
 # security
 
-Security and compliance model for tino. Every claim here points at the file/line that enforces it.
+What tino protects, how, and where it doesn't. Each control names the code that enforces it.
 
-## summary
+## who can get in
 
-- **Encryption at rest:** every stateful AWS resource — DynamoDB, CloudWatch Logs, SNS — is encrypted with a customer-managed KMS key the component provisions. Key rotation is enabled.
-- **Encryption in transit:** HTTPS via ACM when `consoleDomain` is set. HTTP without (with a console banner warning the operator). Slack and AWS SDK calls are TLS by default.
-- **Audit trail:** every tool call, config change, login, capability toggle, scheduled task, restart, and injection-suspicion event is logged to a TTL-backed DynamoDB table.
-- **Access control:** Google OAuth on the console (domain-restricted). Slack DMs filtered to a single admin user ID. IAM least-privilege on the task role.
-- **HIPAA gate:** `pulumi up` refuses to deploy until the operator confirms a signed BAA on the AWS account.
+- **Console sign-in** is Google OAuth through better-auth (`infrastructure/driving/http/auth.ts`). `CONSOLE_ALLOWED_DOMAIN` (or `console.allowedDomain`) rejects other domains server-side. Also restrict the OAuth client to your domain in Google Cloud as a second layer.
+- **Slack senders** are mapped to tino users by Slack id, then by Slack profile email (`application/sender.ts`, `infrastructure/driven/identity/resolver.ts`). Unverifiable senders are refused, never guessed.
+- **Join policy**: org-domain (auto-create members on your domain) or invite-only. Both paths read it identically (`routes/users.ts` → `readAccessPolicy`).
+- **Suspended users** get 403 in the console and a refusal in Slack, and the KB indexer skips them.
+- **First user**: on an install with zero users and no domain configured, the first console sign-in becomes admin. Set a domain before exposing the URL.
 
-## what's enforced automatically
+## who can do what
 
-| Control | Where |
-|---|---|
-| KMS CMK with rotation | `packages/aws/src/pulumi/tino-service.ts:317` |
-| DynamoDB encryption-at-rest with the CMK | `packages/aws/src/pulumi/tino-service.ts:386` |
-| DynamoDB point-in-time recovery | `packages/aws/src/pulumi/tino-service.ts:384` |
-| DynamoDB deletion protection | `packages/aws/src/pulumi/tino-service.ts:387` |
-| CloudWatch Logs encryption-at-rest with the CMK | `packages/aws/src/pulumi/tino-service.ts:400` |
-| SNS topic encryption with the CMK | `packages/aws/src/pulumi/tino-service.ts:466` |
-| ECR image scan-on-push | `packages/aws/src/pulumi/tino-service.ts:504` |
-| Container read-only root filesystem | `packages/aws/src/pulumi/tino-service.ts:861` |
-| ECS Exec off by default | `packages/aws/src/pulumi/tino-service.ts:919` |
-| Task role scoped to the DynamoDB table ARN | `packages/aws/src/pulumi/tino-service.ts:614` |
-| Bedrock IAM region-scoped under GDPR | `packages/aws/src/pulumi/tino-service.ts:605` |
-| HIPAA BAA gate | `packages/aws/src/pulumi/tino-service.ts:262` |
-| VPC Flow Logs (SOC 2 CC6.1) | `packages/aws/src/pulumi/tino-service.ts:452` |
-| Security event metric filter + SNS alarm | `packages/aws/src/pulumi/tino-service.ts:474` |
-| Container Insights for audit depth | `packages/aws/src/pulumi/tino-service.ts:676` |
-| Audit logger TTL (default 90 days) | `packages/aws/src/audit/dynamo.ts:22` |
-| Audit entries store parameter KEYS only, never values | `packages/core/src/audit/logger.ts:29` |
-| Logger never emits raw OAuth tokens | callers in `packages/core/src/server/` |
+- **Admins**: Setup (`/api/config`, which contains every deployment secret), `/api/users`, `/api/reload/slack`, and workspace MCP servers. Enforced by `requireAdmin` in `auth.ts`.
+- **Members**: chat, their own KB scope, their own OAuth connections, and personal MCP servers. They see configuration only as booleans (`/api/status`).
+- The last active admin can't be demoted or suspended.
 
-## what the operator must do
+## data isolation between users
 
-These cannot be enforced in code; the deploy pipeline reminds you:
+- **Tools are built per user per message**, from that user's own credentials (`infrastructure/driven/tools/provider.ts`). The personal Slack tools use the user's own `xoxp` token, so Slack itself limits them to what that person can see.
+- **KB tools bind the user id in the closure**, never in the tool schema, so the model can't point a search at someone else's private KB (`infrastructure/driven/tools/kb.ts`).
+- **Personal MCP servers** are stored under the owner's id and only loaded into the owner's toolset.
 
-- **Sign the AWS BAA** if processing PHI. Verify in [AWS Artifact](https://console.aws.amazon.com/artifact/), then `pulumi config set tino:baaAcknowledged true`.
-- **No BAA available from Slack on standard plans.** If you handle PHI in Slack, you need an Enterprise Grid contract that includes a BAA. The compliance dashboard reports `slack: no-baa` honestly.
-- **Restrict the Google OAuth client** to your `allowedDomain`. The console enforces it server-side, but the GCP-side restriction is your defence-in-depth.
-- **Subscribe a human to the SNS topic.** The component creates the topic but does not manage subscriptions — pick email, PagerDuty, etc. The topic ARN is exposed as `alertTopicArn`.
+## secrets at rest
 
-## audit logging
+- **Per-user credentials** (Slack user tokens, Google refresh tokens, MCP tokens) are AES-256-GCM encrypted. The `(userId, capabilityId, fieldName)` context is bound as AAD, so ciphertext can't be replayed across users or fields (`infrastructure/driven/crypto/local-adapter.ts`). The key comes from `LOCAL_DEV_CRYPTO_KEY` (Secret Manager in production). Rotating it makes every stored credential unreadable.
+- **Deployment secrets** set in Setup (Slack bot/app tokens, model API keys, OAuth client secrets) sit **in plaintext** in the `config` table. Protect the database accordingly.
+- MCP tokens are write-only through the API. Responses carry `hasToken`, never the value.
 
-Every event the system considers material is recorded. The action vocabulary is fixed — see [`packages/core/src/audit/logger.ts`](../packages/core/src/audit/logger.ts):
+## who may see what
 
-- `tool_call` — every LLM-initiated tool invocation (success, error, or denied).
-- `config_change` — any write to the config store.
-- `login` — Google OAuth callback success.
-- `capability_toggle` — capability enabled/disabled via the console.
-- `task_scheduled`, `task_executed` — scheduler events.
-- `injection_suspected` — prompt injection heuristics tripped.
-- `user_deprovisioned` — admin removed a user.
-- `admin_restart` — admin triggered a process restart from the console.
+Every piece of context — a tool's results, a stored message — is labelled with
+who may see it, and every reply knows who will read it. A reply only uses what
+all of its readers may see (`domain/who-can-see.ts`, described in
+[`architecture.md`](architecture.md#who-may-see-what)). Consequences:
 
-Each entry captures: `timestamp`, `userId`, `action`, optional `toolName`/`capabilityInstanceId`, optional `inputKeys` (parameter **keys** only — never values), `durationMs`, `status` (`success`/`error`/`denied`), optional `errorMessage`.
+- **Channel mentions** (default policy) never build the asker's private tools —
+  Gmail, Calendar, their Slack token, their knowledge base, personal MCP
+  servers, workspace MCP servers not marked shareable — and never load their DM
+  history. Keeping private data out is decided by what is *loaded*, not by what
+  the model is *told*; a message planted in the channel has nothing private to
+  reach.
+- **Channels with outsiders** (Slack Connect, guests, anyone Slack can't vouch
+  for) get nothing but that channel itself.
+- **Recall runs one way.** A DM may recall a channel thread its reader is
+  currently in; a channel never recalls a DM; leaving a channel stops recall of
+  its threads (after the 2-minute membership cache).
+- **Shared threads** show each asker only the replies they may see — under the
+  `asker` policy, one person's private turn is hidden from the next asker in the
+  same thread.
+- **The DM hand-off** (`continue_in_dm`) takes no input: the asker's original
+  message is re-asked in their DM, so planted text can't choose what gets asked
+  with their private tools. The private answer is sent to their DM only.
+- **Bot-token channel reads** are limited to public channels in every mode;
+  the channel tino was asked in is read through tools locked to that channel.
+- **The `asker` policy** (Setup → *When @mentioned in a channel*) opts out of
+  all this for mentions: the asker's private context is used, and only a prompt
+  instruction keeps it out of the channel.
 
-Backends:
-- Local dev → in-memory (entries lost on restart). Acceptable for SQLite mode.
-- Production → DynamoDB with TTL. Default retention 90 days; override via `auditRetentionDays` on `TinoServiceArgs`.
+Slack bot scopes this relies on: `channels:read`, `groups:read`, `mpim:read`
+(channel info, members, a person's channels), `users:read` (guest and team
+checks), `im:write` + `chat:write` (the DM follow-up). Missing scopes fail
+closed: an undescribable channel is treated as having outsiders, and a person
+whose channels can't be listed recalls none.
 
-The audit table is queryable from the compliance dashboard (`GET /api/compliance` returns `entryCount`, `lastEntryAt`, `retentionDays`).
+## outbound requests (MCP)
 
-## injection defence
+MCP server URLs are admin/user-supplied, and tino connects to them from inside the cluster with a token attached. `domain/mcp.ts` requires https and refuses loopback, private, link-local (including `169.254.169.254`), CGNAT, `*.local`, and `*.internal` hosts. The client also refuses redirects.
 
-Tino runs a tool-using LLM. Prompt injection is real; the defence layers are:
+This is a literal-host check. A public DNS name that resolves to a private address gets through, so add an egress policy if that matters to you.
 
-1. **Tool-call allowlist per capability.** A user without GitHub credentials cannot have GitHub tools registered. The registry never instantiates a tool whose capability is missing config.
-2. **Resource scoping at the IAM layer.** The CloudWatch tool can only query log groups in `cloudwatchLogGroupArns`; even a successful injection cannot reach unrelated log groups.
-3. **Audit log + alarm.** When the agent loop detects a suspicious tool input (path traversal, repeated denied calls, etc.) it logs `injection_suspected`. The CloudWatch metric filter on `tino-service.ts:474` raises an alarm at >5 such events in 15 minutes.
+## known gaps
 
-## network posture
-
-- ALB is internet-facing because the console is human-accessed. Listener is 443 (with `consoleDomain`) or 80 (without). Port 80 redirects to 443 when both are configured.
-- ECS task is in private subnets when you bring your own VPC; the ALB security group is the only ingress. Without a custom VPC, the task uses the default VPC's subnets and gets a public IP for outbound to ECR/Slack/Bedrock.
-- VPC Flow Logs are enabled by default (SOC 2 CC6.1) and stored in a CloudWatch log group encrypted with the component's CMK.
-
-## what tino does NOT do
-
-Be honest about gaps:
-
-- **No WAF.** The ALB is not behind AWS WAF. Add one yourself if your threat model requires it.
-- **No Shield Advanced.** Standard Shield is on by default; Advanced is not provisioned.
-- **No GuardDuty enforcement.** The component does not enable or require GuardDuty on the account.
-- **No Config rules.** AWS Config is not configured.
-- **No automated key rotation policy beyond the KMS default.** Rotation is enabled on the CMK; older key versions remain accessible per the AWS default lifecycle.
-- **No data classification or DLP.** Audit `inputKeys` are key NAMES only, not a content scanner. If a tool's parameter values contain PHI, that PHI lives in CloudWatch container logs unless the tool implementation explicitly strips it.
-
-If your environment requires any of the above, layer them on at the account level; the component does not conflict.
-
-## reporting incidents
-
-[`docs/incident-response-template.md`](incident-response-template.md) is a fill-in-the-blanks template for HIPAA breach notifications and operational incidents.
+- **No audit log.** Actions are in structured application logs only.
+- **No admin-side data deletion.** Only the user can wipe their KB data (`forget me confirm`). Suspension stops indexing but keeps what's there.
+- **Prompt injection.** Indexed messages, emails, and MCP tool output reach the model verbatim. Tools that write are limited to whatever MCP servers you connect, and the system prompt asks the model to confirm before changing data. That is a mitigation, not a guarantee.
+- **Single replica only** (Socket Mode + singleton indexer). There is no HA.

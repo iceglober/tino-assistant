@@ -1,134 +1,138 @@
-import { type JSX, useEffect, useState } from "react";
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { type JSX, useCallback, useEffect, useState } from "react";
 import { InsecureBanner } from "./components/InsecureBanner.js";
-import { Layout } from "./components/Layout.js";
-import { ToastProvider } from "./hooks/useToast.js";
 import { useAuth } from "./hooks/useAuth.js";
-import type { Session } from "./lib/api.js";
-import { getConfig, getDiscoveryResult, getMe } from "./lib/api.js";
-import { Capabilities } from "./pages/Capabilities.js";
-import { Dashboard } from "./pages/Dashboard.js";
+import { ToastProvider } from "./hooks/useToast.js";
+import { getStatus, type Session, type SetupStatus } from "./lib/api.js";
+import { Chat } from "./pages/Chat.js";
+import { Knowledge } from "./pages/Knowledge.js";
 import { Login } from "./pages/Login.js";
-import { Onboarding } from "./pages/Onboarding.js";
 import { Setup } from "./pages/Setup.js";
-import { Work } from "./pages/Work.js";
-import { Workspace } from "./pages/Workspace.js";
+import { Tools } from "./pages/Tools.js";
+import { Users } from "./pages/Users.js";
 
-type Phase = "loading" | "setup" | "onboarding" | "ready";
+export type View = "chat" | "knowledge" | "tools" | "users" | "setup";
 
-type LoadingStep = "auth" | "config" | "preferences";
-
-const STEP_LABELS: Record<LoadingStep, string> = {
-  auth: "Signing in…",
-  config: "Checking configuration…",
-  preferences: "Loading preferences…",
+/**
+ * Each page has its own URL, so the browser's back button moves between pages
+ * instead of leaving the app (and landing on the Google sign-in redirect).
+ * The server serves the SPA for every non-API path.
+ */
+const PATHS: Record<View, string> = {
+  chat: "/",
+  knowledge: "/knowledge",
+  tools: "/tools",
+  users: "/users",
+  setup: "/settings",
 };
 
-async function determinePhase(
-  session: Session,
-  onStep: (step: LoadingStep) => void,
-): Promise<Phase> {
-  if (session.user.role === "admin") {
-    onStep("config");
-    try {
-      const entries = await getConfig();
-      const get = (k: string): string => {
-        const e = entries.find((x) => x.key === k);
-        if (!e) return "";
-        try { return String(JSON.parse(e.value)); } catch { return e.value; }
-      };
-      const hasSlack = !!(get("slack.botToken") && get("slack.appToken"));
-      const hasOAuth = !!(get("slack.clientId") && get("slack.clientSecret"));
-      const hasModel = !!get("bedrock.modelId");
-      if (!hasSlack || !hasOAuth || !hasModel) return "setup";
-    } catch {
-      return "setup";
-    }
-  }
+function viewFromPath(path: string): View {
+  const match = (Object.entries(PATHS) as Array<[View, string]>).find(
+    ([, p]) => p === path.replace(/\/+$/, "") || p === path,
+  );
+  return match ? match[0] : "chat";
+}
 
-  onStep("preferences");
-  const me = await getMe();
-  if (me && session.user.role === "admin" && !me.slackUserId) return "onboarding";
-  try {
-    const result = await getDiscoveryResult();
-    if (!result) return "onboarding";
-  } catch { return "onboarding"; }
+function useView(): [View, (v: View) => void] {
+  const [view, setView] = useState<View>(() => viewFromPath(window.location.pathname));
 
-  return "ready";
+  useEffect(() => {
+    const onPop = (): void => setView(viewFromPath(window.location.pathname));
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
+  const navigate = useCallback((next: View) => {
+    if (window.location.pathname !== PATHS[next]) window.history.pushState({}, "", PATHS[next]);
+    setView(next);
+  }, []);
+
+  return [view, navigate];
+}
+
+function Splash({ step }: { step: string }): JSX.Element {
+  return (
+    <div className="splash">
+      <img src="/assets/tino-logo.png" alt="tino" className="splash-logo" />
+      <div className="splash-wordmark">tino</div>
+      <div className="splash-step">{step}</div>
+    </div>
+  );
 }
 
 function AppRouter(): JSX.Element {
   const { session, loading, signOut } = useAuth();
-  const [phase, setPhase] = useState<Phase>("loading");
-  const [loadingStep, setLoadingStep] = useState<LoadingStep>("auth");
+  const [status, setStatus] = useState<SetupStatus | null>(null);
+  const [view, navigate] = useView();
   const [checkKey, setCheckKey] = useState(0);
-  useEffect(() => {
-    if (loading) return;
-    if (!session) return;
 
-    setPhase("loading");
-    setLoadingStep("auth");
-    void determinePhase(session, setLoadingStep).then(setPhase);
+  useEffect(() => {
+    if (loading || !session) return;
+    setStatus(null);
+    void getStatus()
+      .then(setStatus)
+      .catch(() =>
+        setStatus({
+          slack: false,
+          model: false,
+          slackConnect: false,
+          googleConnect: false,
+          kb: false,
+          fromEnvironment: [],
+        }),
+      );
   }, [loading, session, checkKey]);
 
-  if (loading || (phase === "loading" && session)) {
+  if (loading) return <Splash step="loading…" />;
+  if (!session) return <Login />;
+  if (!status) return <Splash step="loading…" />;
+
+  const isAdmin = session.user.role === "admin";
+  const configured = status.slack && status.model;
+  const back = (): void => navigate("chat");
+
+  // Setup holds every deployment secret, so only admins ever see it. A member
+  // who arrives before an admin has finished gets told who to ask.
+  if (isAdmin && (!configured || view === "setup")) {
     return (
-      <div className="splash">
-        <img src="/assets/tino-logo.png" alt="tino" className="splash-logo" />
-        <div className="splash-wordmark">tino</div>
-        <div className="splash-step">{STEP_LABELS[loadingStep]}</div>
+      <Setup
+        // Once tino works, Settings is a normal page you can leave.
+        onBack={configured ? back : undefined}
+        fromEnvironment={status.fromEnvironment}
+        onComplete={() => {
+          navigate("chat");
+          setCheckKey((k) => k + 1);
+        }}
+      />
+    );
+  }
+  if (!configured) {
+    return (
+      <div className="page">
+        <div className="setup-screen">
+          <h1 className="setup-heading">tino isn't set up yet.</h1>
+          <p className="setup-lead">an admin still needs to connect Slack and a model. check back once they have.</p>
+          <div className="btn-row">
+            <button className="btn-ghost" type="button" onClick={() => void signOut()}>
+              sign out
+            </button>
+          </div>
+        </div>
       </div>
     );
   }
 
-  if (!session) {
-    return <Login />;
-  }
+  if (view === "knowledge" && status.kb) return <Knowledge onBack={back} />;
+  if (view === "tools") return <Tools onBack={back} />;
+  if (view === "users" && isAdmin) return <Users onBack={back} currentUserId={session.user.id} />;
 
-  if (phase === "setup") {
-    return <Setup session={session} onComplete={() => setCheckKey((k) => k + 1)} />;
-  }
-  if (phase === "onboarding") {
-    return <Onboarding session={session} onComplete={() => setPhase("ready")} />;
-  }
-
-  return (
-    <Routes>
-      <Route element={<Layout session={session} signOut={signOut} />}>
-        <Route path="/" element={
-          <Dashboard
-            session={session}
-            signOut={signOut}
-            onRecheck={() => setCheckKey((k) => k + 1)}
-          />
-        } />
-        <Route path="/capabilities" element={<Capabilities />} />
-        <Route path="/work" element={<Work />} />
-        <Route path="/workspace" element={<Workspace />} />
-      </Route>
-      {/* Legacy redirects */}
-      <Route path="/admin" element={<Navigate to="/workspace" replace />} />
-      <Route path="/login" element={<Navigate to="/" replace />} />
-      <Route path="/setup" element={<Navigate to="/" replace />} />
-      <Route path="/users" element={<Navigate to="/workspace" replace />} />
-      <Route path="/onboarding" element={<Navigate to="/" replace />} />
-      <Route path="/privacy" element={<Navigate to="/capabilities" replace />} />
-      <Route path="/my-capabilities" element={<Navigate to="/capabilities" replace />} />
-      <Route path="/me/activity" element={<Navigate to="/" replace />} />
-      <Route path="/activity" element={<Navigate to="/" replace />} />
-      <Route path="/console" element={<Navigate to="/" replace />} />
-      <Route path="/audit" element={<Navigate to="/workspace" replace />} />
-    </Routes>
-  );
+  return <Chat session={session} status={status} signOut={signOut} onNavigate={navigate} />;
 }
 
 export function App(): JSX.Element {
   return (
     <ToastProvider>
       <InsecureBanner />
-      <BrowserRouter>
-        <AppRouter />
-      </BrowserRouter>
+      <AppRouter />
     </ToastProvider>
   );
 }

@@ -1,129 +1,44 @@
 # deployment
 
-Step-by-step guide for deploying tino into your own AWS account.
+Tino is distributed as a Helm chart (`deploy/helm/tino`) — one always-on
+container plus a Postgres database with pgvector.
 
-This is the standalone path. For the "drop into an existing Pulumi project" path see [`architecture.md`](architecture.md) and the `TinoService` constructor in [`packages/aws/src/pulumi/tino-service.ts`](../packages/aws/src/pulumi/tino-service.ts).
+- **Self-hosting quickstart** — see the Deploy section of [`../README.md`](../README.md).
+- **Reference deployment** (GKE Autopilot + Cloud SQL + Secret Manager +
+  Workload Identity, serving `tino.kayn.ai`) — see [`gcp.md`](gcp.md), including
+  provisioning, the deploy pipeline, and cutover/rollback notes.
 
-## prerequisites
+> The previous AWS path (Pulumi `TinoService`, ECS/Fargate, ALB, DynamoDB, the
+> `tino init` CLI) was retired on 2026-07-25 when Tino moved to GCP.
+> `packages/aws` and `packages/cli` were removed; their history is in git if you
+> ever need to resurrect the component.
 
-Before you start:
+## What a deployment needs
 
-- AWS account with admin (or near-admin) credentials. The deploy creates KMS keys, IAM roles, an ECS cluster, an ALB, ECR, DynamoDB, and CloudWatch resources.
-- AWS CLI configured (`aws configure` or `AWS_PROFILE` set) — the AWS SDK's default credential chain must resolve.
-- Pulumi installed (`brew install pulumi/tap/pulumi`).
-- Docker installed and running — the deploy builds the image locally with `@pulumi/docker-build` before pushing to ECR.
-- Node 22 (`nvm use` in the repo root picks it up from `.nvmrc`).
-- pnpm installed (`npm install -g pnpm`).
-
-For HIPAA: a signed [AWS Business Associate Addendum](https://console.aws.amazon.com/artifact/) on the account. The Pulumi component throws on `pulumi up` until you run `pulumi config set tino:baaAcknowledged true` — see `packages/aws/src/pulumi/tino-service.ts:262`.
-
-## one-time setup
-
-```sh
-git clone <repo> tino && cd tino
-pnpm install
-pnpm --filter @tino/cli build
-```
-
-## interactive setup with `tino init`
-
-```sh
-node packages/cli/dist/index.js init
-```
-
-The wizard walks through six steps:
-
-1. **Compliance frameworks** — pick HIPAA (default). Records the choice in `tino.deploy.json`.
-2. **BAA acknowledgement** — confirms you've signed the AWS BAA. Without this, `pulumi up` will throw.
-3. **Console authentication** — Google OAuth client ID + secret. The redirect URI must match what you register in the GCP console (see "Google OAuth" below).
-4. **Infrastructure** — standalone (default, generates `./infra-tino/`) or "add to an existing Pulumi project" (generates `<your-infra>/tino.ts`).
-5. **Region** — `us-east-1` is the default for broadest Bedrock model coverage.
-6. **Review** — prints `tino.deploy.json` and asks for confirmation.
-
-Output: a Pulumi project at `./infra-tino/` (or wherever you chose) with `index.ts`, `Pulumi.yaml`, and `package.json` already wired up against the local `@tino/aws` and `@tino/core` packages via `file:` links.
-
-## the actual deploy
-
-```sh
-cd infra-tino
-pulumi up
-```
-
-First deploy takes 5–10 minutes (creating KMS, DynamoDB, ECR, the ECS cluster, the ALB). The image is built locally and pushed to ECR as part of the Pulumi run.
-
-When it finishes, Pulumi prints `consoleUrl` — that's where you go to configure the rest.
-
-## Google OAuth
-
-The console is protected by Google Sign-In. You need an OAuth 2.0 client of type "Web application" in the [GCP console](https://console.cloud.google.com/apis/credentials).
-
-**Authorized redirect URIs** must match the protocol the console runs on:
-
-| Mode | Redirect URI |
+| Requirement | Notes |
 |---|---|
-| Local dev | `http://localhost:3001/api/auth/callback/google` |
-| Deployed, no `consoleDomain` | `http://<alb-dns>/api/auth/callback/google` |
-| Deployed, with `consoleDomain` | `https://<consoleDomain>/api/auth/callback/google` |
+| Kubernetes | Any cluster; the chart pins a single replica (Socket Mode + singleton indexer). |
+| Postgres + pgvector ≥ 0.7 | Everything lives here: config, users, identities, encrypted credentials, chat history, better-auth tables, and the knowledge base (`halfvec(3072)` + HNSW). |
+| Slack app in Socket Mode | Bot + app tokens. Add the OAuth client id/secret to enable the per-user `connect` flow. |
+| A model provider | Azure OpenAI, OpenAI, or Anthropic — chosen in the console Setup page. |
+| Vertex AI credentials *(optional)* | Only for knowledge-base embeddings. Without them the KB stays off and everything else works. |
 
-If you set `consoleDomain` after the first deploy, **update the GCP redirect URI** before users hit the new URL — Google will reject the callback otherwise.
+## Secrets the container expects
 
-For the no-`consoleDomain` case the ALB DNS name is auto-generated (`tino-alb-1234567890.us-east-1.elb.amazonaws.com`-shaped), so the redirect URI changes if you destroy and re-create the stack.
+Supplied via `existingSecret` or `secretEnv` (the chart renders a Secret):
 
-## HTTPS with a custom domain
+- `DATABASE_URL` — Postgres connection string
+- `LOCAL_DEV_CRYPTO_KEY` — master key encrypting per-user credentials at rest. **Changing it invalidates every stored credential.**
+- `CONNECT_SECRET` — signs the personal Slack connect links the bot DMs out
+- `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET` — console sign-in + Gmail/Calendar
 
-By default the console runs on HTTP at the ALB's auto-generated DNS name. Browsers show a "Not Secure" warning, OAuth tokens travel in plaintext, and the console itself shows a banner telling you about it.
+Redirect URIs to register on the Google OAuth client:
+`https://<host>/api/auth/callback/google` and `https://<host>/api/oauth/google/callback`.
+For Slack add `https://<host>/api/oauth/slack/callback` plus the user token
+scopes listed in [`gcp.md`](gcp.md).
 
-To deploy with HTTPS:
+## Ports and health
 
-1. Create a public Route53 hosted zone for your apex domain (e.g. `example.com`). Note the zone ID.
-2. Edit `infra-tino/index.ts`:
-
-   ```ts
-   const tino = new TinoService("tino", {
-     // …existing args…
-     consoleDomain: "tino.example.com",
-     hostedZoneId: "Z0123456789ABCDEFGHIJ",
-   });
-   ```
-
-3. Run `pulumi up`. The component creates an ACM certificate, validates it via DNS, attaches it to a 443 listener on the ALB, and adds a Route53 alias record pointing at the ALB.
-4. **Update the Google OAuth redirect URI** to `https://tino.example.com/api/auth/callback/google`.
-
-Both `consoleDomain` and `hostedZoneId` are required together — the component throws if you pass one without the other (see `tino-service.ts` validation block).
-
-## deploying code changes
-
-```sh
-cd infra-tino
-pulumi up
-```
-
-The `@pulumi/docker-build` provider rebuilds the image, pushes it to ECR, and the ECS service picks up the new digest. New task starts in ~30 seconds.
-
-## viewing logs
-
-```sh
-aws logs tail /ecs/tino --follow
-```
-
-(`tino` is the resource prefix — see [`migration.md`](migration.md) if you're on an older `tino-tino` deployment.)
-
-## audit retention
-
-Audit log retention defaults to 90 days. Override via `auditRetentionDays` on `TinoServiceArgs` — the value is passed to the container as `AUDIT_RETENTION_DAYS` and used by the DynamoDB audit logger to set TTL on each entry (`packages/aws/src/audit/dynamo.ts:53`).
-
-## destroying the stack
-
-```sh
-cd infra-tino
-pulumi destroy
-```
-
-The DynamoDB table has `deletionProtectionEnabled: true` (`tino-service.ts:387`) — `pulumi destroy` will fail until you disable deletion protection in the AWS console. This is intentional: the table holds your audit trail and runtime config.
-
-## troubleshooting
-
-- **`pulumi up` throws "HIPAA compliance requires a signed BAA"** — run `pulumi config set tino:baaAcknowledged true` after verifying the BAA in AWS Artifact.
-- **Google sign-in returns `redirect_uri_mismatch`** — the redirect URI registered in GCP doesn't match the protocol/domain. See "Google OAuth" above.
-- **ECS task keeps stopping** — `aws logs tail /ecs/tino` will show the underlying error. Most often: missing `DYNAMODB_TABLE_NAME` env var (only happens if you've manually edited the task definition) or a `ResourceNotFoundException` for the table (which means the table name doesn't match the env var — see `migration.md`).
-- **"Not Secure" banner in the console** — set `consoleDomain` and re-deploy. See "HTTPS with a custom domain" above.
+The container serves on **8080** (`PORT`, driven by `service.targetPort`) and
+exposes `GET /api/health` for liveness/readiness. On GKE, keep the serving port
+in the L7 health-check firewall rule — see the gotcha in [`gcp.md`](gcp.md).

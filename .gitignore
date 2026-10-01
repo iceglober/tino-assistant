@@ -10,3 +10,8 @@ secrets.json
 tino.deploy.json
 .agent/
 
+.turbo/
+.cache/
+.serena/
+.opencode/
+.claude/settings.local.json

@@ -1,4 +1,4 @@
-import { createContext, type JSX, type ReactNode, useContext, useRef, useState } from "react";
+import { createContext, type JSX, type ReactNode, useCallback, useContext, useMemo, useRef, useState } from "react";
 
 export type ToastLevel = "ok" | "err" | "";
 
@@ -30,12 +30,14 @@ export function ToastProvider({ children }: { children: ReactNode }): JSX.Elemen
   });
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const hide = (): void => {
+  // Stable identities: pages list `toast` as an effect dependency, and a new
+  // object per render would re-run their loads after every toast.
+  const hide = useCallback((): void => {
     if (timerRef.current) clearTimeout(timerRef.current);
     setState((s) => ({ ...s, visible: false }));
-  };
+  }, []);
 
-  const show: ToastApi["show"] = (msg, level = "", undoFn = null) => {
+  const show = useCallback<ToastApi["show"]>((msg, level = "", undoFn = null) => {
     if (timerRef.current) clearTimeout(timerRef.current);
     setState({ msg, level, undoFn, visible: true });
     timerRef.current = setTimeout(
@@ -44,7 +46,8 @@ export function ToastProvider({ children }: { children: ReactNode }): JSX.Elemen
       },
       undoFn ? 5000 : 2500,
     );
-  };
+  }, []);
+  const api = useMemo(() => ({ show, hide }), [show, hide]);
 
   const handleUndo = (): void => {
     if (state.undoFn) state.undoFn();
@@ -52,7 +55,7 @@ export function ToastProvider({ children }: { children: ReactNode }): JSX.Elemen
   };
 
   return (
-    <ToastContext.Provider value={{ show, hide }}>
+    <ToastContext.Provider value={api}>
       {children}
       <div id="toast" className={state.visible ? `show ${state.level}` : ""} role="status" aria-live="polite">
         <span id="toast-msg">{state.msg}</span>

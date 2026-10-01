@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { toSlackMrkdwn } from "../../src/slack/mrkdwn.js";
+import { toSlackMrkdwn } from "../../src/infrastructure/driving/slack/mrkdwn.js";
 
 describe("toSlackMrkdwn", () => {
   test("plain text passes through unchanged", () => {

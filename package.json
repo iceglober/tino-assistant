@@ -5,26 +5,21 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "bun run --filter @tino/core build && bun run --filter @tino/aws build && bun run --filter @tino/cli build",
-    "start": "PERSISTENCE_ADAPTER=sqlite bun packages/core/src/index.ts",
-    "start:full": "bun packages/core/src/index.ts",
-    "dev": "PERSISTENCE_ADAPTER=sqlite bun --watch packages/core/src/index.ts",
+    "build": "bun run --filter @tino/core build",
+    "start": "PERSISTENCE_ADAPTER=sqlite bun packages/core/src/bootstrap/main.ts",
+    "start:full": "bun packages/core/src/bootstrap/main.ts",
+    "dev": "PERSISTENCE_ADAPTER=sqlite bun --watch packages/core/src/bootstrap/main.ts",
+    "dev:pg": "PERSISTENCE_ADAPTER=postgres DATABASE_URL=postgres://tino:tino@localhost:5433/tino bun --watch packages/core/src/bootstrap/main.ts",
     "test": "bun run --filter '*' test",
     "typecheck": "bun run --filter '*' typecheck",
     "lint": "bun run --filter '*' lint",
     "lint:fix": "biome check --write .",
-    "deploy": "bun run --filter @tino/aws deploy",
-    "deploy:app": "bash scripts/deploy.sh",
-    "tino": "bun run --filter @tino/cli start"
+    "deploy:gcp": "bash scripts/gcp-deploy.sh"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.15"
   },
   "overrides": {
     "typescript": "^6.0.3"
-  },
-  "dependencies": {
-    "@ai-sdk/mcp": "^1.0.43",
-    "@modelcontextprotocol/sdk": "^1.29.0"
   }
 }

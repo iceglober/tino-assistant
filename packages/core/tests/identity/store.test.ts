@@ -2,8 +2,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { IdentityLinkConflictError, createSqliteIdentityStore, createSqliteUserStore } from "../../src/identity/store.js";
-import type { Identity, TinoUser } from "../../src/identity/types.js";
+import { IdentityLinkConflictError, createSqliteIdentityStore, createSqliteUserStore } from "../../src/infrastructure/driven/identity/store.js";
+import type { Identity, TinoUser } from "../../src/domain/types.js";
 
 // ─── Temp-file management ─────────────────────────────────────────────────────
 //

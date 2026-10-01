@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createAuth } from "../../src/server/middleware/auth.js";
-import type { AppLogger } from "../../src/slack/app.js";
+import { Database } from "bun:sqlite";
+import { createAuth } from "../../src/infrastructure/driving/http/auth.js";
+import type { Logger as AppLogger } from "../../src/ports/outbound.js";
 
 /**
  * Regression test for wave 1, item 1.3 (gap #7):
@@ -13,7 +14,7 @@ import type { AppLogger } from "../../src/slack/app.js";
  * configured. This test locks in the warning so future refactors don't drop it
  * (e.g. by reverting to `crypto.randomUUID()` without a log line).
  *
- * Test target: `packages/core/src/server/middleware/auth.ts:40-49`.
+ * Test target: `packages/core/src/infrastructure/driving/http/auth.ts:40-49`.
  *
  * Mocks: `AppLogger` is stubbed with `vi.fn()` spies; the better-auth backing
  * database is `:memory:` (bun:sqlite native in-memory mode) so the test
@@ -51,7 +52,7 @@ describe("createAuth — BETTER_AUTH_SECRET warning (gap #7)", () => {
       googleClientId: "test-client-id",
       googleClientSecret: "test-client-secret",
       baseUrl: "http://localhost:3000",
-      dbPath: ":memory:",
+      database: new Database(":memory:"),
       logger,
     });
 
@@ -70,7 +71,7 @@ describe("createAuth — BETTER_AUTH_SECRET warning (gap #7)", () => {
       googleClientId: "test-client-id",
       googleClientSecret: "test-client-secret",
       baseUrl: "http://localhost:3000",
-      dbPath: ":memory:",
+      database: new Database(":memory:"),
       logger,
     });
 
@@ -85,7 +86,7 @@ describe("createAuth — BETTER_AUTH_SECRET warning (gap #7)", () => {
         googleClientId: "test-client-id",
         googleClientSecret: "test-client-secret",
         baseUrl: "http://localhost:3000",
-        dbPath: ":memory:",
+        database: new Database(":memory:"),
       }),
     ).resolves.toBeDefined();
   });

@@ -1,0 +1,101 @@
+# Default values for the tino chart.
+#
+# Tino MUST run as a single replica: Slack Socket Mode load-balances events
+# across connections (two pods = randomly split conversations), and the
+# knowledge-base indexer assumes a singleton. The chart pins replicas: 1 and
+# uses strategy Recreate; do not scale it.
+
+image:
+  # Override with your registry/repo. KayN uses Artifact Registry; self-hosters
+  # typically build from the repo Dockerfile and push wherever they like.
+  repository: ghcr.io/iceglober/tino
+  tag: ""            # defaults to .Chart.AppVersion
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+# The public URL users will reach the console on (drives OAuth redirect URLs
+# and 0.0.0.0 binding). REQUIRED for any real install.
+consoleBaseUrl: "http://localhost:8080"
+
+# Restrict console sign-in to one email domain (empty = no restriction).
+allowedEmailDomain: ""
+
+env: {}
+  # Extra plain env vars, e.g.:
+  # GOOGLE_VERTEX_PROJECT: my-project     # knowledge-base embeddings (Vertex)
+  # GOOGLE_VERTEX_LOCATION: us-central1
+  # LOG_LEVEL: debug
+
+# Secrets. Either reference an existing Secret carrying these keys, or supply
+# values inline (secretEnv) and the chart renders a Secret for you.
+# Required keys: DATABASE_URL, LOCAL_DEV_CRYPTO_KEY (credential-encryption
+# master key), CONNECT_SECRET. Optional: GOOGLE_OAUTH_CLIENT_ID/SECRET
+# (console sign-in), GOOGLE_APPLICATION_CREDENTIALS-mounted key for Vertex on
+# non-GCP clusters.
+existingSecret: ""
+secretEnv: {}
+  # DATABASE_URL: postgres://tino:pw@my-postgres:5432/tino
+  # LOCAL_DEV_CRYPTO_KEY: <openssl rand -hex 32>
+  # CONNECT_SECRET: <openssl rand -hex 32>
+  # GOOGLE_OAUTH_CLIENT_ID: ...
+  # GOOGLE_OAUTH_CLIENT_SECRET: ...
+
+service:
+  type: ClusterIP
+  port: 80
+  # 8080 deliberately: GKE's generated L7 health-check firewall rule
+  # (k8s-fw-l7--*) allows 8080 out of the box. A non-standard port there means
+  # load-balancer health checks silently can't reach the pod → permanent 502s
+  # after the first pod replacement. The container reads PORT, so this drives it.
+  targetPort: 8080
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts: []
+    # - host: tino.example.com
+    #   paths: [{ path: /, pathType: Prefix }]
+  tls: []
+
+serviceAccount:
+  create: true
+  name: ""
+  # e.g. GKE Workload Identity:
+  # annotations:
+  #   iam.gke.io/gcp-service-account: tino-run@PROJECT.iam.gserviceaccount.com
+  annotations: {}
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    memory: 1Gi
+
+podAnnotations: {}
+podSecurityContext: {}
+securityContext: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# Sidecars appended verbatim to the pod (e.g. cloud-sql-proxy on GKE).
+extraContainers: []
+
+# Arbitrary extra manifests rendered with the release (e.g. GKE
+# ManagedCertificate, ExternalSecret). Strings are templated.
+extraManifests: []
+
+# Dev-grade bundled Postgres (pgvector). NOT for production — single instance,
+# no backups, no tuning. Use an external DATABASE_URL for anything real.
+postgresql:
+  enabled: false
+  image: pgvector/pgvector:pg16
+  auth:
+    username: tino
+    password: tino
+    database: tino
+  storage: 5Gi
+  storageClassName: ""

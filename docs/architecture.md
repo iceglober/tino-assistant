@@ -4,145 +4,184 @@ How tino is put together. Read this before changing anything load-bearing.
 
 ## principles
 
-1. **The console is the only configuration interface.** No env vars for runtime config; every credential, model ID, and capability setting lives in the config store and is read live.
-2. **Every config change takes effect immediately.** Hot-reload is the default; restart is the failure mode.
-3. **One process does everything.** The Slack bot, the agent runtime, the scheduler, and the console all run in a single Node process. Less coordination, fewer failure modes.
-4. **Security is enforced in code, not in policy.** Every claim in the README points at a file/line that proves it.
+1. **Ports and adapters, strictly.** `domain/` and `application/` depend only on `ports/`. Every SDK, driver, and framework lives in `infrastructure/`. If a use-case imports `ai`, `hono`, `@slack/bolt`, or `pg`, that's a bug.
+2. **The console is the only configuration interface.** No env vars for runtime config; credentials, model choice, and KB tuning live in the config store and are read live.
+3. **Config changes take effect without a restart.** `refreshRuntime()` rebuilds the model and toolset in place; the driving adapters hold a stable facade.
+4. **One process does everything.** Slack bot, agent runtime, KB indexer, and console in a single process — and exactly one replica of it.
 
-## packages
+## layout
 
-The repo is a pnpm workspace with three packages:
+Everything is `packages/core`. (`@tino/aws` and `@tino/cli` were deleted when
+Tino moved from AWS/Pulumi to GKE/Helm on 2026-07-25 — see git history.)
 
-### `@tino/core` — [`packages/core/`](../packages/core)
+```
+packages/core/src/
+├── domain/              pure: types, system prompt, KB chunking + scoring,
+│                        MCP rules (tool naming, URL guard)
+├── application/         use-cases: assistant, sender resolution, kb-indexer,
+│                        kb-synthesizer (chunks → facts + themes)
+├── ports/               inbound.ts (Assistant, SenderResolver)
+│                        outbound.ts (everything the app needs from the world)
+├── infrastructure/
+│   ├── driving/         slack/ (Bolt socket mode), http/ (Hono, better-auth, routes)
+│   ├── driven/          model/ tools/ mcp/ persistence/ identity/ crypto/ kb/
+│   └── security/        connect-token (signed personal OAuth links)
+├── console-app/         React SPA (Login, Setup, Chat, Knowledge, Tools, Users)
+└── bootstrap/main.ts    composition root
+```
 
-The runtime. Slack handlers, the agent loop, persistence interfaces, the console server, the SPA, the scheduler, the capability registry. Has no AWS-specific code outside dynamic imports — `@tino/aws` is loaded only when `PERSISTENCE_ADAPTER=dynamodb`.
+## the interesting boundaries
 
-Top-level layout:
+**The LLM is behind a port.** `ChatModel.reply()` takes a system prompt,
+history, the user's text, and an opaque tool handle; the AI SDK's `generateText`
+agent loop exists only in `infrastructure/driven/model/chat-model.ts`.
+`ConversationMessage` and `Tools` are `unknown` to the domain — it shuttles them
+between the conversation log and the model without inspecting them, which is
+what keeps the SDK out of the inner layers. (`ChatModel.describe` is the one
+window in: it returns a message's role and plain text, for recall.)
 
-- `src/index.ts` — process entry; wires persistence, registry, Slack, scheduler, console.
-- `src/agent/` — Claude/Bedrock client, agent loop, history store interface.
-- `src/audit/` — audit logger interface (`logger.ts`) + in-memory implementation (`memory.ts`).
-- `src/capabilities/` — capability schema, registry, migration from env vars, per-capability config (GitHub, Linear, Slack, etc.).
-- `src/console-app/` — Vite + React SPA. Builds to `dist/console-app/`; served by the Hono server.
-- `src/persistence/` — abstract stores (`HistoryStore`, `TaskStore`, `PreferencesStore`, `ConfigStore`) + SQLite implementations + the `createPersistence` factory.
-- `src/scheduler/` — cron-style task runner.
-- `src/server/` — Hono routes (auth, config, capabilities, compliance, health, reload, admin, users).
-- `src/slack/` — Bolt app construction, DM handler, proactive DM helper.
-- `src/tools/` — concrete tool implementations (CloudWatch, GitHub, Google, Linear, Slack, preferences, tasks).
+**Tools are built per reply, in labelled groups.** See "who may see what"
+below. MCP connections are pooled per server config and reaped when idle; a
+server that fails to connect in 10s is skipped for a minute, so one dead server
+never stalls a reply. Credentials are decrypted per reply, never cached across
+turns — so a just-completed `connect` works on the very next message.
 
-### `@tino/aws` — [`packages/aws/`](../packages/aws)
+## who may see what
 
-AWS-specific implementations. Imported lazily by core when running on DynamoDB; imported directly by user Pulumi projects via the `TinoService` component.
+Every piece of context carries a `WhoCanSee` label, and every reply has
+`Readers`. A reply may only use context every reader is allowed to see —
+`readersMaySee(readers, whoCanSee)` in `domain/who-can-see.ts`, the one rule
+everything goes through.
 
-- `src/pulumi/tino-service.ts` — the `TinoService` Pulumi component. Provisions VPC config, KMS, DynamoDB, ECR, ECS cluster + task + service, ALB + target group, IAM, CloudWatch logs, optional ACM/Route53 for HTTPS, optional VPC Flow Logs for SOC 2. ~1000 lines, intentionally one file because the resource graph is the unit of comprehension.
-- `src/persistence/dynamo/` — DynamoDB-backed implementations of every store (history, tasks, preferences, config) plus the table client. Single-table design (`pk` + `sk` + `gsi1`).
-- `src/audit/dynamo.ts` — DynamoDB-backed audit logger. TTL-based retention, default 90 days.
-- `src/encryption/` — KMS helpers.
-
-Exports:
-- `@tino/aws` — re-exports `TinoService`.
-- `@tino/aws/persistence` — `createDynamoPersistence(env, logger)` for `@tino/core`'s factory.
-- `@tino/aws/audit` — `createDynamoAuditLogger(table, retentionSeconds)`.
-- `@tino/aws/pulumi` — Pulumi-only re-exports.
-- `@tino/aws/encryption` — encryption helpers.
-
-### `@tino/cli` — [`packages/cli/`](../packages/cli)
-
-The `tino init` and `tino deploy` wizards. Generates Pulumi projects, walks operators through compliance setup, writes `tino.deploy.json`.
-
-## persistence
-
-Two adapters, one interface (see [`packages/core/src/persistence/factory.ts`](../packages/core/src/persistence/factory.ts)):
-
-| Adapter | When to use | What it backs |
-|---|---|---|
-| SQLite | Local dev | `./tino.db` for all stores; in-memory audit logger (entries lost on restart). |
-| DynamoDB | Production | One table for every store + the audit logger. TTL on audit + history. KMS-encrypted with the component's CMK. |
-
-The factory returns a single `Persistence` object containing all stores including the audit logger. The audit logger is co-located with the adapter that owns the underlying table — no second round of `if (adapter === 'dynamodb')` branching.
-
-### the single-table layout
-
-DynamoDB uses one table with `pk` (partition key) + `sk` (sort key) and one GSI (`gsi1pk` + `gsi1sk`). Every store reads/writes the same table with disjoint key prefixes:
-
-| Store | `pk` pattern | `sk` pattern |
-|---|---|---|
-| Conversation history | `HISTORY#<userId>` | `<msgId>` |
-| Tasks | `TASK#<userId>` | `<taskId>` |
-| Preferences | `PREF#<userId>` | `<key>` |
-| Config | `CONFIG` | `<key>` |
-| Audit | `AUDIT#<paddedTs>#<userId>` | `AUDIT` |
-
-This is documented in `packages/aws/src/persistence/dynamo/` and `packages/aws/src/audit/dynamo.ts:4`.
-
-## tools and capabilities
-
-A **tool** is a function the LLM can call. A **capability** is a bundle of related tools plus the credentials and config they need. Examples:
-
-| Capability | Tools |
+| label | means |
 |---|---|
-| GitHub | `searchGitHub`, `readGitHubFile`, `commentOnGitHub`, … |
-| Linear | `searchLinear`, `createLinearIssue`, … |
-| Google (Calendar + Gmail) | `getCalendarEvents`, `sendEmail`, … |
-| Slack reading | `searchSlackMessages`, `readSlackThread` |
-| CloudWatch | `queryCloudWatchLogs` |
+| `everyoneInWorkspace` | any member of the company (never outsiders) |
+| `membersOfChannel(C)` | members of #C; `insidersOnly` if it also drew on workspace sources |
+| `onlyUser(U)` | U alone |
+| `onlyUserInChannel(U, C)` | U alone, and only while they're in #C |
+| `nobody` | unknown or unresolvable — never shown |
 
-Capability config schemas live in [`packages/core/src/capabilities/`](../packages/core/src/capabilities). The registry ([`registry.ts`](../packages/core/src/capabilities/registry.ts)) reads the config store at startup, instantiates only the capabilities with valid credentials, and registers their tools with the agent. On `POST /api/reload/capabilities` it does the same again — mutating the live `tools` map so the agent picks up changes without process restart.
+**Readers** (`application/readers.ts`): a Slack DM or the web chat is read by
+the asker alone, who "is in" every channel Slack says they're in. A channel
+reply is read by the channel; `includesOutsiders` when it's Slack Connect or has
+guests (`infrastructure/driven/slack/channel-directory.ts`). If Slack can't
+describe a channel, outsiders are assumed. The admin setting
+`slack.channelMentions = asker` treats a mention as read by the asker alone.
 
-## the scheduler
+**Tools** (`infrastructure/driven/tools/provider.ts`) come in groups, each
+labelled: Gmail/Calendar, the user's Slack messages, their knowledge
+(`kb_search_mine`, `kb_what_you_know`) and personal MCP servers are
+`onlyUser`; public channels, workspace knowledge (`kb_search_workspace`,
+`kb_what_the_workspace_knows`) and workspace MCP servers an admin marked
+shareable are `everyoneInWorkspace`; `slack_read_this_channel` /
+`slack_read_this_thread` are `membersOfChannel(C)`, locked to the channel tino
+was asked in. Groups the readers may not see are never built.
 
-Background task runner — cron-style. Invoked with the same agent runtime and the same tools, but the result is posted to the owner's Slack DM via the proactive-DM helper instead of returned in a response.
+**The conversation log** (`ConversationLog`, table `conversation_message`)
+stores every message with the label of its reply: the place it was asked,
+narrowed by every tool group that contributed (`strictestOf`). Two uses:
+- *this thread's history* — filtered by the rule, a whole reply at a time, so a
+  thread shared by several people only shows each reader what they may see;
+- *recall* — the asker's recent messages from their other conversations that
+  these readers may see, quoted in the system prompt. It runs one way: a DM
+  recalls a channel thread the person is in; a channel never recalls a DM.
 
-Tasks are stored in DynamoDB (or SQLite). The scheduler polls every minute and dispatches due tasks. See [`packages/core/src/scheduler/`](../packages/core/src/scheduler) and `findWork` callbacks in `index.ts`.
+**Moving to a narrower audience** is the `continue_in_dm` tool, offered only
+when others read the reply. It takes no input. After the channel reply is
+saved, the asker's original message is answered again as a DM with their full
+context and sent to them; nothing from that answer returns to the channel.
 
-## the agent loop
+`strictestOf` is property-tested: combining two labels never lets anyone see the
+result who couldn't see both inputs (`tests/domain/who-can-see.test.ts`).
 
-[`packages/core/src/agent/run.ts`](../packages/core/src/agent/run.ts) is one function: take a model, history, tools, user ID, and prompt → return text. It loops on tool calls until the model produces a final response or hits a tool-call limit.
+**Persistence is dual-adapter.** `PERSISTENCE_ADAPTER=sqlite` (local dev,
+bun:sqlite) or `postgres` (production, Cloud SQL + pgvector). Every store has
+both implementations behind the same port; contract tests run the same
+assertions against each, with the Postgres suites gated on `TEST_DATABASE_URL`.
 
-Every tool call is recorded in the audit log with action `tool_call`, the tool name, the input parameter **keys** only (never values — values can contain PII), duration, and status (`success`, `error`, `denied`).
+**Per-user credentials are envelope-encrypted.** AES-256-GCM with a
+`(userId, capabilityId, fieldName)` context bound as AAD, so ciphertext can't be
+replayed across users, capabilities, or fields.
 
-## the console server
+## the knowledge base
 
-Hono. One Hono app composes route modules:
+Two scopes: **`workspace`** is what the company can see (public Slack channels)
+and **`private`** is one person's own DMs, private channels, and mail. Rows
+stored `scope='user'` before 2026-07-25 are rewritten by a migration in
+`kb/schema.ts`; nothing else in the codebase should say "user scope".
 
-- `routes/auth.ts` — Better Auth + Google sign-in middleware.
-- `routes/config.ts` — config store CRUD.
-- `routes/capabilities.ts` — capability metadata, toggle endpoint.
-- `routes/compliance.ts` — the HIPAA dashboard.
-- `routes/health.ts` — liveness.
-- `routes/reload.ts` — `POST /api/reload/{slack,capabilities}`.
-- `routes/admin.ts` — `POST /api/admin/restart` (graceful shutdown — ECS spins a new task).
-- `routes/users.ts` — admin user management.
-- `routes/bedrock.ts` — model validation endpoint.
+Three layers, most digested first:
 
-The SPA is built by Vite into `dist/console-app/` and served as static assets. The auth middleware serves the SPA shell only on authenticated routes; the `/login` page is public.
+| table | holds | built by |
+|---|---|---|
+| `kb_facts` | atomic claims with evidence, dates, confidence | `application/kb-synthesizer.ts` |
+| `kb_topics` | labelled clusters of chunks | same, via k-means + a labelling call |
+| `kb_chunks` | raw indexed excerpts, `halfvec(3072)` + HNSW cosine | `kb/sources/*` |
 
-## hot-reload
+**Who can read what a channel contains is decided by Slack, not by us.**
+`conversations.history` only works for channels the token's owner has joined —
+for bot tokens *and* user tokens. The bot is typically in very few channels, so
+public channels are indexed by whichever **user** principal is a member, written
+to the `workspace` scope (`user_id=''`) so everyone shares one copy. DMs, group
+DMs, and private channels stay in that person's `private` scope. A short
+recheck window in the shared cursor stops N users re-reading the same channel
+every cycle. (`search.messages` needs no membership, which is why the live
+Slack tools can see channels the KB has not indexed.)
 
-Two reload mechanisms:
+The indexer is a single 5-minute loop started **once** in `bootstrap/main.ts`.
+It must not live in `refreshRuntime()`, which re-runs on every Slack reconnect
+and would leak timers. Per-cycle API budgets, rotating round-robin over
+principals, and mark-and-continue isolation: one revoked token pauses that
+principal only. Every principal's slice writes a row to `kb_cycle_events`,
+which is what the console's activity view reads.
 
-1. **Slack reconnect** (`reconnectSlack()` in `index.ts`) — re-reads tokens from the config store, tears down the existing Bolt app and scheduler, constructs fresh ones. Module-scoped `let` for `app`/`postDm`/`stopScheduler` so the reload route AND the SIGTERM handler can both reach the lifecycle state.
-2. **Capability reload** (`registry.reload()`) — re-reads capability config, instantiates new tools, mutates `registry.tools` in place. The agent loop reads `registry.tools` on every dispatch, so changes appear on the next message.
+Distillation runs at the end of each cycle over chunks with `synthesized_at IS
+NULL`, newest first. Two failure modes are handled separately and it matters
+that they are: a batch that fails three times is consumed so it cannot block
+newer chunks behind it, while **six** failures in a row — any batch — halt the
+principal for an hour, because a misconfigured model would otherwise eat the
+entire backlog three chunks at a time. Facts merge on
+`(scope, userId, kind, key)` where `key` is a stemmed word-set slug of the
+claim, so re-observing something extends its date range and evidence instead of
+duplicating it.
 
-## security posture
+**Don't learn from.** Each person keeps a list of exclusions in their own
+terms per source (`domain/dont-learn-from.ts`) — for Gmail, labels (by id) and
+searches (typed, or converted from one of their Gmail filters). The Gmail
+source leaves excluded searches out of its query, skips messages carrying an
+excluded label, and, whenever the list's fingerprint changes, asks Gmail which
+already-indexed messages match and calls `KnowledgeStore.forgetSourceItems`:
+excerpts deleted, facts resting only on them deleted, other facts' evidence
+trimmed. Gmail's filters decide what's noise; tino honours the labels they
+leave rather than re-running their rules.
 
-Pinned to the code that enforces it:
+Retrieval blends similarity with recency —
+`score = (1−w)·sim + w·exp(−age/τ)` (`w=0.3`, `τ=30d`, both config-tunable),
+with `w` forced to 0 when the caller passes explicit date filters. The
+`kb_search_mine` and `kb_what_you_know` tools bind the user id in their
+closures, so they can never be pointed at another user's data by the model.
 
-- DynamoDB at rest: KMS-encrypted with the component's CMK (`tino-service.ts:386`).
-- CloudWatch Logs at rest: KMS-encrypted (`tino-service.ts:400`).
-- DynamoDB deletion protection: `pulumi destroy` fails until you flip it off in the console (`tino-service.ts:387`).
-- IAM task role: scoped to the table ARN + region-scoped Bedrock when GDPR is on; no wildcard resources except `ecr:GetAuthorizationToken` (which AWS requires) (`tino-service.ts:614-670`).
-- ECR images: scan-on-push enabled, mutable tags so `:latest` works for the docker-build provider (`tino-service.ts:507`).
-- Container: `readonlyRootFilesystem: true`; `/tmp` is an ephemeral volume (`tino-service.ts:858`).
-- ECS Exec: off by default; flip via `enableExec: true` (`tino-service.ts:914`).
-- VPC Flow Logs (SOC 2): on by default; encrypted with the same CMK; 1-minute granularity (`tino-service.ts:445`).
-- Audit retention: TTL-based; default 90 days (`packages/aws/src/audit/dynamo.ts:22`).
-- HIPAA BAA gate: `pulumi up` throws unless `tino:baaAcknowledged=true` (`tino-service.ts:262`).
+## request paths
 
-See [`security.md`](security.md) for the full enforcement matrix.
+**Slack DM / web chat / channel mention** → driving adapter (Bolt or
+`POST /api/chat`) → `SenderResolver` for Slack → `Assistant.handleMessage(user,
+text, surface)` → readers → allowed tool groups + this thread's visible history
++ recall → `ChatModel.reply` (tool loop) → labelled messages into the log →
+reply (Slack: mrkdwn, edited into the "thinking…" placeholder) → optional DM
+follow-up. Slack DMs and the web chat share one thread per person.
 
-## the deploy pipeline
+**Console** → Hono + better-auth (Google sign-in), admin-only config and user
+management, MCP server management, per-user OAuth connect flows, KB
+status/browse, and the static SPA. Members read configuration only as booleans
+via `/api/status`.
 
-`tino init` (or hand-written Pulumi project) → `pulumi up` → ALB DNS or `consoleDomain`. The CLI generates `infra-tino/index.ts` that imports `TinoService`. `@pulumi/docker-build` builds the image as part of `pulumi up`, pushes to ECR, the task definition references the digest, and ECS picks up the new task.
+## users and access
 
-There's no separate "build the image, push, then update task def" dance — the docker-build provider is part of the Pulumi resource graph.
+`tino_user` (role `admin`/`member`, status `active`/`invited`/`suspended`) is
+the account; `identity` maps `(slack|google|email, externalId)` to it. Slack
+senders resolve by Slack id, then by Slack profile email; console sessions by
+email. The join policy (`org.accessControl.mode`: org-domain or invite-only) is
+read the same way on both paths. Invites create an `invited` account that
+activates on first contact from either side. See
+[`user-journeys.md`](user-journeys.md) for the flows and
+[`security.md`](security.md) for the boundaries.

@@ -1,133 +1,247 @@
 import { type JSX, useEffect, useState } from "react";
+import { PageShell } from "../components/PageShell.js";
 import { RevealInput } from "../components/RevealInput.js";
 import { SaveButton, useSaveState } from "../components/SaveButton.js";
 import { useToast } from "../hooks/useToast.js";
-import type { Session } from "../lib/api.js";
-import { getConfig, putConfig, reloadSlack } from "../lib/api.js";
+import { getConfig, putConfig, reloadAuth, reloadSlack } from "../lib/api.js";
 
+/**
+ * One-screen setup (admins only): Slack tokens, the model provider + model, and
+ * (optionally) the Google OAuth client used for sign-in and Gmail/Calendar. Writes the exact config keys the backend reads, then hot-reloads
+ * Slack (which also rebuilds the model) so edits take effect without a restart.
+ */
+
+interface ProviderField {
+  key: string;
+  label: string;
+  placeholder?: string;
+  hint?: string;
+  secret?: boolean;
+  optional?: boolean;
+}
+
+const PROVIDERS: Record<string, { label: string; note?: string; fields: ProviderField[] }> = {
+  azure: {
+    label: "Azure OpenAI",
+    fields: [
+      { key: "azure.apiKey", label: "API Key", secret: true, placeholder: "your Azure OpenAI key" },
+      {
+        key: "azure.resourceName",
+        label: "Resource Name",
+        placeholder: "my-openai-resource",
+        hint: "From your endpoint: https://<name>.openai.azure.com",
+      },
+      {
+        key: "azure.deployment",
+        label: "Deployment (model)",
+        placeholder: "gpt-4o",
+        hint: "The deployment name you created, not the base model id.",
+      },
+      { key: "azure.apiVersion", label: "API Version", placeholder: "leave blank for the default", optional: true },
+    ],
+  },
+  openai: {
+    label: "OpenAI",
+    fields: [
+      { key: "openai.apiKey", label: "API Key", secret: true, placeholder: "sk-…" },
+      { key: "openai.model", label: "Model", placeholder: "gpt-4o" },
+    ],
+  },
+  anthropic: {
+    label: "Anthropic",
+    fields: [
+      { key: "anthropic.apiKey", label: "API Key", secret: true, placeholder: "sk-ant-…" },
+      { key: "anthropic.model", label: "Model", placeholder: "claude-sonnet-4-5" },
+    ],
+  },
+};
+const PROVIDER_IDS = Object.keys(PROVIDERS);
+/** Mirrors CHANNEL_MENTION_POLICY_KEY in domain/types.ts. */
+const MENTIONS_KEY = "slack.channelMentions";
+
+const SLACK_FIELDS: ProviderField[] = [
+  {
+    key: "slack.botToken",
+    label: "Bot Token",
+    secret: true,
+    placeholder: "xoxb-…",
+    hint: "Slack → your app → OAuth & Permissions → Bot User OAuth Token",
+  },
+  {
+    key: "slack.appToken",
+    label: "App Token",
+    secret: true,
+    placeholder: "xapp-…",
+    hint: "Slack → your app → Basic Information → App-Level Tokens (connections:write)",
+  },
+  {
+    key: "slack.clientId",
+    label: "OAuth Client ID",
+    placeholder: "1234.5678",
+    optional: true,
+    hint: "For per-user connect: Basic Information → App Credentials. Add redirect URL <your-url>/api/oauth/slack/callback + User Token Scopes (im/mpim/groups/channels history+read, search:read).",
+  },
+  { key: "slack.clientSecret", label: "OAuth Client Secret", secret: true, optional: true },
+];
+const GOOGLE_FIELDS: ProviderField[] = [
+  {
+    key: "google.oauth.clientId",
+    label: "OAuth Client ID",
+    placeholder: "…apps.googleusercontent.com",
+    hint: "Enables Google sign-in to this console and lets people connect Gmail + Calendar. Redirect URIs: <your-url>/api/auth/callback/google and <your-url>/api/oauth/google/callback.",
+    optional: true,
+  },
+  { key: "google.oauth.clientSecret", label: "OAuth Client Secret", secret: true, optional: true },
+];
+
+/** The env var a setting falls back to: google.oauth.clientId → GOOGLE_OAUTH_CLIENT_ID. Mirrors the server. */
+const envNameOf = (key: string): string =>
+  key
+    .replace(/\./g, "_")
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .toUpperCase();
+
+/**
+ * `onBack` is set when Setup is opened from the app (tino already works); it is
+ * absent on first run, where finishing Setup is the only way forward.
+ * `fromEnvironment` lists settings the deployment already provides.
+ */
 export function Setup({
-  session,
   onComplete,
+  onBack,
+  fromEnvironment = [],
 }: {
-  session?: Session | null;
   onComplete: () => void;
+  onBack?: () => void;
+  fromEnvironment?: string[];
 }): JSX.Element {
   const toast = useToast();
-
-  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const save = useSaveState();
   const [loaded, setLoaded] = useState(false);
-  const [slackBanner, setSlackBanner] = useState(false);
-  const [oauthBanner, setOauthBanner] = useState(false);
+  const [provider, setProvider] = useState<string>("azure");
+  const [values, setValues] = useState<Record<string, string>>({});
+  /** The deployment provides this setting and the form leaves it blank (so it's kept). */
+  const providedByDeployment = (key: string): boolean => fromEnvironment.includes(key) && !values[key]?.trim();
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
-  // Step 1: Slack bot + app tokens
-  const [botToken, setBotToken] = useState("");
-  const [appToken, setAppToken] = useState("");
-  const [botErr, setBotErr] = useState("");
-  const [appErr, setAppErr] = useState("");
-  const slackSave = useSaveState();
-
-  // Step 2: Slack OAuth credentials
-  const [clientId, setClientId] = useState("");
-  const [clientSecret, setClientSecret] = useState("");
-  const [clientIdErr, setClientIdErr] = useState("");
-  const [clientSecretErr, setClientSecretErr] = useState("");
-  const oauthSave = useSaveState();
-
-  // Step 3: Agent
-  const [modelId, setModelId] = useState("");
-  const [modelErr, setModelErr] = useState("");
-  const basicsSave = useSaveState();
+  const val = (key: string): string => values[key] ?? "";
+  const setVal = (key: string, v: string): void => setValues((prev) => ({ ...prev, [key]: v }));
 
   useEffect(() => {
     void (async () => {
       try {
         const entries = await getConfig();
-        const get = (k: string): string => {
-          const e = entries.find((x) => x.key === k);
-          if (!e) return "";
+        const parsed: Record<string, string> = {};
+        for (const e of entries) {
           try {
-            return String(JSON.parse(e.value));
+            parsed[e.key] = String(JSON.parse(e.value));
           } catch {
-            return e.value;
+            parsed[e.key] = e.value;
           }
-        };
-        const hasSlack = !!(get("slack.botToken") && get("slack.appToken"));
-        const hasOAuth = !!(get("slack.clientId") && get("slack.clientSecret"));
-        if (hasSlack && hasOAuth) setStep(3);
-        else if (hasSlack) setStep(2);
+        }
+        setValues(parsed);
+        if (parsed["model.provider"] && PROVIDERS[parsed["model.provider"]]) setProvider(parsed["model.provider"]);
       } catch {
-        /* first boot — start at step 1 */
+        /* first boot — empty form */
       }
       setLoaded(true);
     })();
   }, []);
 
-  const validateSlackToken = (val: string, prefix: string): string => {
-    if (!val.trim()) return "Token is required.";
-    if (!val.trim().startsWith(prefix)) return `Token must start with ${prefix}`;
-    return "";
-  };
-
-  const onConnectSlack = async (): Promise<void> => {
-    const be = validateSlackToken(botToken, "xoxb-");
-    const ae = validateSlackToken(appToken, "xapp-");
-    setBotErr(be);
-    setAppErr(ae);
-    if (be || ae) return;
-
-    const ok = await slackSave.run(async () => {
-      await putConfig("slack.botToken", botToken.trim());
-      await putConfig("slack.appToken", appToken.trim());
-      await putConfig("capability.slack", JSON.stringify({ enabled: true, credentials: {}, settings: {} }));
-    });
-    if (ok) {
-      setTimeout(() => {
-        setSlackBanner(true);
-        setStep(2);
-      }, 600);
-    } else {
-      toast.show("Could not save tokens", "err");
+  const validate = (): boolean => {
+    const e: Record<string, string> = {};
+    const bot = val("slack.botToken").trim();
+    const app = val("slack.appToken").trim();
+    if (!bot && !providedByDeployment("slack.botToken")) e["slack.botToken"] = "Bot token is required.";
+    else if (bot && !bot.startsWith("xoxb-")) e["slack.botToken"] = "Must start with xoxb-";
+    if (!app && !providedByDeployment("slack.appToken")) e["slack.appToken"] = "App token is required.";
+    else if (app && !app.startsWith("xapp-")) e["slack.appToken"] = "Must start with xapp-";
+    for (const f of PROVIDERS[provider].fields) {
+      if (!f.optional && !val(f.key).trim() && !providedByDeployment(f.key)) e[f.key] = `${f.label} is required.`;
     }
+    setErrors(e);
+    return Object.keys(e).length === 0;
   };
 
-  const onSaveOAuth = async (): Promise<void> => {
-    const idErr = !clientId.trim() ? "Client ID is required." : "";
-    const secErr = !clientSecret.trim() ? "Client Secret is required." : "";
-    setClientIdErr(idErr);
-    setClientSecretErr(secErr);
-    if (idErr || secErr) return;
+  const onSave = async (): Promise<void> => {
+    if (!validate()) return;
 
-    const ok = await oauthSave.run(async () => {
-      await putConfig("slack.clientId", clientId.trim());
-      await putConfig("slack.clientSecret", clientSecret.trim());
-    });
-    if (ok) {
-      setTimeout(() => {
-        setOauthBanner(true);
-        setStep(3);
-      }, 600);
-    } else {
-      toast.show("Could not save credentials", "err");
-    }
-  };
-
-  const onSaveBasics = async (): Promise<void> => {
-    const me = !modelId.trim() ? "Model ID is required" : "";
-    setModelErr(me);
-    if (me) return;
-
-    const ok = await basicsSave.run(async () => {
-      await putConfig("bedrock.modelId", modelId.trim());
-    });
-    if (ok) {
-      const reload = await reloadSlack();
-      if (!reload.ok) {
-        toast.show(`Config saved, but Slack connect failed: ${reload.error ?? "unknown"}`, "err");
+    const ok = await save.run(async () => {
+      // ALL slack fields — incl. the optional OAuth client id/secret (the old
+      // explicit two-key save silently dropped them).
+      for (const f of SLACK_FIELDS) {
+        if (val(f.key).trim()) await putConfig(f.key, val(f.key).trim());
       }
-      setTimeout(() => onComplete(), 700);
-    } else {
-      toast.show("Could not save config", "err");
+      await putConfig(MENTIONS_KEY, val(MENTIONS_KEY) === "asker" ? "asker" : "workspace");
+      await putConfig("model.provider", provider);
+      for (const f of PROVIDERS[provider].fields) {
+        if (val(f.key).trim()) await putConfig(f.key, val(f.key).trim());
+      }
+      for (const f of GOOGLE_FIELDS) {
+        if (val(f.key).trim()) await putConfig(f.key, val(f.key).trim());
+      }
+    });
+
+    if (!ok) {
+      toast.show("Could not save settings", "err");
+      return;
     }
+    const reload = await reloadSlack();
+    if (!reload.ok) toast.show(`Saved, but Slack connect failed: ${reload.error ?? "unknown"}`, "err");
+    if (GOOGLE_FIELDS.some((f) => val(f.key).trim())) {
+      const auth = await reloadAuth();
+      if (!auth.ok) toast.show(`Saved, but Google sign-in reload failed: ${auth.error ?? "unknown"}`, "err");
+    }
+    setTimeout(() => onComplete(), 600);
+  };
+
+  const renderField = (f: ProviderField): JSX.Element => {
+    const fromDeployment = providedByDeployment(f.key);
+    const placeholder = fromDeployment ? "set by the deployment — leave blank to keep it" : f.placeholder;
+    return (
+      <div className="field-group" key={f.key}>
+        <label className="field-label" htmlFor={f.key}>
+          {f.label}
+          {fromDeployment ? (
+            <span className="field-label-mono"> from deployment</span>
+          ) : f.optional ? (
+            <span className="field-label-mono"> optional</span>
+          ) : null}
+        </label>
+        {f.secret ? (
+          <RevealInput
+            id={f.key}
+            value={val(f.key)}
+            onChange={(v) => setVal(f.key, v)}
+            placeholder={placeholder}
+            ariaLabel={f.label}
+            invalid={!!errors[f.key]}
+          />
+        ) : (
+          <input
+            id={f.key}
+            className="field-input"
+            type="text"
+            value={val(f.key)}
+            onChange={(e) => setVal(f.key, e.target.value)}
+            placeholder={placeholder}
+            autoComplete="off"
+            aria-invalid={errors[f.key] ? "true" : undefined}
+          />
+        )}
+        {fromDeployment ? (
+          <div className="field-hint">
+            Already configured through the deployment's <code>{envNameOf(f.key)}</code>. Entering a value here overrides
+            it.
+          </div>
+        ) : f.hint ? (
+          <div className="field-hint">{f.hint}</div>
+        ) : null}
+        <div className={`field-error${errors[f.key] ? " visible" : ""}`} role="alert" aria-live="polite">
+          {errors[f.key] ?? ""}
+        </div>
+      </div>
+    );
   };
 
   if (!loaded) {
@@ -142,290 +256,93 @@ export function Setup({
     );
   }
 
+  const form = (
+    <div className="setup-screen">
+      {onBack ? null : (
+        <>
+          <h1 className="setup-heading">set up tino.</h1>
+          <p className="setup-lead">connect Slack, pick a model provider, and (optionally) Google.</p>
+        </>
+      )}
+
+      <h2 className="setup-section">Slack</h2>
+      {SLACK_FIELDS.map(renderField)}
+
+      <div className="field-group">
+        <label className="field-label" htmlFor="channel-mentions">
+          When @mentioned in a channel, tino may use
+        </label>
+        <select
+          id="channel-mentions"
+          className="field-input"
+          value={val(MENTIONS_KEY) === "asker" ? "asker" : "workspace"}
+          onChange={(e) => setVal(MENTIONS_KEY, e.target.value)}
+        >
+          <option value="workspace">only what the channel can see (recommended)</option>
+          <option value="asker">the asker's private context too</option>
+        </select>
+        <div className="field-hint">
+          {val(MENTIONS_KEY) === "asker"
+            ? "Channel replies can draw on the asker's email, calendar, DMs, private knowledge, personal MCP servers, and private conversations. Only an instruction to the model keeps private details out of a reply the whole channel reads — and anyone in the channel can post text that tries to override it."
+            : "Channel replies use only what everyone in the channel may see: public channels, the channel itself, the workspace knowledge base, and workspace MCP servers marked as shareable. In channels with people from outside the company, only the channel itself. For anything private, tino answers in the asker's DM."}
+        </div>
+      </div>
+
+      <h2 className="setup-section">Model</h2>
+      <div className="field-group">
+        <label className="field-label" htmlFor="model-provider">
+          Provider
+        </label>
+        <select
+          id="model-provider"
+          className="field-input"
+          value={provider}
+          onChange={(e) => {
+            setProvider(e.target.value);
+            setErrors({});
+          }}
+        >
+          {PROVIDER_IDS.map((id) => (
+            <option key={id} value={id}>
+              {PROVIDERS[id].label}
+            </option>
+          ))}
+        </select>
+        {PROVIDERS[provider].note ? <div className="field-hint">{PROVIDERS[provider].note}</div> : null}
+      </div>
+      {PROVIDERS[provider].fields.map(renderField)}
+
+      <h2 className="setup-section">Google sign-in + Gmail (optional)</h2>
+      {GOOGLE_FIELDS.map(renderField)}
+
+      <div className="btn-row">
+        <SaveButton
+          state={save.state}
+          idleLabel="save & connect"
+          savingLabel="saving…"
+          savedLabel="saved"
+          errorLabel="failed — retry"
+          size="large"
+          onClick={onSave}
+        />
+      </div>
+    </div>
+  );
+
+  if (onBack) {
+    return (
+      <PageShell title="settings" onBack={onBack}>
+        {form}
+      </PageShell>
+    );
+  }
   return (
     <div className="page">
       <div className="logo-block">
         <img src="/assets/tino-logo.png" alt="tino" className="logo-img" />
         <span className="logo-wordmark">tino</span>
       </div>
-
-      {step === 1 && (
-        <div className="setup-screen">
-          <h1 className="setup-heading">connect Slack.</h1>
-          <p className="setup-lead">
-            tino lives in Slack. give it your bot and app tokens and it'll be ready to take requests in under a minute.
-          </p>
-
-          <div className="field-group">
-            <label className="field-label" htmlFor="slack-bot-token">
-              Bot Token <span className="field-label-mono">xoxb-…</span>
-            </label>
-            <RevealInput
-              id="slack-bot-token"
-              value={botToken}
-              onChange={setBotToken}
-              placeholder="xoxb-…"
-              ariaLabel="Slack Bot Token"
-              ariaDescribedBy="slack-bot-token-hint slack-bot-token-error"
-              invalid={!!botErr}
-              onBlur={() => setBotErr(validateSlackToken(botToken, "xoxb-"))}
-            />
-            <div className="field-hint" id="slack-bot-token-hint">
-              Slack → your app → OAuth &amp; Permissions → Bot User OAuth Token
-            </div>
-            <div
-              className={`field-error${botErr ? " visible" : ""}`}
-              id="slack-bot-token-error"
-              role="alert"
-              aria-live="polite"
-            >
-              {botErr}
-            </div>
-          </div>
-
-          <div className="field-group">
-            <label className="field-label" htmlFor="slack-app-token">
-              App Token <span className="field-label-mono">xapp-…</span>
-            </label>
-            <RevealInput
-              id="slack-app-token"
-              value={appToken}
-              onChange={setAppToken}
-              placeholder="xapp-…"
-              ariaLabel="Slack App Token"
-              ariaDescribedBy="slack-app-token-hint slack-app-token-error"
-              invalid={!!appErr}
-              onBlur={() => setAppErr(validateSlackToken(appToken, "xapp-"))}
-            />
-            <div className="field-hint" id="slack-app-token-hint">
-              Slack → your app → Basic Information → App-Level Tokens (connections:write scope)
-            </div>
-            <div
-              className={`field-error${appErr ? " visible" : ""}`}
-              id="slack-app-token-error"
-              role="alert"
-              aria-live="polite"
-            >
-              {appErr}
-            </div>
-          </div>
-
-          <div className="btn-row">
-            <SaveButton
-              state={slackSave.state}
-              idleLabel="connect Slack"
-              savingLabel="connecting…"
-              savedLabel="connected"
-              errorLabel="failed — retry"
-              size="large"
-              onClick={onConnectSlack}
-            />
-          </div>
-
-          <hr className="divider" />
-          <div className="help-block">
-            <p>need help finding your tokens?</p>
-            <ol className="step-list" style={{ marginTop: 8 }}>
-              <li>
-                <span className="step-num">1</span>
-                <span>
-                  Go to{" "}
-                  <a href="https://api.slack.com/apps" target="_blank" rel="noopener noreferrer">
-                    api.slack.com/apps
-                  </a>{" "}
-                  and open your app
-                </span>
-              </li>
-              <li>
-                <span className="step-num">2</span>
-                <span>OAuth &amp; Permissions → Bot User OAuth Token (xoxb-)</span>
-              </li>
-              <li>
-                <span className="step-num">3</span>
-                <span>
-                  Basic Information → App-Level Tokens → create one with <code>connections:write</code>
-                </span>
-              </li>
-            </ol>
-          </div>
-        </div>
-      )}
-
-      {step === 2 && (
-        <div className="setup-screen">
-          <div className={`success-banner${slackBanner ? " visible" : ""}`} role="status">
-            <span className="success-banner-icon">&#10003;</span>
-            <div className="success-banner-body">
-              <div className="success-banner-title">Slack connected.</div>
-              <div className="success-banner-sub">tino can now receive messages from your workspace.</div>
-            </div>
-          </div>
-
-          <h1 className="setup-heading">enable Slack sign-in.</h1>
-          <p className="setup-lead">
-            each user will connect their Slack account via OAuth. enter your app's credentials so tino can manage that flow.
-          </p>
-
-          <div className="field-group">
-            <label className="field-label" htmlFor="slack-client-id">
-              Client ID
-            </label>
-            <input
-              id="slack-client-id"
-              className="field-input"
-              type="text"
-              value={clientId}
-              onChange={(e) => setClientId(e.target.value)}
-              placeholder="1234567890.1234567890"
-              autoComplete="off"
-              aria-describedby="slack-client-id-hint slack-client-id-error"
-              aria-invalid={clientIdErr ? "true" : undefined}
-              onBlur={() => setClientIdErr(!clientId.trim() ? "Client ID is required." : "")}
-            />
-            <div className="field-hint" id="slack-client-id-hint">
-              Slack → your app → Basic Information → App Credentials → Client ID
-            </div>
-            <div
-              className={`field-error${clientIdErr ? " visible" : ""}`}
-              id="slack-client-id-error"
-              role="alert"
-              aria-live="polite"
-            >
-              {clientIdErr}
-            </div>
-          </div>
-
-          <div className="field-group">
-            <label className="field-label" htmlFor="slack-client-secret">
-              Client Secret
-            </label>
-            <RevealInput
-              id="slack-client-secret"
-              value={clientSecret}
-              onChange={setClientSecret}
-              placeholder="abcdef1234…"
-              ariaLabel="Slack Client Secret"
-              ariaDescribedBy="slack-client-secret-hint slack-client-secret-error"
-              invalid={!!clientSecretErr}
-              onBlur={() => setClientSecretErr(!clientSecret.trim() ? "Client Secret is required." : "")}
-            />
-            <div className="field-hint" id="slack-client-secret-hint">
-              Slack → your app → Basic Information → App Credentials → Client Secret
-            </div>
-            <div
-              className={`field-error${clientSecretErr ? " visible" : ""}`}
-              id="slack-client-secret-error"
-              role="alert"
-              aria-live="polite"
-            >
-              {clientSecretErr}
-            </div>
-          </div>
-
-          <div className="btn-row">
-            <SaveButton
-              state={oauthSave.state}
-              idleLabel="save credentials"
-              savingLabel="saving…"
-              savedLabel="saved"
-              errorLabel="failed — retry"
-              size="large"
-              onClick={onSaveOAuth}
-            />
-            <button className="btn-ghost" type="button" onClick={() => setStep(1)}>
-              ← back
-            </button>
-          </div>
-
-          <hr className="divider" />
-          <div className="help-block">
-            <p>before continuing, make sure your Slack app has:</p>
-            <ol className="step-list" style={{ marginTop: 8 }}>
-              <li>
-                <span className="step-num">1</span>
-                <span>
-                  <strong>Redirect URL</strong> added under OAuth &amp; Permissions:{" "}
-                  <code>{`${window.location.origin}/api/oauth/slack/callback`}</code>
-                </span>
-              </li>
-              <li>
-                <span className="step-num">2</span>
-                <span>
-                  <strong>User Token Scopes</strong>: <code>search:read</code>, <code>im:read</code>,{" "}
-                  <code>im:history</code>, <code>mpim:read</code>, <code>mpim:history</code>
-                </span>
-              </li>
-              <li>
-                <span className="step-num">3</span>
-                <span>
-                  <strong>Bot Token Scope</strong>: <code>users:read.email</code> (for identity matching)
-                </span>
-              </li>
-            </ol>
-          </div>
-        </div>
-      )}
-
-      {step === 3 && (
-        <div className="setup-screen">
-          <div className={`success-banner${oauthBanner ? " visible" : ""}`} role="status">
-            <span className="success-banner-icon">&#10003;</span>
-            <div className="success-banner-body">
-              <div className="success-banner-title">Slack OAuth configured.</div>
-              <div className="success-banner-sub">users can now connect their Slack accounts.</div>
-            </div>
-          </div>
-
-          <h1 className="setup-heading">configure the agent.</h1>
-          <p className="setup-lead">
-            which Bedrock model should tino use?
-          </p>
-
-          <div className="field-group">
-            <label className="field-label" htmlFor="bedrock-model-id">
-              Bedrock Model ID
-            </label>
-            <input
-              id="bedrock-model-id"
-              className="field-input"
-              type="text"
-              value={modelId}
-              onChange={(e) => setModelId(e.target.value)}
-              placeholder="us.anthropic.claude-sonnet-4-5-20251101-v1:0"
-              autoComplete="off"
-              aria-describedby="bedrock-model-hint bedrock-model-error"
-              aria-invalid={modelErr ? "true" : undefined}
-              onBlur={() => setModelErr(!modelId.trim() ? "Model ID is required" : "")}
-            />
-            <div className="field-hint" id="bedrock-model-hint">
-              The cross-region inference profile ID from your AWS Bedrock console.
-            </div>
-            <div
-              className={`field-error${modelErr ? " visible" : ""}`}
-              id="bedrock-model-error"
-              role="alert"
-              aria-live="polite"
-            >
-              {modelErr}
-            </div>
-          </div>
-
-          <div className="btn-row">
-            <SaveButton
-              state={basicsSave.state}
-              idleLabel="finish setup"
-              savingLabel="saving…"
-              savedLabel="done"
-              errorLabel="failed — retry"
-              size="large"
-              onClick={onSaveBasics}
-            />
-            <button className="btn-ghost" type="button" onClick={() => setStep(2)}>
-              ← back
-            </button>
-          </div>
-        </div>
-      )}
+      {form}
     </div>
   );
 }

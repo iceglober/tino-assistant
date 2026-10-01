@@ -1,84 +1,106 @@
-/**
- * Wave 3 (v2.2) — § 3.1 server route tests for DELETE /api/users/:userId.
- *
- * The route deprovisions a user by:
- *   1. setting `user.<id>.status` to "deactivated"
- *   2. deleting every `user.<id>.capability.*` token entry
- *   3. audit-logging a `user_deprovisioned` action
- *
- * We assert against the in-memory ConfigStore + memory audit logger to
- * verify all three side effects fire, including that token entries
- * belonging to OTHER users are not touched.
- */
-
 import { Hono } from "hono";
-import { describe, expect, it } from "vitest";
-import { createMemoryAuditLogger } from "../../src/audit/memory.js";
-import { createUsersRoutes } from "../../src/server/routes/users.js";
-import { fakeAdmin, makeConfigStore, noopLogger } from "./_helpers.js";
+import { describe, expect, it, vi } from "vitest";
+import type { TinoUser } from "../../src/domain/types.js";
+import type { AuthVariables } from "../../src/infrastructure/driving/http/auth.js";
+import { createUserRoutes } from "../../src/infrastructure/driving/http/routes/users.js";
+import type { IdentityStore, UserCapabilityStore, UserStore } from "../../src/ports/outbound.js";
+import { makeConfigStore, noopLogger } from "./_helpers.js";
 
-function mountUsers(opts: Parameters<typeof createUsersRoutes>[0]): Hono {
-  const app = new Hono();
-  app.use("*", fakeAdmin());
-  app.route("/api/users", createUsersRoutes(opts));
-  return app;
+const u = (o: Partial<TinoUser>): TinoUser => ({
+  id: "id",
+  email: "x@acme.io",
+  role: "member",
+  status: "active",
+  slackUserId: null,
+  createdAt: 1,
+  updatedAt: 1,
+  ...o,
+});
+
+function setup(initial: TinoUser[], as: { id: string; role: "admin" | "member" } = { id: "a1", role: "admin" }) {
+  const byId = new Map(initial.map((x) => [x.id, x]));
+  const users: UserStore = {
+    create: vi.fn(async (x: TinoUser) => {
+      byId.set(x.id, x);
+      return x;
+    }),
+    get: vi.fn(async (id: string) => byId.get(id) ?? null),
+    getByEmail: vi.fn(async (e: string) => [...byId.values()].find((x) => x.email === e) ?? null),
+    list: vi.fn(async () => [...byId.values()]),
+    update: vi.fn(async (id: string, patch: Partial<TinoUser>) => {
+      const next = { ...(byId.get(id) as TinoUser), ...patch };
+      byId.set(id, next);
+      return next;
+    }),
+  };
+  const identities: IdentityStore = { resolve: vi.fn(), link: vi.fn(), listForUser: vi.fn() };
+  const caps = { list: vi.fn(async () => []) } as unknown as UserCapabilityStore;
+  const config = makeConfigStore();
+  const app = new Hono<{ Variables: AuthVariables }>();
+  app.use("*", async (c, next) => {
+    c.set("user", { ...as, email: "a@acme.io", status: "active" });
+    await next();
+  });
+  app.route(
+    "/api/users",
+    createUserRoutes({ users, identities, userCapabilities: caps, config, logger: noopLogger() }),
+  );
+  const call = (method: string, path: string, body?: unknown) =>
+    app.request(`/api/users${path}`, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  return { call, users, identities, config };
 }
 
-describe("DELETE /api/users/:userId", () => {
-  it("marks user deactivated, deletes their capability tokens, and audit-logs", async () => {
-    const config = makeConfigStore({
-      "user.U001.status": "active",
-      "user.U001.capability.github": { token: "ghp_user1" },
-      "user.U001.capability.linear": { token: "lin_user1" },
-      // A different user's token stays put.
-      "user.U002.capability.github": { token: "ghp_user2" },
-    });
-    const audit = createMemoryAuditLogger();
-    const app = mountUsers({ config, logger: noopLogger(), auditLogger: audit });
-
-    const res = await app.request("/api/users/U001", { method: "DELETE" });
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, userId: "U001", status: "deactivated" });
-
-    // Status flipped to deactivated.
-    const status = await config.get("user.U001.status");
-    expect(status).toBe(JSON.stringify("deactivated"));
-
-    // U001's capability entries are gone.
-    expect(await config.get("user.U001.capability.github")).toBeNull();
-    expect(await config.get("user.U001.capability.linear")).toBeNull();
-
-    // U002's entry is intact — we don't blast every user's tokens.
-    expect(await config.get("user.U002.capability.github")).not.toBeNull();
-
-    // Audit-logged.
-    const entries = await audit.query({ action: "user_deprovisioned" });
-    expect(entries).toHaveLength(1);
-    expect(entries[0]?.toolName).toBe("U001");
-    expect(entries[0]?.userId).toBe("console");
-    expect(entries[0]?.status).toBe("success");
+describe("/api/users", () => {
+  it("is admin-only", async () => {
+    const { call } = setup([], { id: "m1", role: "member" });
+    expect((await call("GET", "")).status).toBe(403);
   });
 
-  it("works when no audit logger is wired (no throw)", async () => {
-    const config = makeConfigStore({ "user.U001.capability.github": { token: "x" } });
-    const app = mountUsers({ config, logger: noopLogger(), auditLogger: undefined });
-
-    const res = await app.request("/api/users/U001", { method: "DELETE" });
-    expect(res.status).toBe(200);
-    expect(await config.get("user.U001.capability.github")).toBeNull();
+  it("invites a user as invited + links their email identity", async () => {
+    const { call, users, identities } = setup([u({ id: "a1", role: "admin" })]);
+    const res = await call("POST", "", { email: "New@Acme.io", role: "member" });
+    expect(res.status).toBe(201);
+    expect(((await res.json()) as { status: string }).status).toBe("invited");
+    expect(users.create).toHaveBeenCalledWith(expect.objectContaining({ email: "new@acme.io", status: "invited" }));
+    expect(identities.link).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: "email", externalId: "new@acme.io" }),
+    );
   });
 
-  it("decodes URL-encoded user ids", async () => {
-    const config = makeConfigStore({
-      "user.user@example.com.status": "active",
-    });
-    const app = mountUsers({ config, logger: noopLogger(), auditLogger: undefined });
+  it("rejects inviting an existing account", async () => {
+    const { call } = setup([u({ id: "a1", role: "admin", email: "a@acme.io" })]);
+    expect((await call("POST", "", { email: "a@acme.io" })).status).toBe(409);
+  });
 
-    const res = await app.request(`/api/users/${encodeURIComponent("user@example.com")}`, {
-      method: "DELETE",
+  it("won't demote or suspend the last active admin", async () => {
+    const { call } = setup([u({ id: "a1", role: "admin" }), u({ id: "m1" })]);
+    expect((await call("PATCH", "/a1", { role: "member" })).status).toBe(409);
+    expect((await call("PATCH", "/a1", { status: "suspended" })).status).toBe(409);
+  });
+
+  it("suspends a member and promotes another admin", async () => {
+    const { call } = setup([u({ id: "a1", role: "admin" }), u({ id: "m1" }), u({ id: "m2" })]);
+    expect(((await (await call("PATCH", "/m1", { status: "suspended" })).json()) as { status: string }).status).toBe(
+      "suspended",
+    );
+    expect(((await (await call("PATCH", "/m2", { role: "admin" })).json()) as { role: string }).role).toBe("admin");
+    // With two admins, demoting one is fine.
+    expect((await call("PATCH", "/a1", { role: "member" })).status).toBe(200);
+  });
+
+  it("sets the join policy", async () => {
+    const { call } = setup([u({ id: "a1", role: "admin" })]);
+    expect(await (await call("PUT", "/access", { mode: "org-domain", domain: "@Acme.io" })).json()).toEqual({
+      mode: "org-domain",
+      domain: "acme.io",
     });
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { userId: string };
-    expect(body.userId).toBe("user@example.com");
+    expect(((await (await call("PUT", "/access", { mode: "invite-only" })).json()) as { mode: string }).mode).toBe(
+      "invite-only",
+    );
+    expect((await call("PUT", "/access", { mode: "org-domain", domain: "nope" })).status).toBe(400);
   });
 });
