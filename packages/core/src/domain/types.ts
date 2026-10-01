@@ -22,6 +22,11 @@ export interface TinoUser {
   status: "active" | "invited" | "suspended";
   /** Denormalized pointer to the linked slack identity, or null. */
   slackUserId: string | null;
+  /**
+   * The org plugin's role (`owner` | `admin` | `member`) when the store knows
+   * it; `role` is its coarse form (owners are admins). Permission checks use this.
+   */
+  orgRole?: "owner" | "admin" | "member";
   createdAt: number;
   updatedAt: number;
 }
@@ -50,6 +55,14 @@ export class IdentityLinkConflictError extends Error {
   constructor(provider: IdentityProvider, externalId: string) {
     super(`identity (${provider}, ${externalId}) is already linked`);
     this.name = "IdentityLinkConflictError";
+  }
+}
+
+/** Raised when creating an org whose slug is taken. */
+export class OrgSlugTakenError extends Error {
+  constructor(slug: string) {
+    super(`org slug "${slug}" is taken`);
+    this.name = "OrgSlugTakenError";
   }
 }
 

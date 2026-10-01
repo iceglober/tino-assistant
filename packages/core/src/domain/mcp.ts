@@ -31,11 +31,8 @@ export interface McpServer {
   resultsVisibleTo: McpResultsVisibleTo;
 }
 
-/** Capability-store key for a server, under its owner (a user id or the workspace owner). */
+/** Capability-store key for a server, under its owner (a user id, or `org:<id>` for workspace servers). */
 export const mcpCapabilityId = (id: string): string => `mcp.${id}`;
-
-/** The synthetic owner id workspace servers are stored under. Never a real user id (those are UUIDs). */
-export const MCP_WORKSPACE_OWNER = "workspace";
 
 export function isValidMcpId(id: string): boolean {
   return /^[a-z0-9][a-z0-9-]{0,23}$/.test(id);

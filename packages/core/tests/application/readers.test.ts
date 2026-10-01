@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { readersFor } from "../../src/application/readers.js";
 import type { ChannelDirectory } from "../../src/ports/outbound.js";
-import { makeConfigStore, noopLogger } from "../server/_helpers.js";
+import { makeConfigStore, noopLogger } from "../_fakes.js";
 
 const asker = { id: "u1", slackUserId: "U1" };
 const channel = { kind: "channel" as const, channelId: "C1", threadTs: "1.0" };

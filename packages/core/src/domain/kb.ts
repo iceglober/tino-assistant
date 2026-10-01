@@ -190,7 +190,10 @@ export function chunkEmail(email: EmailInput, maxTokens = 600, overlapTokens = 6
       buf = estimateTokens(lastP) <= overlapTokens ? [lastP] : [];
     }
   }
-  if (buf.length > 0 && (chunks.length === 0 || buf.join("\n\n") !== chunks[chunks.length - 1]?.text.slice(-buf.join("\n\n").length))) {
+  if (
+    buf.length > 0 &&
+    (chunks.length === 0 || buf.join("\n\n") !== chunks[chunks.length - 1]?.text.slice(-buf.join("\n\n").length))
+  ) {
     flush();
   }
   return chunks;

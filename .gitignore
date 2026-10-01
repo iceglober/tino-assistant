@@ -1,8 +1,8 @@
 node_modules/
 .env
 .env.local
-*.db
-*.db-journal
+
+
 dist/
 .DS_Store
 *.log
@@ -15,3 +15,6 @@ tino.deploy.json
 .serena/
 .opencode/
 .claude/settings.local.json
+
+.data/
+**/.react-router/

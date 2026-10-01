@@ -1,25 +1,27 @@
 {
-  "name": "tino-assistant",
+  "name": "tino",
   "private": true,
+  "type": "module",
   "workspaces": [
+    "apps/*",
     "packages/*"
   ],
+  "packageManager": "bun@1.3.14",
   "scripts": {
-    "build": "bun run --filter @tino/core build",
-    "start": "PERSISTENCE_ADAPTER=sqlite bun packages/core/src/bootstrap/main.ts",
-    "start:full": "bun packages/core/src/bootstrap/main.ts",
-    "dev": "PERSISTENCE_ADAPTER=sqlite bun --watch packages/core/src/bootstrap/main.ts",
-    "dev:pg": "PERSISTENCE_ADAPTER=postgres DATABASE_URL=postgres://tino:tino@localhost:5433/tino bun --watch packages/core/src/bootstrap/main.ts",
+    "dev": "bun run --filter '@tino/server' --filter '@tino/web' dev",
+    "dev:server": "bun run --filter '@tino/server' dev",
+    "dev:web": "bun run --filter '@tino/web' dev",
+    "build": "bun run --filter '@tino/web' build",
+    "start": "bun run --filter '@tino/server' start",
     "test": "bun run --filter '*' test",
     "typecheck": "bun run --filter '*' typecheck",
-    "lint": "bun run --filter '*' lint",
-    "lint:fix": "biome check --write .",
-    "deploy:gcp": "bash scripts/gcp-deploy.sh"
+    "lint": "biome check .",
+    "lint:fix": "biome check --write ."
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.4.15"
-  },
-  "overrides": {
+    "@biomejs/biome": "^2.4.15",
+    "@types/bun": "^1.3.14",
+    "railway": "3.12.0",
     "typescript": "^6.0.3"
   }
 }

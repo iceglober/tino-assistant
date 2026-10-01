@@ -4,86 +4,68 @@
 
 # tino
 
-A personal AI assistant that lives in your Slack DMs and a small web console. It
-answers from *your* context: your Slack, your email, your calendar — using
-per-user OAuth, so it reads your private messages **with your own token**, never
-a bot token that can see everyone's.
+Your team's assistant in Slack, as a managed service. Teams sign up, connect
+Slack, Gmail and Google Calendar, and tino answers from *their* context — with
+per-person OAuth, so it reads each person's messages **with their own token**,
+never a bot token that can see everyone's.
 
-- **Slack + web chat** — DM the bot, @mention it in a channel, or use the console chat box.
-- **Per-user access** — each person connects their own Slack and Google; tools are built per user, per message.
-- **Knowledge bases** — a shared workspace KB (public channels) and a private per-user KB (your DMs, private channels, email), incrementally indexed and searched with semantic + **recency-weighted** ranking.
-- **It draws conclusions** — a distillation pass turns indexed history into durable facts (projects, open problems, commitments, decisions, people) each carrying the messages that back it, plus labelled themes. Browse both in the console; tino answers from them.
-- **MCP tools** — connect remote MCP servers from the console: workspace-wide with a shared token (admins) or personal with your own.
-- **User management** — invite people or let your whole domain join, promote admins, suspend access.
-- **Bring your own model** — Azure OpenAI, OpenAI, or Anthropic, chosen in the console.
+- **Slack + web chat** — DM the bot, @mention it in a channel, or chat on the web.
+- **Accounts and orgs** — sign up, create or join an org, invite your team, or let your email domain join.
+- **Bring your own OAuth clients** — each org connects its *own* Slack app (one click from a generated manifest) and its *own* Google client, so neither Google's restricted-scope audit nor Slack's non-Marketplace rate limits apply. Tino's own clients switch on per capability as they're approved. See [`docs/managed-service.md`](docs/managed-service.md).
+- **Bring your own model** — OpenAI, Anthropic or Azure OpenAI, with the org's own key.
+- **Knowledge bases** — a shared workspace KB and a private per-person KB, distilled into facts and themes, searched with recency-weighted ranking.
+- **Who may see what** — every reply uses only what all of its readers may see; private context never reaches a channel.
+- **MCP tools** — workspace servers (admins) and personal ones.
 
-## Deploy
+## Deploy (Railway)
 
-Tino ships as a **Helm chart** — one always-on container plus a Postgres
-database (pgvector for the knowledge base).
+Infrastructure is TypeScript in [`.railway/railway.ts`](.railway/railway.ts): one
+service from the `Dockerfile` and Railway Postgres 18 (pgvector included).
 
 ```sh
-helm install tino deploy/helm/tino \
-  --set consoleBaseUrl=https://tino.example.com \
-  --set secretEnv.DATABASE_URL=postgres://user:pw@host:5432/tino \
-  --set secretEnv.LOCAL_DEV_CRYPTO_KEY=$(openssl rand -hex 32) \
-  --set secretEnv.CONNECT_SECRET=$(openssl rand -hex 32)
+railway link
+bash scripts/railway-bootstrap.sh                 # generates ENCRYPTION_KEY + AUTH_SECRET, once
+TINO_DOMAIN=tino.example railway config plan
+TINO_DOMAIN=tino.example railway config apply
 ```
 
-Then open the console, sign in (the first user becomes admin — set
-`--set allowedEmailDomain=example.com` before exposing the URL), and
-fill in Setup: Slack tokens, a model provider + key, and the Google OAuth client
-if it isn't already in the environment.
-
-**Requirements**
-- Kubernetes + any Postgres with **pgvector ≥ 0.7** (or `--set postgresql.enabled=true` for a dev-grade bundled one).
-- A Slack app in **Socket Mode** (no public webhook needed).
-- Knowledge-base embeddings use Vertex AI — set `GOOGLE_VERTEX_PROJECT`/`LOCATION` with ADC or a mounted key. Without it the KB stays off and everything else works.
-
-> **The chart runs a single replica on purpose** (`replicas: 1`, `strategy: Recreate`).
-> Slack Socket Mode load-balances events across connections, so two pods split
-> conversations randomly; the KB indexer also assumes a singleton. Don't scale it.
-
-The reference deployment (GKE Autopilot + Cloud SQL + Workload Identity) is
-documented in [`docs/gcp.md`](docs/gcp.md), with provisioning and deploy scripts
-in [`scripts/`](scripts).
-
-## Documentation
-
-- [`docs/user-journeys.md`](docs/user-journeys.md) — first install, new users, everyday use, admin, MCP
-- [`docs/gcp.md`](docs/gcp.md) — the reference GKE deployment, end to end
-- [`docs/console.md`](docs/console.md) — using the web console
-- [`docs/architecture.md`](docs/architecture.md) — how tino is put together
-- [`docs/security.md`](docs/security.md) — access control, secrets, known gaps
-- [`CONTRIBUTING.md`](CONTRIBUTING.md) — local dev, tests, adding tools
+Then set `ORG_CREATORS` (production starts as a closed beta) and `RESEND_API_KEY`
+in the dashboard. Everything a customer configures lives in their org, not in
+the environment — see [`.env.example`](.env.example) for the operator's settings.
 
 ## Local development
 
 ```sh
-cp .env.example .env
 bun install
-bun run dev            # sqlite, zero dependencies (knowledge base off)
+bun run dev          # API on :3001 (PGlite, no database to install) + web on :5173
 ```
 
-For Postgres parity (required for KB work):
-
-```sh
-docker compose up -d postgres      # pgvector on :5433
-bun run dev:pg
-```
+Open http://localhost:5173, sign up (no email confirmation locally), create an
+org, and follow the setup checklist. To try Slack locally, expose :3001 with a
+tunnel and set `BASE_URL` to it before generating the Slack manifest.
 
 | Command | What it does |
 |---|---|
-| `bun run dev` / `dev:pg` | Start with sqlite / Postgres, watching for changes |
-| `bun run test` | vitest (`TEST_DATABASE_URL=…` also runs the Postgres contract suites) |
-| `bun run typecheck` | TypeScript check (no emit) |
-| `bun run deploy:gcp` | Cloud Build → Artifact Registry → `helm upgrade` |
+| `bun run dev` | API + web, both watching |
+| `bun run test` | every package's tests (Postgres suites run on PGlite — nothing to set up) |
+| `bun run typecheck` | TypeScript, every package |
+| `bun run lint` | Biome |
+| `bun run build` | build the web app into `apps/web/dist/client` |
 
-## Architecture in one paragraph
+## Layout
 
-A strict hexagon: `domain/` and `application/` depend only on `ports/`, and all
-I/O lives in `infrastructure/driving` (Slack, HTTP) and `infrastructure/driven`
-(model, tools, persistence, crypto, knowledge base). Even the LLM sits behind a
-`ChatModel` port — the AI SDK's agent loop exists in exactly one adapter.
-`bootstrap/main.ts` is the composition root. See
-[`docs/architecture.md`](docs/architecture.md).
+```
+apps/server         the process: HTTP API, Slack events, per-org runtimes, KB scheduler
+apps/web            React Router 8 SPA (Vite)
+packages/core       domain, use-cases and ports — no dependencies
+packages/contracts  the HTTP contract shared by server and web
+.railway/           infrastructure as code
+```
+
+## Documentation
+
+- [`docs/managed-service.md`](docs/managed-service.md) — the managed service: BYO vs managed OAuth, thresholds, tenancy, Railway
+- [`docs/user-journeys.md`](docs/user-journeys.md) — sign-up, org setup, members, everyday use, MCP
+- [`docs/architecture.md`](docs/architecture.md) — how tino is put together
+- [`docs/security.md`](docs/security.md) — access control, isolation, secrets, known gaps
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — dev loop, tests, where things go

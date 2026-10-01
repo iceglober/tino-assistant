@@ -13,6 +13,21 @@ const makeUser = (overrides: Partial<TinoUser> = {}): TinoUser => ({
   ...overrides,
 });
 
+/** A config fake whose typed reads go through the `get` mock, as the real stores do. */
+const makeConfig = (): SenderDeps["config"] => {
+  const config: SenderDeps["config"] = {
+    get: vi.fn().mockResolvedValue(null),
+    set: vi.fn(),
+    delete: vi.fn(),
+    list: vi.fn().mockResolvedValue([]),
+    getTyped: (async (key: string, fallback: unknown) => {
+      const raw = await config.get(key);
+      return raw === null ? fallback : JSON.parse(raw);
+    }) as SenderDeps["config"]["getTyped"],
+  };
+  return config;
+};
+
 const makeDeps = (overrides: Partial<SenderDeps> = {}): SenderDeps => ({
   resolver: {
     resolveSlack: vi.fn().mockResolvedValue(null),
@@ -26,13 +41,7 @@ const makeDeps = (overrides: Partial<SenderDeps> = {}): SenderDeps => ({
     list: vi.fn().mockResolvedValue([]),
     update: vi.fn(),
   },
-  config: {
-    get: vi.fn().mockResolvedValue(null),
-    set: vi.fn(),
-    delete: vi.fn(),
-    list: vi.fn().mockResolvedValue([]),
-    getTyped: vi.fn(),
-  },
+  config: makeConfig(),
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
   ...overrides,
 });
@@ -111,13 +120,20 @@ describe("createSenderResolver.resolveSlack", () => {
 
     const result = await createSenderResolver(deps).resolveSlack("U_NEWBIE");
     expect(result).toEqual({ ok: true, userId: "new-uuid" });
-    expect(deps.resolver.provisionFromSlack).toHaveBeenCalledWith("U_NEWBIE", { mode: "org-domain", orgDomain: "acme.io" });
+    expect(deps.resolver.provisionFromSlack).toHaveBeenCalledWith("U_NEWBIE", {
+      mode: "org-domain",
+      orgDomain: "acme.io",
+    });
   });
 
   it("never links an unverified sender to the lone account without a Slack link", async () => {
     const deps = makeDeps();
     fn(deps.config.get).mockImplementation(async (key: string) =>
-      key === "org.accessControl.mode" ? JSON.stringify("org-domain") : key === "org.accessControl.orgDomain" ? JSON.stringify("acme.io") : null,
+      key === "org.accessControl.mode"
+        ? JSON.stringify("org-domain")
+        : key === "org.accessControl.orgDomain"
+          ? JSON.stringify("acme.io")
+          : null,
     );
     fn(deps.resolver.provisionFromSlack).mockRejectedValue(new Error("domain_mismatch"));
     fn(deps.users.list).mockResolvedValue([makeUser({ id: "sole", slackUserId: null })]);
@@ -130,22 +146,36 @@ describe("createSenderResolver.resolveSlack", () => {
   it("zero users — rejects with the setup-needed message", async () => {
     const deps = makeDeps();
     fn(deps.config.get).mockImplementation(async (key: string) =>
-      key === "org.accessControl.mode" ? JSON.stringify("org-domain") : key === "org.accessControl.orgDomain" ? JSON.stringify("acme.io") : null,
+      key === "org.accessControl.mode"
+        ? JSON.stringify("org-domain")
+        : key === "org.accessControl.orgDomain"
+          ? JSON.stringify("acme.io")
+          : null,
     );
     fn(deps.resolver.provisionFromSlack).mockRejectedValue(new Error("unknown_user"));
     fn(deps.users.list).mockResolvedValue([]);
 
     const result = await createSenderResolver(deps).resolveSlack("U_FIRST");
-    expect(result).toEqual({ ok: false, message: "tino isn't set up yet. an admin needs to sign in at the console first." });
+    expect(result).toEqual({
+      ok: false,
+      message: "tino isn't set up yet. an admin needs to sign in at the console first.",
+    });
   });
 
   it("unknown user with non-matching email (and other users present) is rejected", async () => {
     const deps = makeDeps();
     fn(deps.config.get).mockImplementation(async (key: string) =>
-      key === "org.accessControl.mode" ? JSON.stringify("org-domain") : key === "org.accessControl.orgDomain" ? JSON.stringify("acme.io") : null,
+      key === "org.accessControl.mode"
+        ? JSON.stringify("org-domain")
+        : key === "org.accessControl.orgDomain"
+          ? JSON.stringify("acme.io")
+          : null,
     );
     fn(deps.resolver.provisionFromSlack).mockRejectedValue(new Error("unknown_user"));
-    fn(deps.users.list).mockResolvedValue([makeUser({ id: "a", slackUserId: "U_A" }), makeUser({ id: "b", slackUserId: "U_B" })]);
+    fn(deps.users.list).mockResolvedValue([
+      makeUser({ id: "a", slackUserId: "U_A" }),
+      makeUser({ id: "b", slackUserId: "U_B" }),
+    ]);
 
     const result = await createSenderResolver(deps).resolveSlack("U_OUTSIDER");
     expect(result).toEqual({

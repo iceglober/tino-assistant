@@ -4,13 +4,10 @@
  * `ConversationMessage` and `Tools` are opaque handles the domain shuttles
  * between adapters without inspecting them.
  */
-import type {
-  CapabilityConfig,
-  Identity,
-  IdentityProvider,
-  TinoUser,
-} from "../domain/types.js";
+
 import type { DontLearnFrom } from "../domain/dont-learn-from.js";
+import type { Org } from "../domain/org.js";
+import type { CapabilityConfig, Identity, IdentityProvider, TinoUser } from "../domain/types.js";
 import type { Readers, WhoCanSee } from "../domain/who-can-see.js";
 
 // ── Opaque handles ────────────────────────────────────────────────────────────
@@ -142,7 +139,61 @@ export interface ConfigStore {
   delete(key: string): Promise<boolean>;
 }
 
+// ── Orgs (tenants) ────────────────────────────────────────────────────────────
+
+/** Platform-wide org registry. Everything else is bound to one org. */
+export interface OrgStore {
+  /** Throws OrgSlugTakenError when the slug is in use. */
+  create(org: Org): Promise<Org>;
+  get(id: string): Promise<Org | null>;
+  getBySlug(slug: string): Promise<Org | null>;
+  /** The org whose Slack app is installed in this workspace. */
+  getBySlackTeam(teamId: string): Promise<Org | null>;
+  list(): Promise<Org[]>;
+  update(id: string, patch: Partial<Pick<Org, "name" | "status" | "slackTeamId">>): Promise<Org>;
+}
+
+/** One person's account in one org. */
+export interface Membership {
+  org: Org;
+  user: TinoUser;
+}
+
+/** An invitation to an org that hasn't been accepted yet. */
+export interface PendingInvitation {
+  id: string;
+  email: string;
+  role: "admin" | "member";
+  expiresAt: number;
+  invitedBy: string | null;
+}
+
+/**
+ * An org's open invitations. Creating and accepting them on the web goes
+ * through the auth provider (which checks permissions and the invitee's
+ * session); `claim` is for the one path with no session: a person who was
+ * invited by email and first shows up by DMing the bot from that address.
+ */
+export interface InvitationStore {
+  list(): Promise<PendingInvitation[]>;
+  /** The newest unexpired pending invitation for this address. */
+  pendingFor(email: string): Promise<PendingInvitation | null>;
+  /** Turn the pending invitation for this address into a membership; null if there is none. */
+  claim(email: string, name?: string): Promise<TinoUser | null>;
+}
+
+/** Cross-org lookups by email — the only reads that span orgs, used at sign-in. */
+export interface MembershipDirectory {
+  /** Every org this address has an account in (any status). */
+  byEmail(email: string): Promise<Membership[]>;
+  /** Orgs whose join policy admits this address by domain (and where they have no account). */
+  joinableByDomain(email: string): Promise<Org[]>;
+}
+
 // ── Users + identities ────────────────────────────────────────────────────────
+
+// UserStore, IdentityStore, ConfigStore and ConversationLog are bound to one org
+// by the composition root; their methods never take an org id.
 
 export interface UserStore {
   create(user: TinoUser): Promise<TinoUser>;
@@ -272,14 +323,7 @@ export interface KbBrowseItem {
 // ── Distilled knowledge ───────────────────────────────────────────────────────
 
 /** What a fact is *about* — browse groups by this, not by where it came from. */
-export type KbFactKind =
-  | "project"
-  | "person"
-  | "problem"
-  | "commitment"
-  | "decision"
-  | "preference"
-  | "fact";
+export type KbFactKind = "project" | "person" | "problem" | "commitment" | "decision" | "preference" | "fact";
 
 export const KB_FACT_KINDS: readonly KbFactKind[] = [
   "project",
@@ -408,7 +452,13 @@ export interface KnowledgeStore {
   ): Promise<{ excerptsRemoved: number; factsRemoved: number; factsTrimmed: number }>;
 
   getCursor(scope: KbScope, userId: string, source: string, stream: string): Promise<Record<string, unknown> | null>;
-  setCursor(scope: KbScope, userId: string, source: string, stream: string, state: Record<string, unknown>): Promise<void>;
+  setCursor(
+    scope: KbScope,
+    userId: string,
+    source: string,
+    stream: string,
+    state: Record<string, unknown>,
+  ): Promise<void>;
 
   getIndexState(scope: KbScope, userId: string, source: "slack" | "gmail"): Promise<KbIndexState | null>;
   setIndexState(state: KbIndexState): Promise<void>;
@@ -502,4 +552,3 @@ export interface CryptoAdapter {
   encrypt(plaintext: string, context: EncryptionContext): Promise<EnvelopeCiphertext>;
   decrypt(envelope: EnvelopeCiphertext, context: EncryptionContext): Promise<string>;
 }
-

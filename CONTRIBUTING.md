@@ -2,60 +2,72 @@
 
 ## dev loop
 
-Prerequisites: [Bun](https://bun.sh), plus Docker if you need Postgres.
+Prerequisite: [Bun](https://bun.sh) 1.3. Nothing else — the database is PGlite
+(Postgres + pgvector in WASM), stored in `./.data/pglite`.
 
 ```sh
-cp .env.example .env
 bun install
-bun run dev              # http://localhost:3001 — sqlite, knowledge base off
+bun run dev          # API on :3001, web on :5173 (proxies /api and /slack to the API)
 ```
 
-Sign up with email/password on localhost. The first account is the admin. Configure Slack and a model in Setup.
+Sign up on http://localhost:5173 — locally, emails aren't sent (links are logged)
+and confirmation isn't required. Create an org and follow its setup checklist.
 
-**Use a separate Slack app for dev.** Socket Mode spreads events across every connected process. With production tokens in `.env`, your laptop answers real users.
+For Slack, expose :3001 with a tunnel (e.g. `cloudflared tunnel --url http://localhost:3001`),
+set `BASE_URL` to the tunnel URL, restart, then generate the manifest from
+Settings → Slack. **Use a separate Slack app for dev** — it's per org anyway.
 
-For Postgres parity (needed for anything touching the knowledge base):
-
-```sh
-docker compose up -d postgres    # pgvector on :5433
-bun run dev:pg
-```
+To run against real Postgres instead: `docker compose up -d postgres` and
+`DATABASE_URL=postgres://tino:tino@localhost:5433/tino bun run dev`.
 
 ## checks
 
 ```sh
 bun run typecheck
-bun run test                                                   # vitest
-TEST_DATABASE_URL=postgres://tino:tino@localhost:5433/tino bun run test   # + Postgres contract suites
-cd packages/core && bun run build                              # server (tsc) + console (vite)
+bun run test
+bun run lint
 ```
 
 Test the contract, not the implementation:
 
-- Routes: mount them on a bare Hono app and call `app.request(...)`. See `tests/server/users-routes.test.ts`.
-- Stores: run the same suite against sqlite and Postgres.
+- **Stores** run against PGlite with the real schema (`apps/server/tests/_db.ts`). Every new store method needs a line in the org-isolation block of its suite.
+- **Routes** mount on a bare Hono app with a fake `user`/`org` context (`tests/server/users-routes.test.ts`), or run end to end through `tests/server/_app.ts`, which wires real better-auth on PGlite.
+- **Domain rules** (`packages/core`) are plain functions with plain tests.
 
 ## where things go
 
-Read [`docs/architecture.md`](docs/architecture.md) first. The rule: `domain/` and `application/` import only `ports/`, and every SDK stays in `infrastructure/`.
+Read [`docs/architecture.md`](docs/architecture.md) first. The rules:
+
+- `packages/core` (domain, application, ports) has **no dependencies**. If you need one, you're writing an adapter.
+- Org data is only reached through `persistence.forOrg(orgId)`. Never add an `orgId` parameter to a store method — bind it at construction.
+- Anything the customer configures is an org setting (add it to `SETTINGS` in `packages/contracts`). The platform environment (`apps/server/src/env.ts`) is for the operator only.
+- Server ↔ web shapes go in `packages/contracts` first.
 
 ### adding a built-in tool
 
-1. Write the tool under `infrastructure/driven/tools/<area>/` using the AI SDK `tool({ description, inputSchema, execute })`. Throw on errors; the agent loop hands them back to the model.
-2. Build it inside a per-user builder (`buildSlackUserTools`, `buildGoogleTools`, …) or add a new builder to `createToolProvider` in `infrastructure/driven/tools/provider.ts`, wired in `bootstrap/main.ts`.
+1. Write the tool under `apps/server/src/infrastructure/driven/tools/<area>/` using the AI SDK `tool({ description, inputSchema, execute })`. Throw on errors; the agent loop hands them back to the model.
+2. Build it inside a per-user builder (`buildSlackUserTools`, `buildGoogleTools`, …) or add a builder to `createToolProvider`, wired in `bootstrap/org-runtime.ts`.
 3. Bind any user id in the closure, never in the input schema.
-4. Add a line to `domain/prompt.ts` if the model needs guidance on when to use it.
+4. Add a line to `packages/core/src/domain/prompt.ts` if the model needs guidance on when to use it.
+
+### adding a permission
+
+Add the resource (if new) and its grants to `packages/core/src/domain/permissions.ts`,
+then guard the route with `authorize(action, resource)` — or call `permit(c, action,
+resource, "own", { ownerId })` when the answer depends on the record. Add a line to
+`apps/server/tests/security/access.test.ts`. Never check `role === "admin"` in a route.
+
+### adding an OAuth provider
+
+Add the capability and the approval it needs to `REQUIRED_APPROVAL` in
+`packages/core/src/domain/oauth-clients.ts`, then resolve clients through
+`OrgOAuthClients` — never read a client id/secret directly. Store the
+`OAuthClientRef` with every token.
 
 ### or skip the code: MCP
 
-If the system you want already has a remote MCP server, add it on the console **Tools** page (workspace or personal). No code change needed.
-
-## console conventions
-
-- Vite + React in `packages/core/src/console-app/`, built to `dist/console`.
-- Design tokens only (`styles/tokens.css`); no inline hex.
-- API calls go through `lib/api.ts`.
+If the system you want already has a remote MCP server, add it on the **Tools** page (workspace or personal).
 
 ## commits
 
-Conventional-ish: `feat(kb): …`, `fix(slack): …`. Run typecheck and tests before pushing.
+Conventional-ish: `feat(kb): …`, `fix(slack): …`. Run typecheck, tests and lint before pushing.

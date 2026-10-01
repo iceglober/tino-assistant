@@ -4,30 +4,34 @@ How tino is put together. Read this before changing anything load-bearing.
 
 ## principles
 
-1. **Ports and adapters, strictly.** `domain/` and `application/` depend only on `ports/`. Every SDK, driver, and framework lives in `infrastructure/`. If a use-case imports `ai`, `hono`, `@slack/bolt`, or `pg`, that's a bug.
-2. **The console is the only configuration interface.** No env vars for runtime config; credentials, model choice, and KB tuning live in the config store and are read live.
-3. **Config changes take effect without a restart.** `refreshRuntime()` rebuilds the model and toolset in place; the driving adapters hold a stable facade.
-4. **One process does everything.** Slack bot, agent runtime, KB indexer, and console in a single process — and exactly one replica of it.
+1. **Ports and adapters, strictly.** `domain/`, `application/` and `ports/` are their own package, `@tino/core`, with **no dependencies** — if it needs one, the code belongs in an adapter. Every SDK, driver and framework lives in `apps/server/src/infrastructure/`.
+2. **Tenancy is structural.** Every org's data is reached through stores bound to that org (`persistence.forOrg(id)`); nothing below the composition root takes an org id. See [`managed-service.md`](managed-service.md#tenancy).
+3. **Customers configure their own org.** Model keys, their Slack app, their Google client and policies live in the org's encrypted settings and take effect without a restart: saving and applying rebuilds that org's runtime. The platform's environment is only for the operator.
+4. **One process serves every org.** HTTP API, Slack events, every org's agent runtime and the knowledge-base scheduler run in one process — one replica, by choice (see [scaling](managed-service.md#scaling-past-one-box)).
 
 ## layout
 
-Everything is `packages/core`. (`@tino/aws` and `@tino/cli` were deleted when
-Tino moved from AWS/Pulumi to GKE/Helm on 2026-07-25 — see git history.)
+A Bun workspace:
 
 ```
-packages/core/src/
-├── domain/              pure: types, system prompt, KB chunking + scoring,
-│                        MCP rules (tool naming, URL guard)
-├── application/         use-cases: assistant, sender resolution, kb-indexer,
-│                        kb-synthesizer (chunks → facts + themes)
-├── ports/               inbound.ts (Assistant, SenderResolver)
-│                        outbound.ts (everything the app needs from the world)
-├── infrastructure/
-│   ├── driving/         slack/ (Bolt socket mode), http/ (Hono, better-auth, routes)
-│   ├── driven/          model/ tools/ mcp/ persistence/ identity/ crypto/ kb/
-│   └── security/        connect-token (signed personal OAuth links)
-├── console-app/         React SPA (Login, Setup, Chat, Knowledge, Tools, Users)
-└── bootstrap/main.ts    composition root
+apps/
+├── server/  @tino/server — the process
+│   └── src/
+│       ├── bootstrap/       main.ts (platform composition root), org-registry.ts,
+│       │                    org-runtime.ts (one org's tino), org-kb.ts
+│       ├── infrastructure/
+│       │   ├── driving/     http/ (Hono, better-auth, routes), slack/ (Bolt fed over HTTP, signature check)
+│       │   ├── driven/      persistence/ (Postgres or PGlite, org-bound stores), model/ tools/ mcp/
+│       │   │                kb/ (store, sources, embedders), oauth/ (client policy adapter),
+│       │   │                slack/ (manifest, channel directory), identity/ crypto/ email/
+│       │   └── security/    signed OAuth state
+│       └── env.ts           the operator's settings
+└── web/     @tino/web — React Router 8 SPA (Vite), served by the server from apps/web/dist/client
+packages/
+├── core/       @tino/core — domain/ (incl. org.ts, oauth-clients.ts, access-policy.ts),
+│               application/ (assistant, sender, kb-indexer, kb-synthesizer), ports/
+└── contracts/  @tino/contracts — the HTTP contract the server and web app share
+.railway/railway.ts   infrastructure as code
 ```
 
 ## the interesting boundaries
@@ -94,21 +98,29 @@ context and sent to them; nothing from that answer returns to the channel.
 `strictestOf` is property-tested: combining two labels never lets anyone see the
 result who couldn't see both inputs (`tests/domain/who-can-see.test.ts`).
 
-**Persistence is dual-adapter.** `PERSISTENCE_ADAPTER=sqlite` (local dev,
-bun:sqlite) or `postgres` (production, Cloud SQL + pgvector). Every store has
-both implementations behind the same port; contract tests run the same
-assertions against each, with the Postgres suites gated on `TEST_DATABASE_URL`.
+**Persistence is Postgres, always.** Real Postgres with pgvector in production
+(Railway), PGlite — Postgres compiled to WASM, with pgvector — in local dev and
+tests (`persistence/db.ts`). One SQL dialect, one adapter per store, and the
+contract tests run on every `bun run test` instead of only when a database is around.
 
-**Per-user credentials are envelope-encrypted.** AES-256-GCM with a
-`(userId, capabilityId, fieldName)` context bound as AAD, so ciphertext can't be
-replayed across users, capabilities, or fields.
+**Credentials and org secrets are envelope-encrypted.** AES-256-GCM with a
+`(owner, capabilityId, fieldName)` context bound as AAD, so ciphertext can't be
+replayed across users, orgs, capabilities, or fields. Org settings whose key ends
+in secret/token/apiKey are encrypted the same way under `org:<orgId>` and are
+write-only through the API.
 
 ## the knowledge base
 
 Two scopes: **`workspace`** is what the company can see (public Slack channels)
-and **`private`** is one person's own DMs, private channels, and mail. Rows
-stored `scope='user'` before 2026-07-25 are rewritten by a migration in
-`kb/schema.ts`; nothing else in the codebase should say "user scope".
+and **`private`** is one person's own DMs, private channels, and mail — both
+within one org (every KB table is keyed by `org_id` first).
+
+**Embeddings come from the org's own key** (OpenAI or an Azure
+text-embedding-3-large deployment), else from a platform embedder if the operator
+set one, else the KB stays off with a reason the console shows
+(`kb/embedders.ts`). The model that wrote an org's vectors is pinned in
+`kb.embedModel`; vectors from two models aren't comparable, so switching means
+an admin-confirmed rebuild, never a mix.
 
 Three layers, most digested first:
 
@@ -128,9 +140,9 @@ recheck window in the shared cursor stops N users re-reading the same channel
 every cycle. (`search.messages` needs no membership, which is why the live
 Slack tools can see channels the KB has not indexed.)
 
-The indexer is a single 5-minute loop started **once** in `bootstrap/main.ts`.
-It must not live in `refreshRuntime()`, which re-runs on every Slack reconnect
-and would leak timers. Per-cycle API budgets, rotating round-robin over
+Each org has its own indexer with no timer of its own; the registry's scheduler
+(`bootstrap/org-registry.ts`) runs every org's cycle in turn, every five minutes.
+Per-cycle API budgets, rotating round-robin over
 principals, and mark-and-continue isolation: one revoked token pauses that
 principal only. Every principal's slice writes a row to `kb_cycle_events`,
 which is what the console's activity view reads.
@@ -163,25 +175,51 @@ closures, so they can never be pointed at another user's data by the model.
 
 ## request paths
 
-**Slack DM / web chat / channel mention** → driving adapter (Bolt or
-`POST /api/chat`) → `SenderResolver` for Slack → `Assistant.handleMessage(user,
-text, surface)` → readers → allowed tool groups + this thread's visible history
-+ recall → `ChatModel.reply` (tool loop) → labelled messages into the log →
-reply (Slack: mrkdwn, edited into the "thinking…" placeholder) → optional DM
-follow-up. Slack DMs and the web chat share one thread per person.
+**Slack DM / channel mention** → `POST /slack/events/<orgId>` → signature checked
+with that org's signing secret, acked → the org's Bolt app (`processEvent`) →
+`SenderResolver` → `Assistant.handleMessage(user, text, surface)` → readers →
+allowed tool groups + this thread's visible history + recall → `ChatModel.reply`
+(tool loop) → labelled messages into the org's log → reply (mrkdwn, edited into
+the "thinking…" placeholder) → optional DM follow-up.
 
-**Console** → Hono + better-auth (Google sign-in), admin-only config and user
-management, MCP server management, per-user OAuth connect flows, KB
-status/browse, and the static SPA. Members read configuration only as booleans
-via `/api/status`.
+**Web chat** → `POST /api/orgs/<slug>/chat` → same assistant, `web_chat` surface.
+Slack DMs and the web chat share one thread per person.
+
+**Web app** → better-auth session (`/api/auth/*`) → `orgScope` middleware resolves
+the account to a member of `<slug>` (activating an invite, refusing a suspended
+member, 404 for non-members) → org routes read the org's runtime from the request.
+
+**Connecting** → `/api/orgs/<slug>/connections/{google,slack}/start` → the client
+policy picks the org's own or tino's client → signed state → provider →
+`/api/oauth/{google,slack}/callback`, which must finish as the person who started.
 
 ## users and access
 
-`tino_user` (role `admin`/`member`, status `active`/`invited`/`suspended`) is
-the account; `identity` maps `(slack|google|email, externalId)` to it. Slack
-senders resolve by Slack id, then by Slack profile email; console sessions by
-email. The join policy (`org.accessControl.mode`: org-domain or invite-only) is
-read the same way on both paths. Invites create an `invited` account that
-activates on first contact from either side. See
-[`user-journeys.md`](user-journeys.md) for the flows and
-[`security.md`](security.md) for the boundaries.
+**Accounts, orgs, members and invitations are better-auth.** An account is a
+better-auth `user` (email + password, magic link, or Google sign-in). Orgs,
+memberships and invitations are its organization plugin's `organization`,
+`member` (role `owner`/`admin`/`member`, plus tino's `status` and `slackUserId`)
+and `invitation` tables. Creating an org, inviting, accepting and changing roles
+go through `auth.api` (`http/org-admin.ts`), so the plugin's own checks apply.
+Tino's ports don't change: `UserStore` is an adapter over `member ⋈ user`, and a
+tino user id *is* a member id. Every tino table cascades from `organization`.
+
+Everyone in an org has an account: someone who only ever DMs the bot gets one
+without a password, and can claim it with a magic link. An invitation is
+accepted the first time the invitee reaches the org — on the web through the
+plugin (`orgScope`), or from Slack by the identity resolver (`invitations.claim`).
+
+**Permissions are a policy, not if-statements.** `domain/permissions.ts` declares
+roles (`member` ⊂ `admin` ⊂ `owner`), resources, `own`/`any` grants and the
+attributes each role may see, as data; `infrastructure/security/access.ts` loads
+it into [`accesscontrol`](https://onury.io/accesscontrol). Routes ask through
+`authorize(action, resource)` or `permit(…)`. `own` is enforced against the
+record's `ownerId` (personal MCP servers), attributes filter what's returned
+(members get a team directory without each person's connections), and two gates
+— active member, active org — fail closed on every check.
+
+Slack senders resolve by Slack id, then Slack profile email; web requests by the
+account's email. The join policy (`domain/access-policy.ts`: org-domain or
+invite-only) is read the same way on both paths, and invites and domain joins
+require a verified email. See [`user-journeys.md`](user-journeys.md) and
+[`security.md`](security.md).

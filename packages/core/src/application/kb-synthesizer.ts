@@ -22,6 +22,7 @@ import type {
   Embedder,
   KbEvidence,
   KbFact,
+  KbFactDraft,
   KbScope,
   KnowledgeExtractor,
   KnowledgeStore,
@@ -169,7 +170,7 @@ export function createKbSynthesizer(deps: KbSynthesizerDeps): KbSynthesizer {
               chunks: batch.map((c, idx) => ({ idx, source: c.source, ts: c.ts, text: c.text })),
             });
 
-          let drafts;
+          let drafts: KbFactDraft[];
           for (;;) {
             try {
               drafts = await ask();

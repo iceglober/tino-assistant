@@ -4,17 +4,31 @@ What tino protects, how, and where it doesn't. Each control names the code that 
 
 ## who can get in
 
-- **Console sign-in** is Google OAuth through better-auth (`infrastructure/driving/http/auth.ts`). `CONSOLE_ALLOWED_DOMAIN` (or `console.allowedDomain`) rejects other domains server-side. Also restrict the OAuth client to your domain in Google Cloud as a second layer.
-- **Slack senders** are mapped to tino users by Slack id, then by Slack profile email (`application/sender.ts`, `infrastructure/driven/identity/resolver.ts`). Unverifiable senders are refused, never guessed.
-- **Join policy**: org-domain (auto-create members on your domain) or invite-only. Both paths read it identically (`routes/users.ts` → `readAccessPolicy`).
-- **Suspended users** get 403 in the console and a refusal in Slack, and the KB indexer skips them.
-- **First user**: on an install with zero users and no domain configured, the first console sign-in becomes admin. Set a domain before exposing the URL.
+- **Accounts** are better-auth: email + password (minimum 10 characters), a one-time magic link, or "Sign in with Google" on tino's own client with `openid email profile` only (`infrastructure/driving/http/auth.ts`). In production sign-in requires a verified email (`requireEmailVerification`); verification and reset links are emailed through Resend.
+- **Membership is per org** and resolved on every org-scoped request by the `orgScope` middleware: non-members get **404** (the same as a missing org, so slugs don't reveal who uses tino), suspended members 403.
+- **Invites and domain joins honour only verified emails.** Otherwise anyone could register `ceo@yourcompany.com` and inherit an invite or a domain join. (Local dev skips this.)
+- **Join policy** per org: invite-only (default for a new org) or org-domain. Both the web and Slack paths read it through `domain/access-policy.ts`.
+- **Slack senders** map to members of the org whose app received the event, by Slack id then Slack profile email (`application/sender.ts`, `infrastructure/driven/identity/resolver.ts`). Unverifiable senders are refused, never guessed.
+- **Closed beta** (`SIGNUPS=closed`): anyone may sign up and accept an invite, but only `ORG_CREATORS` may create orgs.
 
 ## who can do what
 
-- **Admins**: Setup (`/api/config`, which contains every deployment secret), `/api/users`, `/api/reload/slack`, and workspace MCP servers. Enforced by `requireAdmin` in `auth.ts`.
-- **Members**: chat, their own KB scope, their own OAuth connections, and personal MCP servers. They see configuration only as booleans (`/api/status`).
+One policy, `packages/core/src/domain/permissions.ts`, enforced by `accesscontrol` (`infrastructure/security/access.ts`) through `authorize`/`permit`:
+
+- **Members**: chat, their own KB scope, their own connections, their own personal MCP servers (ownership is checked against the record, not assumed), and a team directory limited to names, emails, roles and status. They see the org's setup only as booleans (`GET /api/orgs/:slug`).
+- **Admins** add: settings (write-only secrets), invitations, roles and suspension, the join policy, the Slack install, workspace MCP servers, and rebuilding the knowledge base.
+- **Owners** (whoever created the org) can do everything admins can; better-auth's org plugin also stops the last owner being removed or demoted.
+- Every check requires an active member in an active org, and fails closed without that context.
 - The last active admin can't be demoted or suspended.
+- **The operator** (platform environment) has database access to every org. Keep that set of people small; there is no in-app super-admin.
+
+## isolation between orgs
+
+- Orgs, members and invitations are better-auth's organization plugin; every tino table references `organization` with `ON DELETE CASCADE`.
+- Every tenant table has `org_id` first in its keys, and org-bound stores (`persistence/postgres/index.ts → forOrg`) put it in every statement. Slack ids and channel ids can repeat across workspaces; each org resolves its own.
+- Slack events are accepted per org only with that org's signing secret (HMAC, 5-minute window), and refused when their team isn't the org's installed workspace.
+- A Slack workspace can be installed into one org only.
+- Covered by `tests/persistence/stores.test.ts`, `tests/kb/pg-store.test.ts` (isolation blocks) and `tests/server/platform-flow.test.ts` (over HTTP).
 
 ## data isolation between users
 
@@ -22,11 +36,17 @@ What tino protects, how, and where it doesn't. Each control names the code that 
 - **KB tools bind the user id in the closure**, never in the tool schema, so the model can't point a search at someone else's private KB (`infrastructure/driven/tools/kb.ts`).
 - **Personal MCP servers** are stored under the owner's id and only loaded into the owner's toolset.
 
+## OAuth connections
+
+- **State is signed and short-lived** (HMAC with `AUTH_SECRET`, 15 minutes) and names the org, member, purpose and which client started the flow (`security/signed-state.ts`).
+- **Callbacks finish only as the person who started them.** Google and Slack installs require the console session to be that member. A personal Slack connect from the bot's DM link must come back as the member's already-linked Slack user, or with their console session — so a connect link forwarded to someone else can't attach *their* Slack to the sender's account. A Slack identity already linked to another member is refused.
+- **Refresh tokens record the client that minted them**; client secrets are never copied into per-person records (`oauth/org-clients.ts`).
+
 ## secrets at rest
 
-- **Per-user credentials** (Slack user tokens, Google refresh tokens, MCP tokens) are AES-256-GCM encrypted. The `(userId, capabilityId, fieldName)` context is bound as AAD, so ciphertext can't be replayed across users or fields (`infrastructure/driven/crypto/local-adapter.ts`). The key comes from `LOCAL_DEV_CRYPTO_KEY` (Secret Manager in production). Rotating it makes every stored credential unreadable.
-- **Deployment secrets** set in Setup (Slack bot/app tokens, model API keys, OAuth client secrets) sit **in plaintext** in the `config` table. Protect the database accordingly.
-- MCP tokens are write-only through the API. Responses carry `hasToken`, never the value.
+- **Per-person credentials** (Slack user tokens, Google refresh tokens, MCP tokens) and **org secrets** (client secrets, signing secrets, bot tokens, model keys) are AES-256-GCM encrypted with the owner, capability and field bound as AAD (`crypto/local-adapter.ts`). One org's ciphertext doesn't decrypt as another's.
+- The key comes from `ENCRYPTION_KEY`. Rotating it makes every stored credential unreadable; back it up.
+- Secrets are write-only through the API: responses say whether one is set, never what it is. Logs record changed setting *names* only.
 
 ## who may see what
 
@@ -66,13 +86,13 @@ whose channels can't be listed recalls none.
 
 ## outbound requests (MCP)
 
-MCP server URLs are admin/user-supplied, and tino connects to them from inside the cluster with a token attached. `domain/mcp.ts` requires https and refuses loopback, private, link-local (including `169.254.169.254`), CGNAT, `*.local`, and `*.internal` hosts. The client also refuses redirects.
+MCP server URLs are admin/user-supplied, and tino connects to them from its own network with a token attached. `domain/mcp.ts` requires https and refuses loopback, private, link-local (including `169.254.169.254`), CGNAT, `*.local`, and `*.internal` hosts. The client also refuses redirects.
 
 This is a literal-host check. A public DNS name that resolves to a private address gets through, so add an egress policy if that matters to you.
 
 ## known gaps
 
-- **No audit log.** Actions are in structured application logs only.
-- **No admin-side data deletion.** Only the user can wipe their KB data (`forget me confirm`). Suspension stops indexing but keeps what's there.
+- **No org deletion button yet.** Deleting the `organization` row (or better-auth's delete-organization endpoint) cascades to everything the org owns; there is no UI or export for it yet.
+- **No platform audit log.** Actions are in structured application logs only.
 - **Prompt injection.** Indexed messages, emails, and MCP tool output reach the model verbatim. Tools that write are limited to whatever MCP servers you connect, and the system prompt asks the model to confirm before changing data. That is a mitigation, not a guarantee.
-- **Single replica only** (Socket Mode + singleton indexer). There is no HA.
+- **Single replica** (in-process KB scheduler). Slack is over HTTP, so this is a deployment choice — see [scaling](managed-service.md#scaling-past-one-box).

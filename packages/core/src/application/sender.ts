@@ -3,6 +3,7 @@
  * provisioning one when access policy allows, and returns a decision. It never
  * talks to Slack directly — the driving adapter presents the rejection message.
  */
+import { readAccessPolicy } from "../domain/access-policy.js";
 import type { ResolveResult } from "../domain/types.js";
 import type { SenderResolver } from "../ports/inbound.js";
 import type { ConfigStore, IdentityResolver, Logger, UserStore } from "../ports/outbound.js";
@@ -12,15 +13,6 @@ export interface SenderDeps {
   users: UserStore;
   config: ConfigStore;
   logger: Logger;
-}
-
-function parseConfigJson(raw: string | null): string | undefined {
-  if (!raw) return undefined;
-  try {
-    return JSON.parse(raw) as string;
-  } catch {
-    return raw;
-  }
 }
 
 export function createSenderResolver(deps: SenderDeps): SenderResolver {
@@ -45,23 +37,16 @@ export function createSenderResolver(deps: SenderDeps): SenderResolver {
         return { ok: true, userId: existingId };
       }
 
-      const rawMode = await config.get("org.accessControl.mode");
-      const orgDomain = parseConfigJson(await config.get("org.accessControl.orgDomain"));
-
-      // Fall back to console.allowedDomain (or CONSOLE_ALLOWED_DOMAIN) so
-      // org-domain mode activates automatically when a domain is configured.
-      const consoleDomain =
-        parseConfigJson(await config.get("console.allowedDomain")) || process.env.CONSOLE_ALLOWED_DOMAIN;
-      const effectiveDomain = orgDomain || consoleDomain;
-
-      const mode = rawMode ? (JSON.parse(rawMode) as string) : effectiveDomain ? "org-domain" : "allowlist";
+      const policy = await readAccessPolicy(config);
 
       try {
         // Links an invited/existing account by Slack profile email in either
         // mode; only org-domain mode may create a brand-new account.
         const linked = await resolver.provisionFromSlack(
           slackUserId,
-          mode === "allowlist" ? { mode: "allowlist" } : { mode: "org-domain", orgDomain: effectiveDomain },
+          policy.mode === "invite-only"
+            ? { mode: "allowlist" }
+            : { mode: "org-domain", orgDomain: policy.domain ?? undefined },
         );
         if (linked.status === "suspended") {
           return { ok: false, message: "your access to tino has been revoked. ask your admin if this is a mistake." };
@@ -70,7 +55,7 @@ export function createSenderResolver(deps: SenderDeps): SenderResolver {
           await users.update(linked.id, { status: "active" });
           logger.info({ tinoUserId: linked.id, slackUserId }, "invited user activated on first DM");
         }
-        logger.info({ tinoUserId: linked.id, slackUserId, mode }, "slack sender linked to tino user");
+        logger.info({ tinoUserId: linked.id, slackUserId, mode: policy.mode }, "slack sender linked to tino user");
         return { ok: true, userId: linked.id };
       } catch (err) {
         const msg = (err as Error).message;
@@ -82,8 +67,8 @@ export function createSenderResolver(deps: SenderDeps): SenderResolver {
             logger.warn({ slackUserId }, "DM received but no users exist — admin must sign in via console first");
             return { ok: false, message: "tino isn't set up yet. an admin needs to sign in at the console first." };
           }
-          logger.info({ slackUserId, mode, reason: msg }, "slack sender not admitted");
-          return mode === "allowlist"
+          logger.info({ slackUserId, mode: policy.mode, reason: msg }, "slack sender not admitted");
+          return policy.mode === "invite-only"
             ? { ok: false, message: "i don't recognize you. ask your admin to invite you to tino." }
             : {
                 ok: false,
