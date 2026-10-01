@@ -50,6 +50,13 @@ Read [`docs/architecture.md`](docs/architecture.md) first. The rules:
 3. Bind any user id in the closure, never in the input schema.
 4. Add a line to `packages/core/src/domain/prompt.ts` if the model needs guidance on when to use it.
 
+### adding a permission
+
+Add the resource (if new) and its grants to `packages/core/src/domain/permissions.ts`,
+then guard the route with `authorize(action, resource)` — or call `permit(c, action,
+resource, "own", { ownerId })` when the answer depends on the record. Add a line to
+`apps/server/tests/security/access.test.ts`. Never check `role === "admin"` in a route.
+
 ### adding an OAuth provider
 
 Add the capability and the approval it needs to `REQUIRED_APPROVAL` in

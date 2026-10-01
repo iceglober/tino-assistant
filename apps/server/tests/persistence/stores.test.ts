@@ -201,3 +201,53 @@ describe("membership directory", () => {
     expect(await db.memberships.joinableByDomain("sam@initech.com")).toEqual([]);
   });
 });
+
+describe("better-auth's org tables", () => {
+  it("gives Slack-only members an account without a password", async () => {
+    const { users } = db.forOrg(a.id);
+    const m = await users.create(mkUser({ email: "slack-only@acme.io", role: "member" }));
+    const account = await db.pool.query(
+      `SELECT u.id, (SELECT count(*) FROM account WHERE "userId" = u.id) AS logins FROM "user" u WHERE email = $1`,
+      ["slack-only@acme.io"],
+    );
+    expect(account.rows).toHaveLength(1);
+    expect(Number(account.rows[0].logins)).toBe(0);
+    expect(m.orgRole).toBe("member");
+  });
+
+  it("claims a pending invitation as a membership, once", async () => {
+    const { invitations, users } = db.forOrg(a.id);
+    const inviter = await users.create(mkUser({ email: "inviter@acme.io", role: "admin" }));
+    const inviterAccount = await db.pool.query(`SELECT "userId" FROM member WHERE id = $1`, [inviter.id]);
+    await db.pool.query(
+      `INSERT INTO invitation (id, "organizationId", email, role, status, "expiresAt", "createdAt", "inviterId")
+       VALUES ('inv-1', $1, 'invitee@acme.io', 'admin', 'pending', now() + interval '1 day', now(), $2)`,
+      [a.id, inviterAccount.rows[0].userId],
+    );
+    expect((await invitations.pendingFor("INVITEE@acme.io"))?.role).toBe("admin");
+    // Another org sees nothing.
+    expect(await db.forOrg(b.id).invitations.pendingFor("invitee@acme.io")).toBeNull();
+
+    const claimed = await invitations.claim("invitee@acme.io");
+    expect(claimed).toMatchObject({ email: "invitee@acme.io", role: "admin", status: "active" });
+    expect(await invitations.pendingFor("invitee@acme.io")).toBeNull();
+    expect(await invitations.claim("invitee@acme.io")).toBeNull();
+  });
+
+  it("deleting an org deletes everything it owns", async () => {
+    const doomed = await db.makeOrg("doomed");
+    const s = db.forOrg(doomed.id);
+    const m = await s.users.create(mkUser({ email: "d@doomed.io" }));
+    await s.identities.link({ provider: "slack", externalId: "UD", tinoUserId: m.id, linkedAt: 1 });
+    await s.config.set("openai.apiKey", "sk-d");
+    await s.userCapabilities.set(m.id, "slack", { enabled: true, credentials: { userToken: "t" }, settings: {} });
+    await s.conversations.append([msg({ threadKey: "direct:d" })]);
+
+    await db.pool.query("DELETE FROM organization WHERE id = $1", [doomed.id]);
+    for (const table of ["member", "identity", "org_config", "user_capability", "conversation_message"]) {
+      const col = table === "member" ? `"organizationId"` : "org_id";
+      const left = await db.pool.query(`SELECT count(*) AS n FROM ${table} WHERE ${col} = $1`, [doomed.id]);
+      expect(Number(left.rows[0].n), table).toBe(0);
+    }
+  });
+});

@@ -159,6 +159,29 @@ export interface Membership {
   user: TinoUser;
 }
 
+/** An invitation to an org that hasn't been accepted yet. */
+export interface PendingInvitation {
+  id: string;
+  email: string;
+  role: "admin" | "member";
+  expiresAt: number;
+  invitedBy: string | null;
+}
+
+/**
+ * An org's open invitations. Creating and accepting them on the web goes
+ * through the auth provider (which checks permissions and the invitee's
+ * session); `claim` is for the one path with no session: a person who was
+ * invited by email and first shows up by DMing the bot from that address.
+ */
+export interface InvitationStore {
+  list(): Promise<PendingInvitation[]>;
+  /** The newest unexpired pending invitation for this address. */
+  pendingFor(email: string): Promise<PendingInvitation | null>;
+  /** Turn the pending invitation for this address into a membership; null if there is none. */
+  claim(email: string, name?: string): Promise<TinoUser | null>;
+}
+
 /** Cross-org lookups by email — the only reads that span orgs, used at sign-in. */
 export interface MembershipDirectory {
   /** Every org this address has an account in (any status). */

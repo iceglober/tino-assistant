@@ -1,5 +1,5 @@
 import type { TinoUser } from "@tino/core/domain/types";
-import type { IdentityResolver, IdentityStore, Logger, UserStore } from "@tino/core/ports/outbound";
+import type { IdentityResolver, IdentityStore, InvitationStore, Logger, UserStore } from "@tino/core/ports/outbound";
 
 export interface SlackWebClient {
   users: {
@@ -20,11 +20,13 @@ export interface IdentityResolverOpts {
   users: UserStore;
   identities: IdentityStore;
   slackClient: SlackWebClient;
+  /** An invitation sent to this Slack user's email is accepted on first contact. */
+  invitations?: InvitationStore;
   logger: Logger;
 }
 
 export function createIdentityResolver(opts: IdentityResolverOpts): IdentityResolver {
-  const { users, identities, slackClient, logger } = opts;
+  const { users, identities, slackClient, invitations, logger } = opts;
 
   return {
     resolveSlack(slackUserId: string): Promise<string | null> {
@@ -80,6 +82,20 @@ export function createIdentityResolver(opts: IdentityResolverOpts): IdentityReso
         });
         const merged = await users.update(existingGoogleId, { slackUserId });
         logger.info({ tinoUserId: existingGoogleId, mergedProvider: "slack" }, "merged identity into existing user");
+        return merged;
+      }
+
+      // Invited by email but never signed up: the invitation becomes their membership.
+      const claimed = await invitations?.claim(normalizedEmail);
+      if (claimed) {
+        await identities.link({
+          provider: "slack",
+          externalId: slackUserId,
+          tinoUserId: claimed.id,
+          linkedAt: Date.now(),
+        });
+        const merged = await users.update(claimed.id, { slackUserId });
+        logger.info({ tinoUserId: claimed.id, slackUserId }, "invitation accepted from slack");
         return merged;
       }
 

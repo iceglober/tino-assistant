@@ -14,16 +14,18 @@ import { type ActionResult, useFetcherToast } from "../../hooks/useFetcherToast"
 import { useOrg } from "../../layouts/app-shell";
 import { orgApi } from "../../lib/api";
 import { emailDomain, errorMessage, fmtDate } from "../../lib/format";
-import { requireAdmin } from "../../lib/session";
+import { orgContext } from "../../lib/session";
 import type { Route } from "./+types/team";
 
 export const meta: Route.MetaFunction = () => [{ title: "team · tino" }];
 
 export async function clientLoader({ params, context }: Route.ClientLoaderArgs) {
-  requireAdmin(context);
+  const org = context.get(orgContext);
   const api = orgApi(params.slug);
+  // Everyone sees the team; admins also get invitations, connections and the join policy.
+  if (org.me.role !== "admin") return { users: (await api.users()).items, access: null, isAdmin: false };
   const [users, access] = await Promise.all([api.users(), api.access()]);
-  return { users: users.items, access };
+  return { users: users.items, access, isAdmin: true };
 }
 
 export async function clientAction({ request, params }: Route.ClientActionArgs): Promise<ActionResult> {
@@ -44,6 +46,10 @@ export async function clientAction({ request, params }: Route.ClientActionArgs):
         const role = s("role") as Role;
         await api.patchUser(s("id"), { role });
         return { ok: true, intent, message: `${s("email")} is now ${role === "admin" ? "an admin" : "a member"}` };
+      }
+      case "cancel": {
+        await api.cancelInvite(s("id"));
+        return { ok: true, intent, message: `invitation to ${s("email")} cancelled` };
       }
       case "status": {
         const status = s("status") === "suspended" ? "suspended" : "active";
@@ -161,7 +167,17 @@ function Invite() {
   );
 }
 
-function PersonRow({ user, isMe, onSuspend }: { user: ManagedUser; isMe: boolean; onSuspend: () => void }) {
+function PersonRow({
+  user,
+  isMe,
+  isAdmin,
+  onSuspend,
+}: {
+  user: ManagedUser;
+  isMe: boolean;
+  isAdmin: boolean;
+  onSuspend: () => void;
+}) {
   const fetcher = useFetcher();
   useFetcherToast(fetcher);
   const busy = fetcher.state !== "idle";
@@ -190,14 +206,31 @@ function PersonRow({ user, isMe, onSuspend }: { user: ManagedUser; isMe: boolean
           <Badge tone="err">suspended</Badge>
         )}
       </td>
-      <td className="small">
-        {[user.slackLinked && "Slack", ...user.connections.filter((c) => c !== "slack")].filter(Boolean).join(", ") || (
-          <span className="muted">—</span>
-        )}
-      </td>
-      <td className="small muted">{fmtDate(user.createdAt)}</td>
+      {isAdmin ? (
+        <>
+          <td className="small">
+            {[user.slackLinked && "Slack", ...(user.connections ?? []).filter((c) => c !== "slack")]
+              .filter(Boolean)
+              .join(", ") || <span className="muted">—</span>}
+          </td>
+          <td className="small muted">
+            {user.status === "invited" ? "pending" : user.createdAt ? fmtDate(user.createdAt) : "—"}
+          </td>
+        </>
+      ) : null}
       <td>
-        {isMe ? null : (
+        {!isAdmin || isMe ? null : user.status === "invited" ? (
+          <div className="row row--end">
+            <fetcher.Form method="post">
+              <input type="hidden" name="intent" value="cancel" />
+              <input type="hidden" name="id" value={user.id} />
+              <input type="hidden" name="email" value={user.email} />
+              <Button type="submit" size="sm" variant="ghost" loading={busy}>
+                cancel invite
+              </Button>
+            </fetcher.Form>
+          </div>
+        ) : (
           <div className="row row--end">
             <fetcher.Form method="post">
               <input type="hidden" name="intent" value="role" />
@@ -236,7 +269,7 @@ function PersonRow({ user, isMe, onSuspend }: { user: ManagedUser; isMe: boolean
 }
 
 export default function Team({ loaderData }: Route.ComponentProps) {
-  const { users, access } = loaderData;
+  const { users, access, isAdmin } = loaderData;
   const { org, me } = useOrg();
   const [suspending, setSuspending] = useState<ManagedUser | null>(null);
   const suspender = useFetcher();
@@ -253,16 +286,22 @@ export default function Team({ loaderData }: Route.ComponentProps) {
         lede="who's in this org. people sign in here or DM tino in Slack — both use the same membership."
       />
 
-      <Section
-        title="invite someone"
-        sub="they get an email with a link to sign up. they're active the first time they sign in."
-      >
-        <Invite />
-      </Section>
+      {isAdmin ? (
+        <Section
+          title="invite someone"
+          sub="they get an email with a link to sign up. they join the first time they sign in, or DM tino in Slack from that address."
+        >
+          <Invite />
+        </Section>
+      ) : null}
 
       <Section
         title="people"
-        sub={`${counts.active} active${counts.invited ? `, ${counts.invited} invited` : ""}. suspending someone blocks them here and in Slack and pauses their indexing — nothing they've connected is deleted.`}
+        sub={
+          isAdmin
+            ? `${counts.active} active${counts.invited ? `, ${counts.invited} invited` : ""}. suspending someone blocks them here and in Slack and pauses their indexing — nothing they've connected is deleted.`
+            : `${counts.active} active. ask an admin to invite someone or change a role.`
+        }
       >
         <div className="table-wrap">
           <table className="table">
@@ -271,8 +310,12 @@ export default function Team({ loaderData }: Route.ComponentProps) {
                 <th scope="col">person</th>
                 <th scope="col">role</th>
                 <th scope="col">status</th>
-                <th scope="col">connected</th>
-                <th scope="col">joined</th>
+                {isAdmin ? (
+                  <>
+                    <th scope="col">connected</th>
+                    <th scope="col">joined</th>
+                  </>
+                ) : null}
                 <th scope="col">
                   <span className="visually-hidden">actions</span>
                 </th>
@@ -284,6 +327,7 @@ export default function Team({ loaderData }: Route.ComponentProps) {
                   key={u.id}
                   user={u}
                   isMe={u.id === org.me.id || u.email === me.account.email}
+                  isAdmin={isAdmin}
                   onSuspend={() => setSuspending(u)}
                 />
               ))}
@@ -292,9 +336,11 @@ export default function Team({ loaderData }: Route.ComponentProps) {
         </div>
       </Section>
 
-      <Section title="who can join">
-        <JoinPolicy policy={access} myEmail={me.account.email} />
-      </Section>
+      {isAdmin && access ? (
+        <Section title="who can join">
+          <JoinPolicy policy={access} myEmail={me.account.email} />
+        </Section>
+      ) : null}
 
       <ConfirmDialog
         open={!!suspending}

@@ -211,18 +211,23 @@ export interface ApplyResult {
 
 // ── Members (admin) ──────────────────────────────────────────────────────────
 
-/** GET /api/orgs/:slug/users → { items } */
+/**
+ * GET /api/orgs/:slug/users → { items }: members, then (for admins) pending
+ * invitations with status "invited" and the invitation's id.
+ * Members get a directory — the fields marked optional are admin-only.
+ */
 export interface ManagedUser {
   id: string;
   email: string;
   name: string | null;
   role: Role;
   status: MemberStatus;
-  slackLinked: boolean;
+  slackLinked?: boolean;
   /** What this person has connected for themselves. */
-  connections: string[];
-  createdAt: string;
+  connections?: string[];
+  createdAt?: string;
 }
+/** DELETE /api/orgs/:slug/users/:invitationId — cancel a pending invitation (admin). */
 /** POST /api/orgs/:slug/users */
 export interface InviteBody {
   email: string;

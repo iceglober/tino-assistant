@@ -22,6 +22,11 @@ export interface TinoUser {
   status: "active" | "invited" | "suspended";
   /** Denormalized pointer to the linked slack identity, or null. */
   slackUserId: string | null;
+  /**
+   * The org plugin's role (`owner` | `admin` | `member`) when the store knows
+   * it; `role` is its coarse form (owners are admins). Permission checks use this.
+   */
+  orgRole?: "owner" | "admin" | "member";
   createdAt: number;
   updatedAt: number;
 }

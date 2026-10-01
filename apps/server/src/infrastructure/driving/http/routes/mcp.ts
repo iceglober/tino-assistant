@@ -3,7 +3,7 @@ import type { Logger } from "@tino/core/ports/outbound";
 import { Hono } from "hono";
 import type { McpClientPool } from "../../../driven/mcp/client-pool.js";
 import type { StoredMcpServer } from "../../../driven/mcp/store.js";
-import type { AuthVariables } from "../auth.js";
+import { type AuthVariables, permit } from "../auth.js";
 
 /**
  * /api/orgs/:slug/mcp — remote MCP servers.
@@ -68,6 +68,17 @@ export function createMcpRoutes(opts: { pool: McpClientPool; logger: Logger }): 
     };
   }
 
+  /**
+   * Workspace servers belong to the org (`any`); personal ones to the member
+   * (`own`, checked against the owner the store would file it under).
+   */
+  const mayChange = (
+    c: Parameters<typeof permit>[0],
+    action: "update" | "delete",
+    scope: McpScope,
+    ownerId: string,
+  ): boolean => permit(c, action, "mcpServer", scope === "workspace" ? "any" : "own", { ownerId }).granted;
+
   const scopeParam = (raw: string): McpScope | null => (raw === "workspace" || raw === "personal" ? raw : null);
 
   app.get("/servers", async (c) => {
@@ -75,7 +86,7 @@ export function createMcpRoutes(opts: { pool: McpClientPool; logger: Logger }): 
     const user = c.get("user");
     const all = await servers.listFor(user.id);
     return c.json({
-      canManageWorkspace: user.role === "admin",
+      canManageWorkspace: permit(c, "update", "mcpServer", "any").granted,
       workspace: all.filter((s) => s.scope === "workspace").map(view),
       personal: all.filter((s) => s.scope === "personal").map(view),
     });
@@ -88,7 +99,7 @@ export function createMcpRoutes(opts: { pool: McpClientPool; logger: Logger }): 
     const id = c.req.param("id");
     if (!scope) return c.json({ error: "scope must be workspace or personal" }, 400);
     if (!isValidMcpId(id)) return c.json({ error: "id must be 1–24 lowercase letters, digits, or dashes" }, 400);
-    if (scope === "workspace" && user.role !== "admin") return c.json({ error: "admins only" }, 403);
+    if (!mayChange(c, "update", scope, servers.ownerOf(scope, user.id))) return c.json({ error: "admins only" }, 403);
 
     let body: Body;
     try {
@@ -117,7 +128,7 @@ export function createMcpRoutes(opts: { pool: McpClientPool; logger: Logger }): 
     const scope = scopeParam(c.req.param("scope"));
     const id = c.req.param("id");
     if (!scope) return c.json({ error: "scope must be workspace or personal" }, 400);
-    if (scope === "workspace" && user.role !== "admin") return c.json({ error: "admins only" }, 403);
+    if (!mayChange(c, "delete", scope, servers.ownerOf(scope, user.id))) return c.json({ error: "admins only" }, 403);
     const removed = await servers.remove(scope, user.id, id);
     await pool.evict(servers.ownerOf(scope, user.id), id);
     if (removed) logger.info({ by: user.id, scope, server: id }, "mcp server removed");
@@ -134,7 +145,7 @@ export function createMcpRoutes(opts: { pool: McpClientPool; logger: Logger }): 
       return c.json({ error: "Request body must be valid JSON" }, 400);
     }
     const scope = scopeParam(body.scope ?? "personal") ?? "personal";
-    if (scope === "workspace" && user.role !== "admin") return c.json({ error: "admins only" }, 403);
+    if (!mayChange(c, "update", scope, servers.ownerOf(scope, user.id))) return c.json({ error: "admins only" }, 403);
     // Testing an edit of a saved server reuses its stored token when none is typed.
     const existing = body.id && isValidMcpId(body.id) ? await servers.get(scope, user.id, body.id) : null;
     const parsed = parse(body.id && isValidMcpId(body.id) ? body.id : "test", scope, body, existing);

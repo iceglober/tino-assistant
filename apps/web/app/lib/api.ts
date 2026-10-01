@@ -173,6 +173,7 @@ export function orgApi(slug: string) {
     users: (signal?: AbortSignal) => get<Items<ManagedUser>>("/users", signal),
     invite: (body: InviteBody) => send<unknown>("POST", "/users", body),
     patchUser: (id: string, patch: UserPatch) => send<unknown>("PATCH", `/users/${encodeURIComponent(id)}`, patch),
+    cancelInvite: (id: string) => send<unknown>("DELETE", `/users/${encodeURIComponent(id)}`),
     access: (signal?: AbortSignal) => get<AccessPolicy>("/users/access", signal),
     saveAccess: (policy: AccessPolicy) => send<AccessPolicy>("PUT", "/users/access", policy),
 

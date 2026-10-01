@@ -23,6 +23,7 @@ import type { OrgRegistry } from "../../../bootstrap/org-registry.js";
 import type { McpClientPool } from "../../driven/mcp/client-pool.js";
 import type { Persistence } from "../../driven/persistence/postgres/index.js";
 import { type AccountVariables, type AuthVariables, orgScope, sessionMiddleware } from "./auth.js";
+import { createOrgAdmin } from "./org-admin.js";
 import { createChatRoutes } from "./routes/chat.js";
 import { type ConnectionDeps, createOAuthCallbackRoutes, createOrgConnectionRoutes } from "./routes/connections.js";
 import { createHealthRoutes } from "./routes/health.js";
@@ -45,13 +46,13 @@ export interface ServerOptions {
   trustUnverified: boolean;
   /** Whether this address may create orgs (closed beta). */
   canCreateOrg: (email: string) => boolean;
-  onInvite?: Parameters<typeof createUserRoutes>[0]["onInvite"];
   logger: Logger;
 }
 
 export function createHttpApp(opts: ServerOptions): Hono<{ Variables: AccountVariables }> {
   const { auth, persistence, registry, logger } = opts;
   const app = new Hono<{ Variables: AccountVariables }>();
+  const orgAdmin = createOrgAdmin(auth);
 
   app.route("/api/health", createHealthRoutes({ startTime: Date.now() }));
   app.on(["GET", "POST"], "/api/auth/*", (c) => auth.handler(c.req.raw));
@@ -64,6 +65,7 @@ export function createHttpApp(opts: ServerOptions): Hono<{ Variables: AccountVar
       info: opts.platformInfo,
       trustUnverified: opts.trustUnverified,
       canCreateOrg: opts.canCreateOrg,
+      orgAdmin,
       logger,
     }),
   );
@@ -80,11 +82,16 @@ export function createHttpApp(opts: ServerOptions): Hono<{ Variables: AccountVar
   const org = new Hono<{ Variables: AuthVariables }>();
   org.use(
     "*",
-    orgScope({ runtimeBySlug: (slug) => registry.bySlug(slug), trustUnverified: opts.trustUnverified, logger }),
+    orgScope({
+      runtimeBySlug: (slug) => registry.bySlug(slug),
+      orgAdmin,
+      trustUnverified: opts.trustUnverified,
+      logger,
+    }),
   );
   org.route("/", createOrgRoutes({ logger }));
   org.route("/", createOrgConnectionRoutes(connectionDeps));
-  org.route("/users", createUserRoutes({ logger, onInvite: opts.onInvite }));
+  org.route("/users", createUserRoutes({ logger, orgAdmin }));
   org.route("/mcp", createMcpRoutes({ pool: opts.mcpPool, logger }));
   org.route("/chat", createChatRoutes({ logger }));
   org.route(

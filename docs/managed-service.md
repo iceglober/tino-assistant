@@ -161,8 +161,8 @@ mail and messages. So, independent of whose OAuth client is used:
   sub-processor list. That's why "bring your own model key" is the default. If you turn on
   `PLATFORM_OPENAI_API_KEY` for embeddings, OpenAI becomes *your* sub-processor for those orgs.
 - **Deletion has to work.** Members can wipe their own indexed data (`forget me`), and
-  `wipeOrgKnowledge` clears an org's knowledge base. A full org-deletion flow (account,
-  settings, history) is not built yet — needed before you sign a DPA that promises it.
+  deleting an org cascades to everything it owns. There's no self-serve button or data
+  export yet — build them before you sign a DPA that promises them.
 
 None of this is legal advice; have a lawyer read your DPA and terms before the first paid contract.
 
@@ -172,6 +172,8 @@ None of this is legal advice; have a lawyer read your DPA and terms before the f
 
 One process and one Postgres serve every org. The isolation rule is structural:
 
+- Orgs, members and invitations are better-auth's organization plugin; tino's
+  tables reference `organization` and cascade on delete.
 - Every tenant table carries `org_id`, first in every unique key.
 - `persistence.forOrg(orgId)` returns stores bound to that org — every statement they run has
   `org_id = <theirs>`. Nothing below the composition root takes an org id as an argument, so it

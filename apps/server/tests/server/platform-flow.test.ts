@@ -80,9 +80,12 @@ describe("members", () => {
     expect(me.body.memberships[0]).toMatchObject({ org: { slug: "acme-inc" }, status: "invited" });
     const overview = await bo.json<OrgOverview>("GET", "/api/orgs/acme-inc");
     expect(overview.body.me).toMatchObject({ role: "member", status: "active", name: "Bo" });
-    // Members don't see settings or the member list.
+    // Members don't see settings; they see a team directory without what people connected.
     expect((await bo.request("GET", "/api/orgs/acme-inc/settings")).status).toBe(403);
-    expect((await bo.request("GET", "/api/orgs/acme-inc/users")).status).toBe(403);
+    const team = await bo.json<{ items: Array<Record<string, unknown>> }>("GET", "/api/orgs/acme-inc/users");
+    expect(team.body.items.map((i) => i.email)).toEqual(["ada@acme.io", "bo@acme.io"]);
+    expect(team.body.items.every((i) => !("connections" in i))).toBe(true);
+    expect((await bo.request("POST", "/api/orgs/acme-inc/users", { email: "x@acme.io" })).status).toBe(403);
   });
 
   it("lets people on the org's domain join once the admin allows it", async () => {

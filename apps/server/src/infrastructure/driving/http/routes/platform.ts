@@ -4,18 +4,18 @@
  *   GET  /api/platform               → public: sign-in methods, what tino can connect for you
  *   GET  /api/me                     → the account, its memberships, orgs it may join
  *   GET  /api/orgs/slug-available    → ?slug= — for the create-org form
- *   POST /api/orgs                   → create an org; the creator is its first admin
+ *   POST /api/orgs                   → create an org (better-auth's org plugin); the creator owns it
  *   POST /api/orgs/:slug/join        → join an org whose policy admits your (verified) domain
  */
 
 import type { CreateOrgBody, Me, OrgSummary, PlatformInfo, SlugAvailability } from "@tino/contracts";
 import { joinsByDomain, readAccessPolicy } from "@tino/core/domain/access-policy";
 import { type Org, orgSlugProblem, slugify } from "@tino/core/domain/org";
-import { OrgSlugTakenError } from "@tino/core/domain/types";
 import type { Logger } from "@tino/core/ports/outbound";
 import { Hono } from "hono";
 import type { Persistence } from "../../../driven/persistence/postgres/index.js";
 import type { AccountVariables } from "../auth.js";
+import { type OrgAdmin, OrgAdminError } from "../org-admin.js";
 
 const summary = (o: Org): OrgSummary => ({ id: o.id, slug: o.slug, name: o.name });
 
@@ -26,6 +26,7 @@ export function createPlatformRoutes(opts: {
   trustUnverified: boolean;
   /** Closed beta: only some addresses may create orgs. */
   canCreateOrg: (email: string) => boolean;
+  orgAdmin: OrgAdmin;
   logger: Logger;
 }): Hono<{ Variables: AccountVariables }> {
   const app = new Hono<{ Variables: AccountVariables }>();
@@ -88,36 +89,14 @@ export function createPlatformRoutes(opts: {
     const check = await availability(slug);
     if (!check.available) return c.json({ error: check.problem ?? "that name is taken" }, 409);
 
-    const now = Date.now();
-    let org: Org;
     try {
-      org = await orgs.create({
-        id: crypto.randomUUID(),
-        slug,
-        name,
-        status: "active",
-        slackTeamId: null,
-        createdAt: now,
-        updatedAt: now,
-      });
+      const org = await opts.orgAdmin.createOrg({ name, slug, userId: account.id });
+      logger.info({ org: org.slug, by: account.id }, "org created");
+      return c.json({ id: org.id, slug: org.slug, name: org.name }, 201);
     } catch (err) {
-      if (err instanceof OrgSlugTakenError) return c.json({ error: "that name is taken" }, 409);
+      if (err instanceof OrgAdminError) return c.json({ error: err.message }, err.status);
       throw err;
     }
-    const { users, identities } = persistence.forOrg(org.id);
-    const admin = await users.create({
-      id: crypto.randomUUID(),
-      email: account.email,
-      name: account.name ?? undefined,
-      role: "admin",
-      status: "active",
-      slackUserId: null,
-      createdAt: now,
-      updatedAt: now,
-    });
-    await identities.link({ provider: "email", externalId: account.email, tinoUserId: admin.id, linkedAt: now });
-    logger.info({ org: slug, by: account.id }, "org created");
-    return c.json(summary(org), 201);
   });
 
   app.post("/orgs/:slug/join", async (c) => {
@@ -128,24 +107,18 @@ export function createPlatformRoutes(opts: {
     }
     const org = await orgs.getBySlug(c.req.param("slug"));
     if (!org || org.status !== "active") return c.json({ error: "not_found", message: "no such org" }, 404);
-    const { users, identities, config } = persistence.forOrg(org.id);
+    const { users, config } = persistence.forOrg(org.id);
     if (await users.getByEmail(account.email)) return c.json(summary(org));
     if (!joinsByDomain(await readAccessPolicy(config), account.email)) {
       return c.json({ error: "not_found", message: "no such org" }, 404);
     }
-    const now = Date.now();
-    const member = await users.create({
-      id: crypto.randomUUID(),
-      email: account.email,
-      name: account.name ?? undefined,
-      role: "member",
-      status: "active",
-      slackUserId: null,
-      createdAt: now,
-      updatedAt: now,
-    });
-    await identities.link({ provider: "email", externalId: account.email, tinoUserId: member.id, linkedAt: now });
-    logger.info({ org: org.slug, tinoUserId: member.id }, "joined org by domain");
+    try {
+      await opts.orgAdmin.addMember({ orgId: org.id, userId: account.id, role: "member" });
+    } catch (err) {
+      if (err instanceof OrgAdminError) return c.json({ error: err.message }, err.status);
+      throw err;
+    }
+    logger.info({ org: org.slug, account: account.id }, "joined org by domain");
     return c.json(summary(org), 201);
   });
 

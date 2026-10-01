@@ -1,27 +1,34 @@
 /**
- * Accounts and sessions, and how a session becomes a member of an org.
+ * Accounts, sessions, orgs and invitations — all better-auth.
  *
- * An *account* (better-auth's `user`) is a person on the platform: an email,
- * a password and/or "Sign in with Google" — tino's own Google client asking
- * for openid/email/profile only, which needs no Google review. Signing in
- * grants no data access; Gmail and Calendar are connected separately, per org,
- * through the org's client (see routes/connections.ts).
+ * An *account* (better-auth `user`) is a person on the platform: email +
+ * password, a magic link, or "Sign in with Google" on tino's own client with
+ * openid/email/profile only (no Google review needed). Signing in grants no
+ * data access; Gmail and Calendar are connected per org (routes/connections.ts).
  *
- * A *member* (`tino_user`) is that person inside one org. The `orgScope`
- * middleware resolves it by email on every org-scoped request: an invited
- * member is activated, a suspended one refused. Invites and domain joins only
- * ever honour a *verified* email — otherwise anyone could sign up as
- * ceo@yourcompany.com and walk into your org.
+ * Orgs, memberships and invitations are better-auth's organization plugin:
+ * `organization`, `member` (role owner/admin/member, plus tino's `status` and
+ * `slackUserId`) and `invitation`. Tino's own tables hang off `organization`
+ * with ON DELETE CASCADE, so deleting an org deletes its data.
+ *
+ * Invites and domain joins only ever honour a *verified* email — otherwise
+ * anyone could sign up as ceo@yourcompany.com and walk into your org.
  */
 
 import type { OrgMember } from "@tino/contracts";
+import { orgSlugProblem } from "@tino/core/domain/org";
+import { type Action, type OrgRole, orgRole, type Possession, type Resource } from "@tino/core/domain/permissions";
 import type { Logger } from "@tino/core/ports/outbound";
 import { type Auth, type BetterAuthOptions, betterAuth } from "better-auth";
+import { APIError } from "better-auth/api";
 import { getMigrations } from "better-auth/db/migration";
-import type { MiddlewareHandler } from "hono";
+import { magicLink, organization } from "better-auth/plugins";
+import type { Context, MiddlewareHandler } from "hono";
 import type { OrgRuntime } from "../../../bootstrap/org-runtime.js";
 import type { EmailSender } from "../../driven/email/sender.js";
 import type { PgPool } from "../../driven/persistence/db.js";
+import { type AccessDecision, type AccessSubject, createAccess } from "../../security/access.js";
+import { type OrgAdmin, OrgAdminError } from "./org-admin.js";
 
 /** The signed-in platform account. */
 export interface Account {
@@ -34,9 +41,10 @@ export interface Account {
 /** Variables every request may carry. */
 export type AccountVariables = { account: Account | null };
 
-/** Variables on org-scoped routes: the member and their org's runtime. */
+/** Variables on org-scoped routes: the member, their org-plugin role, and their org's runtime. */
 export type AuthVariables = AccountVariables & {
   user: OrgMember;
+  role: OrgRole;
   org: OrgRuntime;
 };
 
@@ -45,23 +53,43 @@ export interface AuthOptions {
   secret: string;
   database: PgPool;
   email: EmailSender;
-  /** Require the emailed link before sign-in (production). */
+  /** Require a verified email before sign-in and before accepting an invitation (production). */
   requireEmailVerification: boolean;
   /** Tino's Google client for sign-in only (basic scopes). */
   googleSignIn?: { clientId: string; clientSecret: string };
+  /** Closed beta: who may create orgs. */
+  canCreateOrg?: (email: string) => boolean;
   /** Extra origins allowed to call the auth API (the Vite dev server). */
   trustedOrigins?: string[];
   logger: Logger;
 }
 
-export async function createAuth(opts: AuthOptions): Promise<Auth> {
-  const { email, logger } = opts;
-  const options: BetterAuthOptions = {
-    baseURL: opts.baseUrl,
+/** Tino's fields on the org plugin's tables. Server-set only (`input: false`). */
+const ORG_SCHEMA = {
+  organization: {
+    additionalFields: {
+      slackTeamId: { type: "string", required: false, input: false },
+      status: { type: "string", required: false, defaultValue: "active", input: false },
+    },
+  },
+  member: {
+    additionalFields: {
+      status: { type: "string", required: false, defaultValue: "active", input: false },
+      slackUserId: { type: "string", required: false, input: false },
+    },
+  },
+} as const;
+
+/** better-auth's configuration — built once, used to migrate and then to construct the instance. */
+export function buildAuthOptions(opts: AuthOptions): BetterAuthOptions {
+  const { email, baseUrl } = opts;
+  const canCreateOrg = opts.canCreateOrg ?? (() => true);
+  return {
+    baseURL: baseUrl,
     basePath: "/api/auth",
     secret: opts.secret,
     database: opts.database,
-    trustedOrigins: [opts.baseUrl, ...(opts.trustedOrigins ?? [])],
+    trustedOrigins: [baseUrl, ...(opts.trustedOrigins ?? [])],
     emailAndPassword: {
       enabled: true,
       requireEmailVerification: opts.requireEmailVerification,
@@ -89,13 +117,56 @@ export async function createAuth(opts: AuthOptions): Promise<Auth> {
       ? { google: { clientId: opts.googleSignIn.clientId, clientSecret: opts.googleSignIn.clientSecret } }
       : undefined,
     session: { expiresIn: 60 * 60 * 24 * 14, updateAge: 60 * 60 * 24 },
+    plugins: [
+      organization({
+        schema: ORG_SCHEMA,
+        creatorRole: "owner",
+        allowUserToCreateOrganization: (user) =>
+          canCreateOrg(user.email) && (!opts.requireEmailVerification || !!user.emailVerified),
+        invitationExpiresIn: 60 * 60 * 24 * 7,
+        cancelPendingInvitationsOnReInvite: true,
+        requireEmailVerificationOnInvitation: opts.requireEmailVerification,
+        organizationHooks: {
+          beforeCreateOrganization: async ({ organization: org }) => {
+            const problem = org.slug ? orgSlugProblem(org.slug) : "a URL name is required";
+            if (problem) throw new APIError("BAD_REQUEST", { message: problem });
+          },
+        },
+        sendInvitationEmail: async ({ email: to, organization: org, inviter }) => {
+          const by = inviter.user.name || inviter.user.email;
+          await email.send({
+            to,
+            subject: `${by} invited you to ${org.name} on Tino`,
+            text: `${by} invited you to ${org.name}'s Tino — your team's assistant in Slack.\n\nSign up or sign in with this address to join:\n${baseUrl}/signup?email=${encodeURIComponent(to)}&org=${org.slug}\n\nThe invitation expires in a week.`,
+          });
+        },
+      }),
+      magicLink({
+        expiresIn: 60 * 15,
+        sendMagicLink: async ({ email: to, url }) => {
+          await email.send({
+            to,
+            subject: "Your Tino sign-in link",
+            text: `Sign in to Tino:\n\n${url}\n\nThe link works once and expires in 15 minutes.`,
+          });
+        },
+      }),
+    ],
   };
+}
 
-  // Create better-auth's tables before the instance exists, so it never sees an empty schema.
+/** Create or upgrade better-auth's tables. Runs before tino's schema, which references them. */
+export async function migrateAuth(options: BetterAuthOptions): Promise<void> {
   const { runMigrations } = await getMigrations(options);
   await runMigrations();
+}
+
+export function createAuth(options: BetterAuthOptions, logger: Logger): Auth {
   const auth = betterAuth(options) as unknown as Auth;
-  logger.info({ google: !!opts.googleSignIn, verification: opts.requireEmailVerification }, "auth ready");
+  logger.info(
+    { google: !!options.socialProviders, verification: !!options.emailAndPassword?.requireEmailVerification },
+    "auth ready",
+  );
   return auth;
 }
 
@@ -124,12 +195,18 @@ export const requireAccount: MiddlewareHandler<{ Variables: AccountVariables }> 
   await next();
 };
 
+const access = createAccess();
+
 /**
- * Resolve `:slug` to the org's runtime and the account to a member of it.
- * `trustUnverified` lets local dev skip email verification.
+ * Resolve `:slug` to the org's runtime and the account to a member of it. An
+ * account with a pending invitation accepts it here, through the org plugin
+ * (which insists on a verified email in production), so following the invite
+ * email and signing up is all a person has to do. `trustUnverified` lets local
+ * dev skip verification.
  */
 export function orgScope(opts: {
   runtimeBySlug: (slug: string) => Promise<OrgRuntime | null>;
+  orgAdmin: OrgAdmin;
   trustUnverified: boolean;
   logger: Logger;
 }): MiddlewareHandler<{ Variables: AuthVariables }> {
@@ -139,41 +216,79 @@ export function orgScope(opts: {
     const org = await opts.runtimeBySlug(c.req.param("slug") ?? "");
     if (!org) return c.json({ error: "not_found", message: "no such org" }, 404);
 
-    const { users } = org.stores;
-    const member = await users.getByEmail(account.email);
+    const { users, invitations } = org.stores;
+    let member = await users.getByEmail(account.email);
+    if (!member) {
+      const invite = await invitations.pendingFor(account.email);
+      if (invite) {
+        if (!account.emailVerified && !opts.trustUnverified) {
+          return c.json({ error: "verify_email", message: "confirm your email address to accept this invite" }, 403);
+        }
+        try {
+          await opts.orgAdmin.acceptInvitation(c.req.raw.headers, invite.id);
+          opts.logger.info({ org: org.org.slug, invitation: invite.id }, "invitation accepted");
+        } catch (err) {
+          const status = err instanceof OrgAdminError ? err.status : 500;
+          return c.json({ error: "invitation", message: (err as Error).message }, status);
+        }
+        member = await users.getByEmail(account.email);
+      }
+    }
     // Same answer for "no such org" and "not yours": slugs aren't secrets, but membership is.
     if (!member) return c.json({ error: "not_found", message: "no such org" }, 404);
     if (member.status === "suspended") {
       return c.json({ error: "forbidden", message: "your access to this org has been revoked" }, 403);
     }
-    let current = member;
-    if (member.status === "invited") {
-      if (!account.emailVerified && !opts.trustUnverified) {
-        return c.json({ error: "verify_email", message: "confirm your email address to accept this invite" }, 403);
-      }
-      current = await users.update(member.id, { status: "active", name: member.name ?? account.name ?? undefined });
-      opts.logger.info({ org: org.org.slug, tinoUserId: member.id }, "invite accepted on sign-in");
-    }
     c.set("org", org);
+    c.set("role", orgRole(member.orgRole ?? member.role));
     c.set("user", {
-      id: current.id,
-      email: current.email,
-      name: current.name ?? null,
-      role: current.role,
-      status: current.status,
-      slackUserId: current.slackUserId,
+      id: member.id,
+      email: member.email,
+      name: member.name ?? account.name ?? null,
+      role: member.role,
+      status: member.status,
+      slackUserId: member.slackUserId,
     });
     await next();
   };
 }
 
+/** The access-policy subject for the current request. */
+function subjectOf(c: Context<{ Variables: AuthVariables }>): AccessSubject {
+  return {
+    memberId: c.get("user").id,
+    role: c.get("role"),
+    status: c.get("user").status,
+    orgStatus: c.get("org").org.status,
+  };
+}
+
 /**
- * Gate a route group to admins. Members get 403; no session gets 401. Used for
- * everything that exposes or changes org-wide settings and secrets.
+ * Ask the policy (core/domain/permissions.ts) about this request. `record`
+ * carries `ownerId` for `own` checks; the decision's `filter` trims a record to
+ * the fields the role may see.
  */
-export const requireAdmin: MiddlewareHandler<{ Variables: AuthVariables }> = async (c, next) => {
-  const user = c.get("user");
-  if (!user) return c.json({ error: "unauthorized" }, 401);
-  if (user.role !== "admin") return c.json({ error: "forbidden", message: "admins only" }, 403);
-  await next();
-};
+export function permit(
+  c: Context<{ Variables: AuthVariables }>,
+  action: Action,
+  resource: Resource,
+  possession: Possession = "any",
+  record?: object,
+): AccessDecision {
+  return access.check(subjectOf(c), action, resource, possession, record);
+}
+
+/** Route guard: 403 unless the policy grants `action` on `resource`. */
+export function authorize(
+  action: Action,
+  resource: Resource,
+  possession: Possession = "any",
+): MiddlewareHandler<{ Variables: AuthVariables }> {
+  return async (c, next) => {
+    if (!c.get("user")) return c.json({ error: "unauthorized" }, 401);
+    if (!permit(c, action, resource, possession).granted) {
+      return c.json({ error: "forbidden", message: "admins only" }, 403);
+    }
+    await next();
+  };
+}

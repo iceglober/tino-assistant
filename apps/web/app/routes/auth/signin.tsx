@@ -23,6 +23,15 @@ export async function clientAction({ request }: Route.ClientActionArgs) {
   const password = String(form.get("password") ?? "");
   const next = safeNext(new URL(request.url).searchParams.get("next"));
 
+  // No password needed: email a one-time link. Also how someone who has only
+  // used tino in Slack gets into their account.
+  if (form.get("intent") === "link") {
+    if (!email) return { error: "enter your email and we'll send you a link.", email, code: "" };
+    const { error } = await authClient().signIn.magicLink({ email, callbackURL: next ?? "/" });
+    if (error) return { error: authErrorMessage(error), email, code: error.code ?? "" };
+    return { error: null, email, code: "", linkSent: true };
+  }
+
   if (!email || !password) return { error: "enter your email and password.", email, code: "" };
 
   const { error } = await authClient().signIn.email({ email, password });
@@ -44,6 +53,7 @@ export default function SignIn({ actionData }: Route.ComponentProps) {
   const email = actionData?.email ?? params.get("email") ?? "";
   if (email) carry.set("email", email);
   const unverified = actionData?.code === "EMAIL_NOT_VERIFIED";
+  const linkSent = !!(actionData && "linkSent" in actionData && actionData.linkSent);
 
   return (
     <div className="stack">
@@ -51,6 +61,12 @@ export default function SignIn({ actionData }: Route.ComponentProps) {
         <h1>welcome back.</h1>
         <p className="lede">sign in to your tino account.</p>
       </div>
+
+      {linkSent ? (
+        <Notice tone="ok" title="check your inbox">
+          <p>we sent a sign-in link to {actionData?.email}. it works once and expires in 15 minutes.</p>
+        </Notice>
+      ) : null}
 
       {params.get("reset") === "1" ? <Notice tone="ok">password changed — sign in with the new one.</Notice> : null}
       {params.get("verified") === "1" ? <Notice tone="ok">email confirmed. sign in to continue.</Notice> : null}
@@ -85,8 +101,11 @@ export default function SignIn({ actionData }: Route.ComponentProps) {
             </p>
           </Notice>
         ) : null}
-        <Button type="submit" variant="primary" size="lg" block loading={busy}>
+        <Button type="submit" name="intent" value="password" variant="primary" size="lg" block loading={busy}>
           sign in
+        </Button>
+        <Button type="submit" name="intent" value="link" variant="ghost" block formNoValidate>
+          email me a sign-in link instead
         </Button>
       </Form>
 

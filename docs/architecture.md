@@ -195,11 +195,31 @@ policy picks the org's own or tino's client → signed state → provider →
 
 ## users and access
 
-An **account** (better-auth `user`) is a person on the platform. A **member**
-(`tino_user`) is that person in one org, with a role (`admin`/`member`) and a
-status (`active`/`invited`/`suspended`); `identity` maps `(slack|google|email,
-externalId)` to a member within the org. Slack senders resolve by Slack id, then
-Slack profile email; web requests by the account's email. The join policy
-(`domain/access-policy.ts`: org-domain or invite-only) is read the same way on
-both paths, and invites and domain joins require a verified email. See
-[`user-journeys.md`](user-journeys.md) and [`security.md`](security.md).
+**Accounts, orgs, members and invitations are better-auth.** An account is a
+better-auth `user` (email + password, magic link, or Google sign-in). Orgs,
+memberships and invitations are its organization plugin's `organization`,
+`member` (role `owner`/`admin`/`member`, plus tino's `status` and `slackUserId`)
+and `invitation` tables. Creating an org, inviting, accepting and changing roles
+go through `auth.api` (`http/org-admin.ts`), so the plugin's own checks apply.
+Tino's ports don't change: `UserStore` is an adapter over `member ⋈ user`, and a
+tino user id *is* a member id. Every tino table cascades from `organization`.
+
+Everyone in an org has an account: someone who only ever DMs the bot gets one
+without a password, and can claim it with a magic link. An invitation is
+accepted the first time the invitee reaches the org — on the web through the
+plugin (`orgScope`), or from Slack by the identity resolver (`invitations.claim`).
+
+**Permissions are a policy, not if-statements.** `domain/permissions.ts` declares
+roles (`member` ⊂ `admin` ⊂ `owner`), resources, `own`/`any` grants and the
+attributes each role may see, as data; `infrastructure/security/access.ts` loads
+it into [`accesscontrol`](https://onury.io/accesscontrol). Routes ask through
+`authorize(action, resource)` or `permit(…)`. `own` is enforced against the
+record's `ownerId` (personal MCP servers), attributes filter what's returned
+(members get a team directory without each person's connections), and two gates
+— active member, active org — fail closed on every check.
+
+Slack senders resolve by Slack id, then Slack profile email; web requests by the
+account's email. The join policy (`domain/access-policy.ts`: org-domain or
+invite-only) is read the same way on both paths, and invites and domain joins
+require a verified email. See [`user-journeys.md`](user-journeys.md) and
+[`security.md`](security.md).

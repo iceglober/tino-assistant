@@ -4,7 +4,7 @@ What tino protects, how, and where it doesn't. Each control names the code that 
 
 ## who can get in
 
-- **Accounts** are better-auth email + password (minimum 10 characters) or "Sign in with Google" on tino's own client with `openid email profile` only (`infrastructure/driving/http/auth.ts`). In production sign-in requires a verified email (`requireEmailVerification`); verification and reset links are emailed through Resend.
+- **Accounts** are better-auth: email + password (minimum 10 characters), a one-time magic link, or "Sign in with Google" on tino's own client with `openid email profile` only (`infrastructure/driving/http/auth.ts`). In production sign-in requires a verified email (`requireEmailVerification`); verification and reset links are emailed through Resend.
 - **Membership is per org** and resolved on every org-scoped request by the `orgScope` middleware: non-members get **404** (the same as a missing org, so slugs don't reveal who uses tino), suspended members 403.
 - **Invites and domain joins honour only verified emails.** Otherwise anyone could register `ceo@yourcompany.com` and inherit an invite or a domain join. (Local dev skips this.)
 - **Join policy** per org: invite-only (default for a new org) or org-domain. Both the web and Slack paths read it through `domain/access-policy.ts`.
@@ -13,13 +13,18 @@ What tino protects, how, and where it doesn't. Each control names the code that 
 
 ## who can do what
 
-- **Admins** of an org: its settings (write-only secrets), members and the join policy, the Slack install, workspace MCP servers, and rebuilding its knowledge base. Enforced by `requireAdmin`.
-- **Members**: chat, their own KB scope, their own connections, personal MCP servers. They see the org's setup only as booleans (`GET /api/orgs/:slug`).
+One policy, `packages/core/src/domain/permissions.ts`, enforced by `accesscontrol` (`infrastructure/security/access.ts`) through `authorize`/`permit`:
+
+- **Members**: chat, their own KB scope, their own connections, their own personal MCP servers (ownership is checked against the record, not assumed), and a team directory limited to names, emails, roles and status. They see the org's setup only as booleans (`GET /api/orgs/:slug`).
+- **Admins** add: settings (write-only secrets), invitations, roles and suspension, the join policy, the Slack install, workspace MCP servers, and rebuilding the knowledge base.
+- **Owners** (whoever created the org) can do everything admins can; better-auth's org plugin also stops the last owner being removed or demoted.
+- Every check requires an active member in an active org, and fails closed without that context.
 - The last active admin can't be demoted or suspended.
 - **The operator** (platform environment) has database access to every org. Keep that set of people small; there is no in-app super-admin.
 
 ## isolation between orgs
 
+- Orgs, members and invitations are better-auth's organization plugin; every tino table references `organization` with `ON DELETE CASCADE`.
 - Every tenant table has `org_id` first in its keys, and org-bound stores (`persistence/postgres/index.ts → forOrg`) put it in every statement. Slack ids and channel ids can repeat across workspaces; each org resolves its own.
 - Slack events are accepted per org only with that org's signing secret (HMAC, 5-minute window), and refused when their team isn't the org's installed workspace.
 - A Slack workspace can be installed into one org only.
@@ -87,7 +92,7 @@ This is a literal-host check. A public DNS name that resolves to a private addre
 
 ## known gaps
 
-- **No org deletion flow yet.** Members can wipe their own KB data (`forget me confirm`) and admins can wipe the org's KB (rebuild), but deleting an org's account, settings and history is a database operation today.
+- **No org deletion button yet.** Deleting the `organization` row (or better-auth's delete-organization endpoint) cascades to everything the org owns; there is no UI or export for it yet.
 - **No platform audit log.** Actions are in structured application logs only.
 - **Prompt injection.** Indexed messages, emails, and MCP tool output reach the model verbatim. Tools that write are limited to whatever MCP servers you connect, and the system prompt asks the model to confirm before changing data. That is a mitigation, not a guarantee.
 - **Single replica** (in-process KB scheduler). Slack is over HTTP, so this is a deployment choice — see [scaling](managed-service.md#scaling-past-one-box).

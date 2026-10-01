@@ -9,12 +9,13 @@
  *
  * Conventions:
  * - epoch-ms timestamps are BIGINT (pg returns int8 as a string → Number() it).
- * - ids are TEXT (UUIDs); `org:<orgId>` owns an org's own encrypted records.
+ * - ids are TEXT; a "member" id is a person's id within an org (`tino_user_id`
+ *   in tino's tables); `org:<orgId>` owns an org's own encrypted records.
  * - org_config.value / conversation_message.message_json are TEXT, not JSONB:
  *   stores return the raw stored string, and JSONB rejects \u0000 escapes that
  *   can appear inside model/tool output.
- * - better-auth creates its own tables (user/session/account/verification);
- *   those are platform-wide accounts, not org data.
+ * - better-auth creates its own tables first: accounts (user/session/account/
+ *   verification) and the organization plugin's organization/member/invitation.
  * - Knowledge-base tables (kb_*) are defined in the KB schema module.
  */
 import type { Logger } from "@tino/core/ports/outbound";
@@ -25,20 +26,17 @@ import type { PgPool } from "../db.js";
 export const SCHEMA_LOCK_KEY = 0x74696e6f; // "tino"
 
 const CORE_DDL = `
-CREATE TABLE IF NOT EXISTS org (
-  id            TEXT   PRIMARY KEY,
-  slug          TEXT   NOT NULL UNIQUE,
-  name          TEXT   NOT NULL,
-  status        TEXT   NOT NULL CHECK (status IN ('active','suspended')),
-  slack_team_id TEXT   UNIQUE,
-  created_at    BIGINT NOT NULL,
-  updated_at    BIGINT NOT NULL
-);
+-- Orgs, members and invitations are better-auth's organization plugin
+-- ("organization", "member", "invitation"), migrated before this runs. Tino
+-- adds the constraints it relies on, and every table of its own cascades from
+-- "organization", so deleting an org deletes its data.
+CREATE UNIQUE INDEX IF NOT EXISTS member_org_user_idx ON member ("organizationId", "userId");
+CREATE UNIQUE INDEX IF NOT EXISTS organization_slack_team_idx ON organization ("slackTeamId") WHERE "slackTeamId" IS NOT NULL;
 
 -- Per-org settings. Secret values (client secrets, tokens, API keys) are
 -- envelope-encrypted JSON with the org bound as AAD; is_secret marks them.
 CREATE TABLE IF NOT EXISTS org_config (
-  org_id     TEXT    NOT NULL REFERENCES org(id) ON DELETE CASCADE,
+  org_id     TEXT    NOT NULL REFERENCES organization(id) ON DELETE CASCADE,
   key        TEXT    NOT NULL,
   value      TEXT    NOT NULL,
   is_secret  BOOLEAN NOT NULL DEFAULT false,
@@ -46,27 +44,11 @@ CREATE TABLE IF NOT EXISTS org_config (
   PRIMARY KEY (org_id, key)
 );
 
--- A person's account in one org (a membership). The same email can belong to
--- several orgs; each membership has its own id, credentials, and history.
-CREATE TABLE IF NOT EXISTS tino_user (
-  id            TEXT   PRIMARY KEY,
-  org_id        TEXT   NOT NULL REFERENCES org(id) ON DELETE CASCADE,
-  email         TEXT   NOT NULL,
-  name          TEXT,
-  role          TEXT   NOT NULL CHECK (role IN ('admin','member')),
-  status        TEXT   NOT NULL CHECK (status IN ('active','invited','suspended')),
-  slack_user_id TEXT,
-  created_at    BIGINT NOT NULL,
-  updated_at    BIGINT NOT NULL
-);
-CREATE UNIQUE INDEX IF NOT EXISTS tino_user_org_email_idx ON tino_user (org_id, lower(email));
-CREATE INDEX IF NOT EXISTS tino_user_email_idx ON tino_user (lower(email));
-
 CREATE TABLE IF NOT EXISTS identity (
-  org_id       TEXT   NOT NULL REFERENCES org(id) ON DELETE CASCADE,
+  org_id       TEXT   NOT NULL REFERENCES organization(id) ON DELETE CASCADE,
   provider     TEXT   NOT NULL CHECK (provider IN ('slack','google','email')),
   external_id  TEXT   NOT NULL,
-  tino_user_id TEXT   NOT NULL REFERENCES tino_user(id) ON DELETE CASCADE,
+  tino_user_id TEXT   NOT NULL REFERENCES member(id) ON DELETE CASCADE,
   linked_at    BIGINT NOT NULL,
   PRIMARY KEY (org_id, provider, external_id)
 );
@@ -75,7 +57,7 @@ CREATE INDEX IF NOT EXISTS identity_user_idx ON identity (tino_user_id);
 -- Encrypted per-owner credentials (a person's tokens; an org's MCP servers
 -- under org:<id>). The owner id is bound into each field's AAD.
 CREATE TABLE IF NOT EXISTS user_capability (
-  org_id           TEXT    NOT NULL REFERENCES org(id) ON DELETE CASCADE,
+  org_id           TEXT    NOT NULL REFERENCES organization(id) ON DELETE CASCADE,
   tino_user_id     TEXT    NOT NULL,
   capability_id    TEXT    NOT NULL,
   enabled          BOOLEAN NOT NULL,
@@ -88,7 +70,7 @@ CREATE TABLE IF NOT EXISTS user_capability (
 -- One row per message, labelled with who may see it.
 CREATE TABLE IF NOT EXISTS conversation_message (
   id           BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  org_id       TEXT   NOT NULL REFERENCES org(id) ON DELETE CASCADE,
+  org_id       TEXT   NOT NULL REFERENCES organization(id) ON DELETE CASCADE,
   thread_key   TEXT   NOT NULL,
   turn_id      TEXT   NOT NULL,
   asked_by     TEXT   NOT NULL,

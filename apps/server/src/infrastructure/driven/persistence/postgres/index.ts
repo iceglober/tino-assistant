@@ -2,12 +2,16 @@
  * Persistence assembly: one database handle, ensure-DDL, the platform-wide
  * stores (orgs, memberships), and `forOrg(id)` — the only way to reach an org's
  * data, returning stores that can't address any other org.
+ *
+ * Call it after better-auth has migrated its tables (`migrateAuth`): orgs,
+ * members and invitations are the auth provider's, and tino's tables reference them.
  */
 import type {
   ConfigStore,
   ConversationLog,
   CryptoAdapter,
   IdentityStore,
+  InvitationStore,
   KnowledgeStore,
   Logger,
   MembershipDirectory,
@@ -19,7 +23,7 @@ import { createPgKnowledgeStore } from "../../kb/pg-store.js";
 import type { PgPool } from "../db.js";
 import { createPgConfigStore } from "./config.js";
 import { createPgConversationLog } from "./conversation-log.js";
-import { createPgMembershipDirectory, createPgOrgStore } from "./orgs.js";
+import { createPgInvitationStore, createPgMembershipDirectory, createPgOrgStore } from "./orgs.js";
 import { ensureSchema } from "./schema.js";
 import { createPgUserCapabilityStore } from "./user-capabilities.js";
 import { createPgIdentityStore, createPgUserStore } from "./users.js";
@@ -30,6 +34,7 @@ export interface OrgStores {
   config: ConfigStore;
   users: UserStore;
   identities: IdentityStore;
+  invitations: InvitationStore;
   userCapabilities: UserCapabilityStore;
   conversations: ConversationLog;
   /** The org's knowledge base, recording `embedModel` on what it writes. Null without pgvector. */
@@ -61,6 +66,7 @@ export async function createPersistence(
         config: createPgConfigStore({ pool, orgId, cryptoAdapter }),
         users: createPgUserStore({ pool, orgId }),
         identities: createPgIdentityStore({ pool, orgId }),
+        invitations: createPgInvitationStore({ pool, orgId }),
         userCapabilities: createPgUserCapabilityStore({ pool, orgId, cryptoAdapter }),
         conversations: createPgConversationLog({ pool, orgId }),
         knowledge: kb ? (embedModel) => createPgKnowledgeStore({ pool, orgId, embedModel }) : null,

@@ -9,11 +9,11 @@ import type { Email } from "../../src/infrastructure/driven/email/sender.js";
 import { createMcpClientPool } from "../../src/infrastructure/driven/mcp/client-pool.js";
 import { createPglitePool } from "../../src/infrastructure/driven/persistence/db.js";
 import { createPersistence } from "../../src/infrastructure/driven/persistence/postgres/index.js";
-import { createAuth } from "../../src/infrastructure/driving/http/auth.js";
+import { createAuth, migrateAuth } from "../../src/infrastructure/driving/http/auth.js";
 import { slackConnectLink } from "../../src/infrastructure/driving/http/routes/connections.js";
 import { createHttpApp } from "../../src/infrastructure/driving/http/server.js";
 import { createSignedState } from "../../src/infrastructure/security/signed-state.js";
-import { noopLogger } from "../_db.js";
+import { noopLogger, TEST_AUTH_SECRET, testAuthOptions } from "../_db.js";
 
 export const BASE = "http://localhost:3001";
 
@@ -21,10 +21,12 @@ export async function testApp(
   opts: { signups?: "open" | "closed"; trustUnverified?: boolean; canCreateOrg?: (email: string) => boolean } = {},
 ) {
   const pool = await createPglitePool();
-  const persistence = await createPersistence(pool, noopLogger, new LocalAdapter({ LOCAL_DEV_CRYPTO_KEY: "k" }));
-  const state = createSignedState("test-auth-secret-test-auth-secret!!");
   const sent: Email[] = [];
   const email = { delivers: false, send: async (e: Email) => void sent.push(e) };
+  const authOptions = testAuthOptions(pool, { email, canCreateOrg: opts.canCreateOrg });
+  await migrateAuth(authOptions);
+  const persistence = await createPersistence(pool, noopLogger, new LocalAdapter({ LOCAL_DEV_CRYPTO_KEY: "k" }));
+  const state = createSignedState(TEST_AUTH_SECRET);
   const mcpPool = createMcpClientPool({ logger: noopLogger });
   const platformClients = { google: null, slack: null };
   const registry = createOrgRegistry(
@@ -42,14 +44,7 @@ export async function testApp(
     },
     noopLogger,
   );
-  const auth = await createAuth({
-    baseUrl: BASE,
-    secret: "test-auth-secret-test-auth-secret!!",
-    database: pool,
-    email,
-    requireEmailVerification: false,
-    logger: noopLogger,
-  });
+  const auth = createAuth(authOptions, noopLogger);
   const app = createHttpApp({
     auth,
     persistence,
@@ -66,7 +61,6 @@ export async function testApp(
     mcpPool,
     trustUnverified: opts.trustUnverified ?? true,
     canCreateOrg: opts.canCreateOrg ?? (() => true),
-    onInvite: async (i) => void sent.push({ to: i.email, subject: `invite to ${i.orgSlug}`, text: "" }),
     logger: noopLogger,
   });
 

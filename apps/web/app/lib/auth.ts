@@ -4,15 +4,22 @@
  * Created lazily: the root route is pre-rendered at build time (SPA mode), and
  * there is no `window` there.
  */
+import { magicLinkClient, organizationClient } from "better-auth/client/plugins";
 import { createAuthClient } from "better-auth/react";
 import { invalidateMe } from "./session";
 
-let client: ReturnType<typeof createAuthClient> | null = null;
+/** Matches the server's plugins: magic-link sign-in and organizations. */
+const makeClient = () =>
+  createAuthClient({
+    baseURL: window.location.origin,
+    basePath: "/api/auth",
+    plugins: [magicLinkClient(), organizationClient()],
+  });
 
-export function authClient(): ReturnType<typeof createAuthClient> {
-  if (!client) {
-    client = createAuthClient({ baseURL: window.location.origin, basePath: "/api/auth" });
-  }
+let client: ReturnType<typeof makeClient> | null = null;
+
+export function authClient(): ReturnType<typeof makeClient> {
+  if (!client) client = makeClient();
   return client;
 }
 

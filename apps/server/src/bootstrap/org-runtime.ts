@@ -195,7 +195,13 @@ export async function createOrgRuntime(
     }
     const slackClient = new WebClient(botToken);
     channelDirectory = createSlackChannelDirectory(slackClient as unknown as SlackDirectoryClient, logger);
-    const resolver = createIdentityResolver({ users, identities, slackClient, logger });
+    const resolver = createIdentityResolver({
+      users,
+      identities,
+      slackClient,
+      invitations: stores.invitations,
+      logger,
+    });
     const senderResolver = createSenderResolver({ resolver, users, config, logger });
     slackApp = createSlackApp({
       botToken,

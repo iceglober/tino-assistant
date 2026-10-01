@@ -1,8 +1,13 @@
 /**
- * Org-bound UserStore + IdentityStore. Every statement carries the org id the
- * store was built for. Case-insensitive email lookups go through the
- * (org_id, lower(email)) index; duplicate identity links surface as pg
- * unique-violation 23505 → rethrown as IdentityLinkConflictError.
+ * Org-bound UserStore + IdentityStore over better-auth's tables.
+ *
+ * A tino user is a `member` of the org (its id is the member id) joined to the
+ * platform `user` for email and name. Every person in an org has an account:
+ * someone who only ever talks to tino in Slack gets one without a password,
+ * which they can claim later with a magic link or a password reset.
+ *
+ * Roles: the plugin's `owner` and `admin` are both `admin` to the domain;
+ * `orgRole` carries the exact one for permission checks.
  */
 import {
   type Identity,
@@ -15,91 +20,115 @@ import type { PgPool } from "../db.js";
 
 export interface UserRow {
   id: string;
+  org_id: string;
+  role: string;
+  status: string | null;
+  slack_user_id: string | null;
+  created_at: Date | string;
   email: string;
   name: string | null;
-  role: string;
-  status: string;
-  slack_user_id: string | null;
-  created_at: string; // int8 comes back as string
-  updated_at: string;
+  updated_at: Date | string;
 }
 
+const ms = (v: Date | string | number): number => (v instanceof Date ? v.getTime() : new Date(v).getTime());
+
 export function rowToUser(row: UserRow): TinoUser {
+  const orgRole = row.role === "owner" || row.role === "admin" ? row.role : "member";
   return {
     id: row.id,
-    email: row.email,
-    name: row.name ?? undefined,
-    role: row.role as TinoUser["role"],
-    status: row.status as TinoUser["status"],
+    email: row.email.toLowerCase(),
+    name: row.name || undefined,
+    role: orgRole === "member" ? "member" : "admin",
+    orgRole,
+    status: (row.status ?? "active") as TinoUser["status"],
     slackUserId: row.slack_user_id,
-    createdAt: Number(row.created_at),
-    updatedAt: Number(row.updated_at),
+    createdAt: ms(row.created_at),
+    updatedAt: ms(row.updated_at),
   };
 }
 
+/** Members of every org, with their account's email and name. Filter it with WHERE. */
+export const MEMBER_SELECT = `
+  SELECT m.id, m."organizationId" AS org_id, m.role, m.status, m."slackUserId" AS slack_user_id,
+         m."createdAt" AS created_at, u.email, u.name, u."updatedAt" AS updated_at
+  FROM member m JOIN "user" u ON u.id = m."userId"`;
+
+/** The account for an email, created without credentials if it doesn't exist yet. */
+export async function ensureAccount(
+  q: Pick<PgPool, "query">,
+  email: string,
+  name: string | undefined,
+): Promise<string> {
+  const found = await q.query<{ id: string }>(`SELECT id FROM "user" WHERE lower(email) = lower($1)`, [email]);
+  if (found.rows[0]) return found.rows[0].id;
+  const id = crypto.randomUUID();
+  const now = new Date();
+  await q.query(
+    `INSERT INTO "user" (id, name, email, "emailVerified", "createdAt", "updatedAt") VALUES ($1,$2,$3,false,$4,$4)`,
+    [id, name ?? "", email.toLowerCase(), now],
+  );
+  return id;
+}
+
 export function createPgUserStore({ pool, orgId }: { pool: PgPool; orgId: string }): UserStore {
+  const one = async (where: string, params: unknown[]): Promise<TinoUser | null> => {
+    const res = await pool.query<UserRow>(`${MEMBER_SELECT} WHERE m."organizationId" = $1 AND ${where}`, [
+      orgId,
+      ...params,
+    ]);
+    return res.rows[0] ? rowToUser(res.rows[0]) : null;
+  };
+
   return {
     async create(user: TinoUser): Promise<TinoUser> {
+      const userId = await ensureAccount(pool, user.email, user.name);
       await pool.query(
-        `INSERT INTO tino_user (id, email, name, role, status, slack_user_id, created_at, updated_at, org_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-        [
-          user.id,
-          user.email.toLowerCase(),
-          user.name ?? null,
-          user.role,
-          user.status,
-          user.slackUserId,
-          user.createdAt,
-          user.updatedAt,
-          orgId,
-        ],
+        `INSERT INTO member (id, "organizationId", "userId", role, "createdAt", status, "slackUserId")
+         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [user.id, orgId, userId, user.orgRole ?? user.role, new Date(user.createdAt), user.status, user.slackUserId],
       );
-      return user;
+      return (await one("m.id = $2", [user.id])) as TinoUser;
     },
 
-    async get(id: string): Promise<TinoUser | null> {
-      const res = await pool.query<UserRow>("SELECT * FROM tino_user WHERE id = $1 AND org_id = $2", [id, orgId]);
-      return res.rows[0] ? rowToUser(res.rows[0]) : null;
-    },
-
-    async getByEmail(email: string): Promise<TinoUser | null> {
-      const res = await pool.query<UserRow>("SELECT * FROM tino_user WHERE lower(email) = lower($1) AND org_id = $2", [
-        email,
-        orgId,
-      ]);
-      return res.rows[0] ? rowToUser(res.rows[0]) : null;
-    },
+    get: (id) => one("m.id = $2", [id]),
+    getByEmail: (email) => one("lower(u.email) = lower($2)", [email]),
 
     async list(): Promise<TinoUser[]> {
-      const res = await pool.query<UserRow>("SELECT * FROM tino_user WHERE org_id = $1 ORDER BY created_at ASC", [
-        orgId,
-      ]);
+      const res = await pool.query<UserRow>(
+        `${MEMBER_SELECT} WHERE m."organizationId" = $1 ORDER BY m."createdAt" ASC`,
+        [orgId],
+      );
       return res.rows.map(rowToUser);
     },
 
-    async update(
-      id: string,
-      patch: Partial<Pick<TinoUser, "role" | "status" | "slackUserId" | "name">>,
-    ): Promise<TinoUser> {
+    async update(id, patch): Promise<TinoUser> {
+      const current = await one("m.id = $2", [id]);
+      if (!current) throw new Error(`member not found: ${id}`);
       const sets: string[] = [];
-      const values: Array<string | number | null> = [];
-      let i = 1;
-      if (patch.role !== undefined) sets.push(`role = $${i++}`) && values.push(patch.role);
-      if (patch.status !== undefined) sets.push(`status = $${i++}`) && values.push(patch.status);
-      if (patch.slackUserId !== undefined) sets.push(`slack_user_id = $${i++}`) && values.push(patch.slackUserId);
-      if (patch.name !== undefined) sets.push(`name = $${i++}`) && values.push(patch.name ?? null);
-      sets.push(`updated_at = $${i++}`);
-      values.push(Date.now());
-      values.push(id);
-      values.push(orgId);
-
-      const res = await pool.query<UserRow>(
-        `UPDATE tino_user SET ${sets.join(", ")} WHERE id = $${i} AND org_id = $${i + 1} RETURNING *`,
-        values,
-      );
-      if (!res.rows[0]) throw new Error(`tino_user not found: ${id}`);
-      return rowToUser(res.rows[0]);
+      const values: unknown[] = [];
+      // An owner stays an owner when made "admin"; demoting goes through the plugin's own checks.
+      if (patch.role !== undefined && !(patch.role === "admin" && current.orgRole === "owner")) {
+        values.push(patch.role);
+        sets.push(`role = $${values.length}`);
+      }
+      if (patch.status !== undefined) values.push(patch.status) && sets.push(`status = $${values.length}`);
+      if (patch.slackUserId !== undefined)
+        values.push(patch.slackUserId) && sets.push(`"slackUserId" = $${values.length}`);
+      if (sets.length > 0) {
+        values.push(id, orgId);
+        await pool.query(
+          `UPDATE member SET ${sets.join(", ")} WHERE id = $${values.length - 1} AND "organizationId" = $${values.length}`,
+          values,
+        );
+      }
+      if (patch.name !== undefined) {
+        await pool.query(
+          `UPDATE "user" SET name = $1, "updatedAt" = now()
+           WHERE id = (SELECT "userId" FROM member WHERE id = $2 AND "organizationId" = $3)`,
+          [patch.name ?? "", id, orgId],
+        );
+      }
+      return (await one("m.id = $2", [id])) as TinoUser;
     },
   };
 }

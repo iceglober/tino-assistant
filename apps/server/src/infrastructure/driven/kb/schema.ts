@@ -22,7 +22,7 @@ export const KB_EVENT_RETENTION_DAYS = 7;
 export const KB_DDL = `
 CREATE TABLE IF NOT EXISTS kb_topics (
   id         BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  org_id     TEXT        NOT NULL,
+  org_id     TEXT        NOT NULL REFERENCES organization(id) ON DELETE CASCADE,
   scope      TEXT        NOT NULL,
   user_id    TEXT        NOT NULL DEFAULT '',
   label      TEXT        NOT NULL,
@@ -33,7 +33,7 @@ CREATE INDEX IF NOT EXISTS kb_topics_scope_user ON kb_topics (org_id, scope, use
 
 CREATE TABLE IF NOT EXISTS kb_chunks (
   id             BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  org_id         TEXT        NOT NULL,
+  org_id         TEXT        NOT NULL REFERENCES organization(id) ON DELETE CASCADE,
   scope          TEXT        NOT NULL CHECK (scope IN ('workspace','private')),
   user_id        TEXT        NOT NULL DEFAULT '',
   source         TEXT        NOT NULL CHECK (source IN ('slack_channel','slack_thread','slack_dm','gmail')),
@@ -60,7 +60,7 @@ CREATE INDEX IF NOT EXISTS kb_chunks_pending_synthesis
 CREATE INDEX IF NOT EXISTS kb_chunks_topic ON kb_chunks (topic_id) WHERE topic_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS kb_cursors (
-  org_id     TEXT  NOT NULL,
+  org_id     TEXT  NOT NULL REFERENCES organization(id) ON DELETE CASCADE,
   scope      TEXT  NOT NULL,
   user_id    TEXT  NOT NULL DEFAULT '',
   source     TEXT  NOT NULL,
@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS kb_cursors (
 );
 
 CREATE TABLE IF NOT EXISTS kb_index_state (
-  org_id        TEXT NOT NULL,
+  org_id        TEXT NOT NULL REFERENCES organization(id) ON DELETE CASCADE,
   scope         TEXT NOT NULL,
   user_id       TEXT NOT NULL DEFAULT '',
   source        TEXT NOT NULL,
@@ -88,7 +88,7 @@ CREATE TABLE IF NOT EXISTS kb_index_state (
 -- re-observing a claim extends it instead of duplicating it.
 CREATE TABLE IF NOT EXISTS kb_facts (
   id         BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  org_id     TEXT        NOT NULL,
+  org_id     TEXT        NOT NULL REFERENCES organization(id) ON DELETE CASCADE,
   scope      TEXT        NOT NULL,
   user_id    TEXT        NOT NULL DEFAULT '',
   kind       TEXT        NOT NULL,
@@ -110,7 +110,7 @@ CREATE INDEX IF NOT EXISTS kb_facts_scope_user ON kb_facts (org_id, scope, user_
 
 CREATE TABLE IF NOT EXISTS kb_cycle_events (
   id              BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  org_id          TEXT        NOT NULL,
+  org_id          TEXT        NOT NULL REFERENCES organization(id) ON DELETE CASCADE,
   cycle_id        TEXT        NOT NULL,
   at              TIMESTAMPTZ NOT NULL DEFAULT now(),
   scope           TEXT        NOT NULL,

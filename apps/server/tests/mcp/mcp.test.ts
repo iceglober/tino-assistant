@@ -157,7 +157,8 @@ describe("/api/mcp", () => {
     const app = new Hono<{ Variables: AuthVariables }>();
     app.use("*", async (c, next) => {
       c.set("user", { id: "u1", email: "u@acme.io", name: null, role, status: "active", slackUserId: null });
-      c.set("org", { mcpServers: store } as unknown as AuthVariables["org"]);
+      c.set("role", role);
+      c.set("org", { mcpServers: store, org: { status: "active" } } as unknown as AuthVariables["org"]);
       await next();
     });
     app.route("/api/mcp", createMcpRoutes({ pool, logger: noopLogger() }));

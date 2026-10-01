@@ -21,7 +21,7 @@ import {
 import { isSecretConfigKey } from "@tino/core/domain/org";
 import type { Logger } from "@tino/core/ports/outbound";
 import { Hono } from "hono";
-import { type AuthVariables, requireAdmin } from "../auth.js";
+import { type AuthVariables, authorize } from "../auth.js";
 
 export function createOrgRoutes(opts: { logger: Logger }): Hono<{ Variables: AuthVariables }> {
   const app = new Hono<{ Variables: AuthVariables }>();
@@ -45,7 +45,7 @@ export function createOrgRoutes(opts: { logger: Logger }): Hono<{ Variables: Aut
     return c.json(body);
   });
 
-  app.get("/settings", requireAdmin, async (c) => {
+  app.get("/settings", authorize("read", "settings"), async (c) => {
     const entries = await c.get("org").stores.config.list();
     const byKey = new Map(entries.map((e) => [e.key, e.value]));
     const view: SettingsView = { values: {}, secrets: {} };
@@ -64,7 +64,7 @@ export function createOrgRoutes(opts: { logger: Logger }): Hono<{ Variables: Aut
     return c.json(view);
   });
 
-  app.put("/settings", requireAdmin, async (c) => {
+  app.put("/settings", authorize("update", "settings"), async (c) => {
     let body: SettingsUpdate;
     try {
       body = (await c.req.json()) as SettingsUpdate;
@@ -94,7 +94,7 @@ export function createOrgRoutes(opts: { logger: Logger }): Hono<{ Variables: Aut
     return c.json({ ok: true });
   });
 
-  app.post("/settings/apply", requireAdmin, async (c) => {
+  app.post("/settings/apply", authorize("update", "settings"), async (c) => {
     const rt = c.get("org");
     try {
       await rt.refresh();
@@ -107,7 +107,7 @@ export function createOrgRoutes(opts: { logger: Logger }): Hono<{ Variables: Aut
     }
   });
 
-  app.post("/kb/rebuild", requireAdmin, async (c) => {
+  app.post("/kb/rebuild", authorize("delete", "knowledgeBase"), async (c) => {
     const rt = c.get("org");
     await rt.rebuildKnowledge();
     logger.info({ org: rt.org.slug, by: c.get("user").id }, "knowledge base rebuilt");

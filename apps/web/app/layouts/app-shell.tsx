@@ -66,12 +66,10 @@ const NAV = [
   { to: "knowledge", label: "knowledge" },
   { to: "connections", label: "connections" },
   { to: "tools", label: "tools" },
+  { to: "team", label: "team" },
 ] as const;
 
-const ADMIN_NAV = [
-  { to: "team", label: "team" },
-  { to: "settings", label: "settings" },
-] as const;
+const ADMIN_NAV = [{ to: "settings", label: "settings" }] as const;
 
 export default function AppShell({ loaderData }: Route.ComponentProps) {
   const { me, org } = loaderData;

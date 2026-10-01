@@ -35,7 +35,7 @@ import {
   slackRedirectUrl,
 } from "../../../driven/slack/manifest.js";
 import type { OAuthState, SignedState } from "../../../security/signed-state.js";
-import { type AccountVariables, type AuthVariables, requireAdmin } from "../auth.js";
+import { type AccountVariables, type AuthVariables, authorize } from "../auth.js";
 
 const GOOGLE_SCOPES = {
   identity: "https://www.googleapis.com/auth/userinfo.email",
@@ -138,7 +138,7 @@ export function createOrgConnectionRoutes(deps: ConnectionDeps): Hono<{ Variable
     return c.json({ ok: true });
   });
 
-  app.get("/google/setup", requireAdmin, async (c) => {
+  app.get("/google/setup", authorize("read", "googleClient"), async (c) => {
     const rt = c.get("org");
     const { config } = rt.stores;
     const [mail, calendar] = await Promise.all([rt.oauth.resolve("google.gmail"), rt.oauth.resolve("google.calendar")]);
@@ -154,7 +154,7 @@ export function createOrgConnectionRoutes(deps: ConnectionDeps): Hono<{ Variable
     return c.json(body);
   });
 
-  app.get("/slack/setup", requireAdmin, async (c) => {
+  app.get("/slack/setup", authorize("read", "slackApp"), async (c) => {
     const rt = c.get("org");
     const { config } = rt.stores;
     const manifest = buildSlackManifest({ orgId: rt.org.id, baseUrl });
@@ -176,7 +176,7 @@ export function createOrgConnectionRoutes(deps: ConnectionDeps): Hono<{ Variable
     return c.json(body);
   });
 
-  app.post("/slack/install", requireAdmin, async (c) => {
+  app.post("/slack/install", authorize("create", "slackApp"), async (c) => {
     const rt = c.get("org");
     const resolution = await rt.oauth.resolve("slack");
     if (!resolution.ok) return c.json({ error: resolution.reason, message: resolution.message }, 409);

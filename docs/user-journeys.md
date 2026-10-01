@@ -15,7 +15,7 @@ Four roles:
 
 ## 1. a company starts using tino (account → org → setup)
 
-1. **Sign up** at `/signup` with email + password, or "Sign in with Google" when the operator configured tino's Google client. In production the emailed confirmation link must be clicked first (`routes/platform.ts` refuses unverified emails for creating or joining orgs).
+1. **Sign up** at `/signup` with email + password, a magic link, or "Sign in with Google" when the operator configured tino's Google client. In production the emailed confirmation link must be clicked first (`routes/platform.ts` refuses unverified emails for creating or joining orgs).
 2. **Create an org** at `/new`: a name, and a URL slug checked live (`GET /api/orgs/slug-available`). The creator becomes its first **admin**. New orgs are invite-only. During a closed beta only `ORG_CREATORS` can do this; everyone else needs an invite.
 3. **The overview checklist** (`GET /api/orgs/:slug` → `status`) walks the admin through:
    - **Model** (Settings → Model): provider and their own API key. An OpenAI key, or an Azure text-embedding-3-large deployment, also turns on the knowledge base (`kb/embedders.ts`). Settings take effect on *Apply*, which rebuilds the org's runtime (`POST /settings/apply`).
@@ -103,7 +103,8 @@ Excluded mail is never indexed. Mail tino already learned from that matches is f
 
 In the web app, go to **Team** (API `/api/orgs/:slug/users`, admin-only).
 
-- **Invite.** Enter an email and a role. This creates an `invited` member and emails them a sign-up link. They become active the first time they reach the org on the web with that (verified) email, or DM tino from Slack with it — even in invite-only mode.
+- **Invite.** Enter an email and a role. better-auth's org plugin records the invitation (valid a week) and emails a sign-up link. It's accepted the first time they reach the org on the web with that (verified) email, or DM tino in Slack from it — even in invite-only mode. Pending invitations can be cancelled.
+- **Everyone sees the team.** Members get a read-only directory (names, roles, status); admins also see what each person connected.
 - **Promote/demote.** Toggle admin ↔ member.
 - **Suspend.** Blocks them in Slack and on the web, and stops KB indexing for them. Their indexed data stays. **Reactivate** reverses it.
 - **Guard rail.** The last active admin can't be demoted or suspended.

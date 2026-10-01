@@ -19,7 +19,7 @@ import { createMcpClientPool } from "../infrastructure/driven/mcp/client-pool.js
 import type { ClientCapability } from "../infrastructure/driven/oauth/org-clients.js";
 import { createDb } from "../infrastructure/driven/persistence/db.js";
 import { createPersistence } from "../infrastructure/driven/persistence/postgres/index.js";
-import { createAuth } from "../infrastructure/driving/http/auth.js";
+import { buildAuthOptions, createAuth, migrateAuth } from "../infrastructure/driving/http/auth.js";
 import { slackConnectLink } from "../infrastructure/driving/http/routes/connections.js";
 import { createHttpApp, startServer } from "../infrastructure/driving/http/server.js";
 import { createSignedState } from "../infrastructure/security/signed-state.js";
@@ -36,7 +36,6 @@ if (!production && !env.ENCRYPTION_KEY)
 const cryptoAdapter = createCryptoAdapter(env);
 const pool = await createDb({ databaseUrl: env.DATABASE_URL, pgliteDir: env.PGLITE_DIR });
 if (!env.DATABASE_URL) logger.info({ dir: env.PGLITE_DIR }, "using PGlite (local dev database)");
-const persistence = await createPersistence(pool, logger, cryptoAdapter);
 
 // Sessions and OAuth state are signed with AUTH_SECRET; in dev, a stable key
 // derived from the encryption key keeps sessions across restarts.
@@ -48,6 +47,25 @@ const authSecret =
 const signedState = createSignedState(authSecret);
 const clients = platformClients(env);
 const email = createEmailSender({ resendApiKey: env.RESEND_API_KEY, from: env.EMAIL_FROM, logger });
+
+// Accounts, orgs, members and invitations are better-auth's; its tables come
+// first because tino's reference them.
+const authOptions = buildAuthOptions({
+  baseUrl,
+  secret: authSecret,
+  database: pool,
+  email,
+  requireEmailVerification: production,
+  googleSignIn: clients.google
+    ? { clientId: clients.google.clientId, clientSecret: clients.google.clientSecret }
+    : undefined,
+  canCreateOrg: orgCreatorPolicy(env),
+  trustedOrigins: production ? [] : ["http://localhost:5173"],
+  logger,
+});
+await migrateAuth(authOptions);
+const persistence = await createPersistence(pool, logger, cryptoAdapter);
+const auth = createAuth(authOptions, logger);
 
 const platformEmbedder: NamedEmbedder | null = env.PLATFORM_OPENAI_API_KEY
   ? createOpenAiEmbedder(env.PLATFORM_OPENAI_API_KEY)
@@ -84,19 +102,6 @@ const registry = createOrgRegistry(
   logger,
 );
 
-const auth = await createAuth({
-  baseUrl,
-  secret: authSecret,
-  database: pool,
-  email,
-  requireEmailVerification: production,
-  googleSignIn: clients.google
-    ? { clientId: clients.google.clientId, clientSecret: clients.google.clientSecret }
-    : undefined,
-  trustedOrigins: production ? [] : ["http://localhost:5173"],
-  logger,
-});
-
 const platformInfo = (): PlatformInfo => {
   const g = clients.google;
   return {
@@ -126,12 +131,6 @@ const app = createHttpApp({
   mcpPool,
   trustUnverified: !production,
   canCreateOrg: orgCreatorPolicy(env),
-  onInvite: async ({ email: to, orgName, orgSlug, invitedBy }) =>
-    email.send({
-      to,
-      subject: `${invitedBy} invited you to ${orgName} on Tino`,
-      text: `${invitedBy} invited you to ${orgName}'s Tino — your team's assistant in Slack.\n\nSign up or sign in with this address to join:\n${baseUrl}/signup?email=${encodeURIComponent(to)}&org=${orgSlug}`,
-    }),
   logger,
 });
 
