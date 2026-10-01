@@ -49,7 +49,10 @@ export async function clientAction({ request }: Route.ClientActionArgs) {
   const { data, error } = await authClient().signUp.email({ name, email, password, callbackURL: dest });
   if (error) {
     const msg = authErrorMessage(error);
-    return { errors: { [error.code === "USER_ALREADY_EXISTS" ? "email" : "form"]: msg } as Errors, values: { name, email } };
+    return {
+      errors: { [error.code === "USER_ALREADY_EXISTS" ? "email" : "form"]: msg } as Errors,
+      values: { name, email },
+    };
   }
 
   const platform = await loadPlatform();
@@ -110,13 +113,7 @@ export default function SignUp({ actionData }: Route.ComponentProps) {
 
       <Form method="post" className="stack" noValidate>
         <Field label="your name" error={errors.name}>
-          <Input
-            name="name"
-            autoComplete="name"
-            required
-            defaultValue={actionData?.values.name ?? ""}
-            autoFocus
-          />
+          <Input name="name" autoComplete="name" required defaultValue={actionData?.values.name ?? ""} autoFocus />
         </Field>
         <Field
           label="work email"
@@ -143,7 +140,9 @@ export default function SignUp({ actionData }: Route.ComponentProps) {
 
       <p className="small muted">
         already have one?{" "}
-        <Link to={`/signin?${new URLSearchParams({ ...(email ? { email } : {}), ...(dest !== "/" ? { next: dest } : {}) }).toString()}`}>
+        <Link
+          to={`/signin?${new URLSearchParams({ ...(email ? { email } : {}), ...(dest !== "/" ? { next: dest } : {}) }).toString()}`}
+        >
           sign in
         </Link>
       </p>

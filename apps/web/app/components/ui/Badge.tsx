@@ -12,7 +12,12 @@ export function Badge({ tone = "neutral", dot, children }: { tone?: Tone; dot?: 
 }
 
 /** A status word with a glyph, so meaning never rides on colour alone. */
-export function StatusBadge({ ok, okText = "on", offText = "off", warn }: {
+export function StatusBadge({
+  ok,
+  okText = "on",
+  offText = "off",
+  warn,
+}: {
   ok: boolean;
   okText?: string;
   offText?: string;
@@ -22,6 +27,8 @@ export function StatusBadge({ ok, okText = "on", offText = "off", warn }: {
   return ok ? (
     <Badge tone="ok">✓ {okText}</Badge>
   ) : (
-    <Badge tone={warn ? "warn" : "neutral"}>{warn ? "!" : "○"} {offText}</Badge>
+    <Badge tone={warn ? "warn" : "neutral"}>
+      {warn ? "!" : "○"} {offText}
+    </Badge>
   );
 }

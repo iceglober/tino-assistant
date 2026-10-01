@@ -2,7 +2,6 @@ import { Form, Link, useNavigation, useSearchParams } from "react-router";
 import { Button } from "../../components/ui/Button";
 import { Field } from "../../components/ui/Field";
 import { Input } from "../../components/ui/Input";
-import { Notice } from "../../components/ui/Notice";
 import { authClient, authErrorMessage } from "../../lib/auth";
 import type { Route } from "./+types/forgot-password";
 
@@ -10,7 +9,8 @@ export const meta: Route.MetaFunction = () => [{ title: "reset your password · 
 
 export async function clientAction({ request }: Route.ClientActionArgs) {
   const email = String((await request.formData()).get("email") ?? "").trim();
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { ok: false as const, error: "enter a valid email address.", email };
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+    return { ok: false as const, error: "enter a valid email address.", email };
   const { error } = await authClient().requestPasswordReset({
     email,
     redirectTo: `${window.location.origin}/reset-password`,

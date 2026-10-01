@@ -21,7 +21,7 @@ export default [
     route(":slug", "layouts/app-shell.tsx", { id: "org" }, [
       index("routes/org/overview.tsx"),
       route("chat", "routes/org/chat.tsx"),
-      route("knowledge", "routes/org/knowledge/layout.tsx", [
+      route("knowledge", "routes/org/knowledge/layout.tsx", { id: "knowledge" }, [
         index("routes/org/knowledge/facts.tsx"),
         route("themes", "routes/org/knowledge/themes.tsx"),
         route("browse", "routes/org/knowledge/browse.tsx"),
@@ -31,7 +31,7 @@ export default [
       route("connections", "routes/org/connections.tsx"),
       route("tools", "routes/org/tools.tsx"),
       route("team", "routes/org/team.tsx"),
-      route("settings", "layouts/settings-layout.tsx", [
+      route("settings", "layouts/settings-layout.tsx", { id: "settings" }, [
         index("routes/org/settings/index.tsx"),
         route("model", "routes/org/settings/model.tsx"),
         route("slack", "routes/org/settings/slack.tsx"),

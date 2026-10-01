@@ -15,7 +15,8 @@ export async function clientAction({ request }: Route.ClientActionArgs) {
   const token = new URL(request.url).searchParams.get("token") ?? "";
   const password = String(form.get("password") ?? "");
   const confirm = String(form.get("confirm") ?? "");
-  if (password.length < MIN_PASSWORD) return { field: "password" as const, error: `use at least ${MIN_PASSWORD} characters.` };
+  if (password.length < MIN_PASSWORD)
+    return { field: "password" as const, error: `use at least ${MIN_PASSWORD} characters.` };
   if (password !== confirm) return { field: "confirm" as const, error: "the two passwords don't match." };
   const { error } = await authClient().resetPassword({ newPassword: password, token });
   if (error) return { field: "form" as const, error: authErrorMessage(error) };

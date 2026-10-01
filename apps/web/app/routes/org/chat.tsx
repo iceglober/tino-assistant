@@ -98,7 +98,9 @@ export default function Chat() {
           <div className="chat__empty">
             <img src="/tino-logo.png" alt="" width={44} height={44} />
             <p className="chat__hello">say hi to tino.</p>
-            <p className="muted small">ask about your inbox, your calendar, or anything your team discussed in Slack.</p>
+            <p className="muted small">
+              ask about your inbox, your calendar, or anything your team discussed in Slack.
+            </p>
             <ul className="chips" aria-label="suggestions">
               {SUGGESTIONS.map((s) => (
                 <li key={s}>
@@ -136,7 +138,8 @@ export default function Chat() {
           <div className="msg msg--tino msg--typing" role="status">
             <span className="msg__who">tino</span>
             <div className="msg__body">
-              <span className="dots" aria-label="tino is thinking">
+              <span className="visually-hidden">tino is thinking…</span>
+              <span className="dots" aria-hidden="true">
                 <span />
                 <span />
                 <span />

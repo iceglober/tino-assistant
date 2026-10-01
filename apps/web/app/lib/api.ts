@@ -182,7 +182,8 @@ export function orgApi(slug: string) {
       send<unknown>("PUT", `/mcp/servers/${scope}/${encodeURIComponent(id)}`, input),
     deleteMcp: (scope: McpScope, id: string) =>
       send<{ ok: boolean; removed: boolean }>("DELETE", `/mcp/servers/${scope}/${encodeURIComponent(id)}`),
-    testMcp: (body: McpServerInput & { scope: McpScope; id?: string }) => send<McpTestResult>("POST", "/mcp/test", body),
+    testMcp: (body: McpServerInput & { scope: McpScope; id?: string }) =>
+      send<McpTestResult>("POST", "/mcp/test", body),
 
     // chat
     chat: (text: string) => send<ChatReply>("POST", "/chat", { text }),
@@ -195,11 +196,9 @@ export function orgApi(slug: string) {
     topicChunks: (scope: KbScope, id: string, signal?: AbortSignal) =>
       get<Items<KbItem>>(`/kb/topics/${encodeURIComponent(id)}/chunks${qs({ scope })}`, signal),
     browse: (q: BrowseQuery, signal?: AbortSignal) => get<KbBrowsePage>(`/kb/browse${qs({ ...q })}`, signal),
-    activity: (limit = 80, signal?: AbortSignal) =>
-      get<Items<KbActivityEvent>>(`/kb/activity${qs({ limit })}`, signal),
+    activity: (limit = 80, signal?: AbortSignal) => get<Items<KbActivityEvent>>(`/kb/activity${qs({ limit })}`, signal),
     dontLearnFrom: (signal?: AbortSignal) => get<DontLearnFromView>("/kb/dont-learn-from", signal),
-    saveDontLearnFrom: (gmail: GmailExclusion[]) =>
-      send<DontLearnFromSaved>("PUT", "/kb/dont-learn-from", { gmail }),
+    saveDontLearnFrom: (gmail: GmailExclusion[]) => send<DontLearnFromSaved>("PUT", "/kb/dont-learn-from", { gmail }),
 
     // connections
     disconnect: (provider: ConnectionProvider) => send<{ ok: true }>("DELETE", `/connections/${provider}`),

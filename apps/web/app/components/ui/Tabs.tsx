@@ -10,14 +10,21 @@ export interface TabLink {
 
 /**
  * Route-backed tabs: each tab is a link, so the URL is the state and the back
- * button works. Search params (e.g. ?scope=) are carried across tabs.
+ * button works. The search params named in `keep` (e.g. scope) carry across.
  */
-export function TabNav({ tabs, label, keepSearch = true }: { tabs: TabLink[]; label: string; keepSearch?: boolean }) {
+export function TabNav({ tabs, label, keep = [] }: { tabs: TabLink[]; label: string; keep?: string[] }) {
   const { search } = useLocation();
+  const current = new URLSearchParams(search);
+  const carried = new URLSearchParams();
+  for (const k of keep) {
+    const v = current.get(k);
+    if (v) carried.set(k, v);
+  }
+  const suffix = carried.size ? `?${carried.toString()}` : "";
   return (
     <nav className="tabs" aria-label={label}>
       {tabs.map((t) => (
-        <NavLink key={t.to} to={keepSearch ? `${t.to}${search}` : t.to} end={t.end} className="tabs__tab" prefetch="intent">
+        <NavLink key={t.to} to={`${t.to}${suffix}`} end={t.end} className="tabs__tab" prefetch="intent">
           {t.label}
         </NavLink>
       ))}
@@ -38,19 +45,19 @@ export function Segmented<T extends string>({
   label: string;
 }) {
   return (
-    <div className="seg" role="radiogroup" aria-label={label}>
+    <fieldset className="seg">
+      <legend className="visually-hidden">{label}</legend>
       {options.map((o) => (
         <button
           key={o.value}
           type="button"
-          role="radio"
-          aria-checked={value === o.value}
+          aria-pressed={value === o.value}
           className="seg__opt"
           onClick={() => onChange(o.value)}
         >
           {o.label}
         </button>
       ))}
-    </div>
+    </fieldset>
   );
 }

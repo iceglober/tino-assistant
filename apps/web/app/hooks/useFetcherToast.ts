@@ -3,7 +3,9 @@ import type { FetcherWithComponents } from "react-router";
 import { useToast } from "../components/ui/Toast";
 
 /** The shape clientActions in this app return. */
-export type ActionResult = { ok: true; message?: string; intent?: string } | { ok: false; error: string; intent?: string };
+export type ActionResult =
+  | { ok: true; message?: string; intent?: string }
+  | { ok: false; error: string; intent?: string };
 
 /**
  * Toast the outcome of a fetcher submission once it settles: the action's

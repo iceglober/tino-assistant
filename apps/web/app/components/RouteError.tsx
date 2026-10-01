@@ -1,4 +1,4 @@
-import { isRouteErrorResponse, Link, useRevalidator } from "react-router";
+import { isRouteErrorResponse, Link, useParams, useRevalidator } from "react-router";
 import { isApiError } from "../lib/api";
 import { errorMessage } from "../lib/format";
 import { ADMINS_ONLY } from "../lib/session";
@@ -10,6 +10,7 @@ import { Button, ButtonLink } from "./ui/Button";
  */
 export function RouteError({ error, compact }: { error: unknown; compact?: boolean }) {
   const revalidator = useRevalidator();
+  const { slug } = useParams();
   const retrying = revalidator.state === "loading";
 
   const status = isRouteErrorResponse(error) ? error.status : isApiError(error) ? error.status : 0;
@@ -27,10 +28,11 @@ export function RouteError({ error, compact }: { error: unknown; compact?: boole
         <p className="eyebrow">admins only</p>
         <h1>this page is for admins.</h1>
         <p className="lede">
-          ask an admin in your org if something here needs changing — they can also make you an admin from the team page.
+          ask an admin in your org if something here needs changing — they can also make you an admin from the team
+          page.
         </p>
         <div className="row">
-          <ButtonLink to=".." relative="path" variant="secondary">
+          <ButtonLink to={slug ? `/${slug}` : "/"} variant="secondary">
             back to overview
           </ButtonLink>
         </div>

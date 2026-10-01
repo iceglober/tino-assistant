@@ -258,7 +258,9 @@ export default function Connections() {
             <h2 id="conn-tools">tools</h2>
             <p className="muted small">MCP servers — Linear, GitHub, your own APIs</p>
           </div>
-          <span className="small muted">{connections.mcpServers ? `${connections.mcpServers} yours` : "none yours"}</span>
+          <span className="small muted">
+            {connections.mcpServers ? `${connections.mcpServers} yours` : "none yours"}
+          </span>
         </div>
         <div className="conn__body">
           <Link to={`/${slug}/tools`}>manage tools →</Link>

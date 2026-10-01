@@ -2,7 +2,10 @@
   "name": "tino",
   "private": true,
   "type": "module",
-  "workspaces": ["apps/*", "packages/*"],
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "packageManager": "bun@1.3.14",
   "scripts": {
     "dev": "bun run --filter '@tino/server' --filter '@tino/web' dev",

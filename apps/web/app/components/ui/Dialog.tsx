@@ -38,6 +38,7 @@ export function Dialog({ open, onClose, title, children, actions, onSubmit }: Di
   );
 
   return (
+    // biome-ignore lint/a11y/useKeyWithClickEvents: the backdrop click mirrors Escape, which the native dialog handles
     <dialog
       ref={ref}
       className="dialog"

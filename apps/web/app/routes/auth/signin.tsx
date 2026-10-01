@@ -71,7 +71,9 @@ export default function SignIn({ actionData }: Route.ComponentProps) {
         <Field
           label="password"
           hint={
-            <Link to={`/forgot-password${email ? `?email=${encodeURIComponent(email)}` : ""}`}>forgot your password?</Link>
+            <Link to={`/forgot-password${email ? `?email=${encodeURIComponent(email)}` : ""}`}>
+              forgot your password?
+            </Link>
           }
         >
           <Input name="password" type="password" autoComplete="current-password" required autoFocus={!!email} />
@@ -79,8 +81,7 @@ export default function SignIn({ actionData }: Route.ComponentProps) {
         {unverified ? (
           <Notice tone="warn" title="confirm your email first">
             <p>
-              we sent a link to {actionData?.email}.{" "}
-              <Link to={`/verify-email?${carry.toString()}`}>send it again</Link>
+              we sent a link to {actionData?.email}. <Link to={`/verify-email?${carry.toString()}`}>send it again</Link>
             </p>
           </Notice>
         ) : null}

@@ -157,7 +157,9 @@ export default function AppShell({ loaderData }: Route.ComponentProps) {
           <UserMenu me={me} placement="above" tone="rail" />
         </div>
       </aside>
-      {open ? <button type="button" className="scrim" aria-label="close navigation" onClick={() => setOpen(false)} /> : null}
+      {open ? (
+        <button type="button" className="scrim" aria-label="close navigation" onClick={() => setOpen(false)} />
+      ) : null}
 
       <div className="shell__main">
         <VerifyBanner me={me} />

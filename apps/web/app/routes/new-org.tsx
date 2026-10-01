@@ -30,7 +30,11 @@ export async function clientAction({ request }: Route.ClientActionArgs) {
   }
 }
 
-type Check = { state: "idle" } | { state: "checking" } | { state: "done"; result: SlugAvailability } | { state: "error" };
+type Check =
+  | { state: "idle" }
+  | { state: "checking" }
+  | { state: "done"; result: SlugAvailability }
+  | { state: "error" };
 
 function useSlugCheck(slug: string): Check {
   const [check, setCheck] = useState<Check>({ state: "idle" });
@@ -94,7 +98,9 @@ export default function NewOrg({ actionData }: Route.ComponentProps) {
     check.state === "checking" ? (
       "checking…"
     ) : check.state === "done" && check.result.available ? (
-      <span className="ok-text">✓ {host}/{check.result.slug} is yours</span>
+      <span className="ok-text">
+        ✓ {host}/{check.result.slug} is yours
+      </span>
     ) : check.state === "error" ? (
       "couldn't check right now — you can still try."
     ) : (
@@ -137,7 +143,9 @@ export default function NewOrg({ actionData }: Route.ComponentProps) {
           <Field
             label="web address"
             hint={slugHint}
-            error={taken && check.state === "done" ? (check.result.problem ?? "that address is taken — try another.") : null}
+            error={
+              taken && check.state === "done" ? (check.result.problem ?? "that address is taken — try another.") : null
+            }
           >
             <Input
               name="slug"

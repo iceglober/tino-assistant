@@ -112,7 +112,7 @@ table {
 }
 
 .visually-hidden {
-  position: absolute !important;
+  position: absolute;
   width: 1px;
   height: 1px;
   overflow: hidden;
@@ -173,11 +173,11 @@ table {
   color: var(--ink-3);
 }
 
-.stack > * + * {
+.stack > :not(:first-child) {
   margin-top: var(--s-4);
 }
 
-.stack-lg > * + * {
+.stack-lg > :not(:first-child) {
   margin-top: var(--s-6);
 }
 
@@ -364,7 +364,8 @@ table {
   appearance: none;
   padding-right: var(--s-6);
   background-image:
-    linear-gradient(45deg, transparent 50%, var(--ink-3) 50%), linear-gradient(135deg, var(--ink-3) 50%, transparent 50%);
+    linear-gradient(45deg, transparent 50%, var(--ink-3) 50%),
+    linear-gradient(135deg, var(--ink-3) 50%, transparent 50%);
   background-position:
     calc(100% - 17px) 50%,
     calc(100% - 12px) 50%;
@@ -432,7 +433,8 @@ table {
 
 .fieldset {
   border: 0;
-  margin: 0;
+  margin-inline: 0;
+  margin-bottom: 0;
   padding: 0;
   min-width: 0;
 }
@@ -702,6 +704,9 @@ table {
 /* Segmented control */
 .seg {
   display: inline-flex;
+  margin: 0;
+  border: 0;
+  min-inline-size: 0;
   padding: 3px;
   gap: 2px;
   background: var(--paper-sunk);
@@ -1058,5 +1063,6 @@ table {
 }
 
 .table-wrap {
+  position: relative;
   overflow-x: auto;
 }

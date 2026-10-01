@@ -33,7 +33,6 @@ export function Button({
 }: ButtonProps) {
   return (
     <button
-      // biome-ignore lint/a11y/useButtonType: type is always set (defaults to "button")
       type={type}
       className={buttonClass({ variant, size, block }, className)}
       disabled={disabled || loading}

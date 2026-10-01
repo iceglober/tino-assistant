@@ -100,7 +100,9 @@ export default function Orgs() {
             {needsVerify ? (
               <Notice tone="warn">
                 confirm {me.account.email} first —{" "}
-                <Link to={`/verify-email?email=${encodeURIComponent(me.account.email)}&next=/orgs`}>resend the link</Link>
+                <Link to={`/verify-email?email=${encodeURIComponent(me.account.email)}&next=/orgs`}>
+                  resend the link
+                </Link>
               </Notice>
             ) : null}
             <ul className="org-list">

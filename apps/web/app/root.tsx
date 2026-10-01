@@ -10,9 +10,9 @@ import "./styles/app.css";
 
 import type { ReactNode } from "react";
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
+import type { Route } from "./+types/root";
 import { RouteError } from "./components/RouteError";
 import { ToastProvider } from "./components/ui/Toast";
-import type { Route } from "./+types/root";
 
 export const links: Route.LinksFunction = () => [
   { rel: "icon", type: "image/png", href: "/tino-logo.png" },

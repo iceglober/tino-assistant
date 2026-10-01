@@ -1,8 +1,12 @@
 import type { ReactNode } from "react";
 
 export function Spinner({ label }: { label?: string }) {
+  if (!label) return <span className="spinner" aria-hidden="true" />;
   return (
-    <span className="spinner" role={label ? "status" : undefined} aria-label={label} aria-hidden={label ? undefined : true} />
+    <span role="status">
+      <span className="spinner" aria-hidden="true" />
+      <span className="visually-hidden">{label}</span>
+    </span>
   );
 }
 

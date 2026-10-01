@@ -1,6 +1,6 @@
 import type { OrgOverview } from "@tino/contracts";
 import { Link } from "react-router";
-import { type ChecklistItem, Checklist } from "../../components/overview/Checklist";
+import { Checklist, type ChecklistItem } from "../../components/overview/Checklist";
 import { PageHeader } from "../../components/PageHeader";
 import { RouteError } from "../../components/RouteError";
 import { StatusBadge } from "../../components/ui/Badge";
@@ -164,10 +164,9 @@ export default function Overview() {
     );
   }
 
-  const missing = [
-    !org.status.model && "a model",
-    !org.status.slack.installed && "the Slack app",
-  ].filter(Boolean) as string[];
+  const missing = [!org.status.model && "a model", !org.status.slack.installed && "the Slack app"].filter(
+    Boolean,
+  ) as string[];
 
   return (
     <div className="stack-lg">

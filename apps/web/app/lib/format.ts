@@ -16,7 +16,13 @@ export function fmtAgo(v: When, now: number = Date.now()): string {
   const diff = now - ms;
   const mins = Math.round(Math.abs(diff) / 60_000);
   const span =
-    mins < 1 ? null : mins < 60 ? `${mins}m` : mins < 1440 ? `${Math.round(mins / 60)}h` : `${Math.round(mins / 1440)}d`;
+    mins < 1
+      ? null
+      : mins < 60
+        ? `${mins}m`
+        : mins < 1440
+          ? `${Math.round(mins / 60)}h`
+          : `${Math.round(mins / 1440)}d`;
   if (!span) return diff >= 0 ? "just now" : "any moment";
   return diff >= 0 ? `${span} ago` : `in ${span}`;
 }

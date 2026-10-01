@@ -17,7 +17,9 @@ export function authClient(): ReturnType<typeof createAuthClient> {
 }
 
 /** better-auth returns `{ data, error }`; this turns `error` into a sentence. */
-export function authErrorMessage(error: { message?: string; code?: string; status?: number } | null | undefined): string {
+export function authErrorMessage(
+  error: { message?: string; code?: string; status?: number } | null | undefined,
+): string {
   if (!error) return "something went wrong — try again.";
   switch (error.code) {
     case "INVALID_EMAIL_OR_PASSWORD":

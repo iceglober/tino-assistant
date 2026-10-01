@@ -32,10 +32,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     [dismiss],
   );
 
-  const api = useMemo<ToastApi>(
-    () => ({ show, ok: (t) => show(t, "ok"), err: (t) => show(t, "err") }),
-    [show],
-  );
+  const api = useMemo<ToastApi>(() => ({ show, ok: (t) => show(t, "ok"), err: (t) => show(t, "err") }), [show]);
 
   return (
     <ToastContext.Provider value={api}>

@@ -30,7 +30,10 @@ export default function Account() {
           </div>
         </div>
 
-        <Section title="sign-in" sub="your account is how you sign in to tino. it doesn't give tino access to anything.">
+        <Section
+          title="sign-in"
+          sub="your account is how you sign in to tino. it doesn't give tino access to anything."
+        >
           <div className="row">
             <ButtonLink to={`/forgot-password?email=${encodeURIComponent(account.email)}`} variant="secondary">
               change password
