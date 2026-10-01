@@ -169,7 +169,8 @@ export async function createOrgRuntime(
     }
     if (kb && kbState.embedModel === embedder.model) return; // unchanged — keep the indexer's state
     kb = createOrgKb({
-      stores: stores as OrgStores & { knowledge: NonNullable<OrgStores["knowledge"]> },
+      // The Gmail source needs credentials with the issuing client joined in.
+      stores: { ...stores, userCapabilities } as OrgStores & { knowledge: NonNullable<OrgStores["knowledge"]> },
       embedder,
       extractor,
       notifyAuthLoss: async (userId, source) => {
