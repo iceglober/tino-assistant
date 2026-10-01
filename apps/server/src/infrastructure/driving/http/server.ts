@@ -15,10 +15,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { type ServerType, serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
-import type { Auth } from "better-auth";
-import { Hono } from "hono";
 import type { PlatformInfo } from "@tino/contracts";
 import type { Logger } from "@tino/core/ports/outbound";
+import type { Auth } from "better-auth";
+import { Hono } from "hono";
 import type { OrgRegistry } from "../../../bootstrap/org-registry.js";
 import type { McpClientPool } from "../../driven/mcp/client-pool.js";
 import type { Persistence } from "../../driven/persistence/postgres/index.js";
@@ -43,6 +43,8 @@ export interface ServerOptions {
   mcpPool: McpClientPool;
   /** Local dev: unverified emails may create orgs, join and accept invites. */
   trustUnverified: boolean;
+  /** Whether this address may create orgs (closed beta). */
+  canCreateOrg: (email: string) => boolean;
   onInvite?: Parameters<typeof createUserRoutes>[0]["onInvite"];
   logger: Logger;
 }
@@ -57,7 +59,13 @@ export function createHttpApp(opts: ServerOptions): Hono<{ Variables: AccountVar
 
   app.route(
     "/api",
-    createPlatformRoutes({ persistence, info: opts.platformInfo, trustUnverified: opts.trustUnverified, logger }),
+    createPlatformRoutes({
+      persistence,
+      info: opts.platformInfo,
+      trustUnverified: opts.trustUnverified,
+      canCreateOrg: opts.canCreateOrg,
+      logger,
+    }),
   );
 
   const connectionDeps: ConnectionDeps = {
@@ -70,7 +78,10 @@ export function createHttpApp(opts: ServerOptions): Hono<{ Variables: AccountVar
   app.route("/api/oauth", createOAuthCallbackRoutes(connectionDeps));
 
   const org = new Hono<{ Variables: AuthVariables }>();
-  org.use("*", orgScope({ runtimeBySlug: (slug) => registry.bySlug(slug), trustUnverified: opts.trustUnverified, logger }));
+  org.use(
+    "*",
+    orgScope({ runtimeBySlug: (slug) => registry.bySlug(slug), trustUnverified: opts.trustUnverified, logger }),
+  );
   org.route("/", createOrgRoutes({ logger }));
   org.route("/", createOrgConnectionRoutes(connectionDeps));
   org.route("/users", createUserRoutes({ logger, onInvite: opts.onInvite }));

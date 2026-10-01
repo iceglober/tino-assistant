@@ -15,8 +15,8 @@
 import { createAzure } from "@ai-sdk/azure";
 import { createVertex } from "@ai-sdk/google-vertex";
 import { createOpenAI } from "@ai-sdk/openai";
-import { embed, embedMany, type EmbeddingModel } from "ai";
 import type { Embedder } from "@tino/core/ports/outbound";
+import { type EmbeddingModel, embed, embedMany } from "ai";
 import { KB_EMBED_DIMS } from "./schema.js";
 
 const EMBED_MODEL_ID = "gemini-embedding-001";

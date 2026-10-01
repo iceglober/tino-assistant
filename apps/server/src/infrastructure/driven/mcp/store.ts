@@ -4,13 +4,7 @@
  * org's owner id (`org:<orgId>`), which also keys their pooled connections. Non-secret fields live in `settings`; the token lives in
  * `credentials.token`, so it is encrypted at rest like every other credential.
  */
-import {
-  type McpAuth,
-  type McpScope,
-  type McpServer,
-  type McpTransport,
-  mcpCapabilityId,
-} from "@tino/core/domain/mcp";
+import { type McpAuth, type McpScope, type McpServer, type McpTransport, mcpCapabilityId } from "@tino/core/domain/mcp";
 import type { UserCapabilityStore } from "@tino/core/ports/outbound";
 
 export interface StoredMcpServer extends McpServer {
@@ -63,10 +57,7 @@ export function createMcpServerStore(caps: UserCapabilityStore, workspaceOwner: 
   return {
     ownerOf,
     async listFor(userId) {
-      const [ws, mine] = await Promise.all([
-        listOwner(workspaceOwner, "workspace"),
-        listOwner(userId, "personal"),
-      ]);
+      const [ws, mine] = await Promise.all([listOwner(workspaceOwner, "workspace"), listOwner(userId, "personal")]);
       return [...ws, ...mine];
     },
 

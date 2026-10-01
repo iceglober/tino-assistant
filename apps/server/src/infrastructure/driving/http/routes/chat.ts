@@ -1,5 +1,5 @@
-import { Hono } from "hono";
 import type { Logger } from "@tino/core/ports/outbound";
+import { Hono } from "hono";
 import type { AuthVariables } from "../auth.js";
 
 /**
@@ -30,7 +30,10 @@ export function createChatRoutes(opts: { logger: Logger }): Hono<{ Variables: Au
     } catch (err) {
       logger.error({ err: (err as Error).message, userId: user.id }, "chat request failed");
       return c.json(
-        { error: "chat_failed", message: "tino couldn't reply — the model returned an error. The details are in the server logs." },
+        {
+          error: "chat_failed",
+          message: "tino couldn't reply — the model returned an error. The details are in the server logs.",
+        },
         500,
       );
     }

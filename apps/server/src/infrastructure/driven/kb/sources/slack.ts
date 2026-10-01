@@ -13,8 +13,8 @@
  * times every cycle.
  */
 import { webApi } from "@slack/bolt";
-import { rollupThread, type SlackKbMessage, slackTsToMs, windowMessages } from "@tino/core/domain/kb";
 import { KbAuthError, type KbPrincipal, type KbRunResult } from "@tino/core/application/kb-indexer";
+import { rollupThread, type SlackKbMessage, slackTsToMs, windowMessages } from "@tino/core/domain/kb";
 import type {
   ConfigStore,
   Embedder,

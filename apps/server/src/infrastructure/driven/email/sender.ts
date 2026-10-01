@@ -24,7 +24,10 @@ export function createEmailSender(opts: { resendApiKey?: string; from: string; l
       delivers: false,
       async send(email) {
         // The text holds the link the person needs; in dev, that's the point of logging it.
-        logger.info({ to: email.to, subject: email.subject, link: email.text }, "email (not sent — RESEND_API_KEY unset)");
+        logger.info(
+          { to: email.to, subject: email.subject, link: email.text },
+          "email (not sent — RESEND_API_KEY unset)",
+        );
       },
     };
   }

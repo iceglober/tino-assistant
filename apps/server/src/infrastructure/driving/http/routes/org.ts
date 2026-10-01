@@ -9,7 +9,7 @@
  *
  * Secrets are write-only: no response ever carries one.
  */
-import { Hono } from "hono";
+
 import {
   type ApplyResult,
   type OrgOverview,
@@ -20,6 +20,7 @@ import {
 } from "@tino/contracts";
 import { isSecretConfigKey } from "@tino/core/domain/org";
 import type { Logger } from "@tino/core/ports/outbound";
+import { Hono } from "hono";
 import { type AuthVariables, requireAdmin } from "../auth.js";
 
 export function createOrgRoutes(opts: { logger: Logger }): Hono<{ Variables: AuthVariables }> {
@@ -78,11 +79,16 @@ export function createOrgRoutes(opts: { logger: Logger }): Hono<{ Variables: Aut
     const { config } = c.get("org").stores;
     for (const [key, value] of Object.entries(values)) {
       if (value === null || value === "") await config.delete(key);
-      else if (typeof value === "string" || typeof value === "number") await config.set(key, typeof value === "string" ? value.trim() : value);
+      else if (typeof value === "string" || typeof value === "number")
+        await config.set(key, typeof value === "string" ? value.trim() : value);
       else return c.json({ error: `${key} must be a string or number` }, 400);
     }
     logger.info(
-      { org: c.get("org").org.slug, by: c.get("user").id, keys: Object.keys(values).map((k) => (isSecretConfigKey(k) ? `${k}*` : k)) },
+      {
+        org: c.get("org").org.slug,
+        by: c.get("user").id,
+        keys: Object.keys(values).map((k) => (isSecretConfigKey(k) ? `${k}*` : k)),
+      },
       "settings updated",
     );
     return c.json({ ok: true });

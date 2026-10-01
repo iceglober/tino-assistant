@@ -6,21 +6,11 @@
  * NOT exported from the package — purely a test fixture.
  */
 
-import type { MiddlewareHandler } from "hono";
+import type { Logger as AppLogger, ConfigStore } from "@tino/core/ports/outbound";
 import { vi } from "vitest";
-import type { ConfigStore } from "../../src/infrastructure/driven/persistence/config.js";
-import type { Logger as AppLogger } from "@tino/core/ports/outbound";
-import type { AuthVariables } from "../../src/infrastructure/driving/http/auth.js";
 
 export function noopLogger(): AppLogger {
   return { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
-}
-
-export function fakeAdmin(): MiddlewareHandler<{ Variables: AuthVariables }> {
-  return async (c, next) => {
-    c.set("user", { id: "admin-1", role: "admin" } as any);
-    await next();
-  };
 }
 
 export function makeConfigStore(entries: Record<string, unknown> = {}): ConfigStore {

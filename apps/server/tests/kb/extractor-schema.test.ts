@@ -7,10 +7,11 @@
  * the first deploy of this feature. Optionality must be expressed as
  * `.nullable()`, which keeps the key required while allowing a null value.
  */
-import { describe, expect, it } from "vitest";
-import { z } from "zod";
-import { factSchema, topicSchema } from "../../src/infrastructure/driven/kb/extractor.js";
+
 import { isLikelyNoise } from "@tino/core/domain/knowledge";
+import { describe, expect, it } from "vitest";
+import type { z } from "zod";
+import { factSchema, topicSchema } from "../../src/infrastructure/driven/kb/extractor.js";
 
 /** Every property must reject `undefined` — i.e. none of them are optional. */
 function expectNoOptionalFields(shape: Record<string, z.ZodTypeAny>, where: string): void {

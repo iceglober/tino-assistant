@@ -147,7 +147,13 @@ export function resolveOAuthClient(input: ResolveClientInput): ClientResolution 
     const m = managed();
     return m.ok ? m : (own() ?? m);
   }
-  return own() ?? managed();
+  const viaOwn = own();
+  if (viaOwn) return viaOwn;
+  const m = managed();
+  // Nothing managed on offer: the next step is the org's own client, so say that.
+  return !m.ok && m.reason === "not_offered"
+    ? { ok: false, reason: "not_configured", message: "add your own OAuth client in Settings to connect this" }
+    : m;
 }
 
 /**

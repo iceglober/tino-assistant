@@ -1,4 +1,3 @@
-import { describe, expect, it } from "vitest";
 import {
   clusterCount,
   factKey,
@@ -8,6 +7,7 @@ import {
   validateDraft,
 } from "@tino/core/domain/knowledge";
 import type { KbFactDraft } from "@tino/core/ports/outbound";
+import { describe, expect, it } from "vitest";
 
 const draft = (over: Partial<KbFactDraft> = {}): KbFactDraft => ({
   kind: "project",
@@ -105,7 +105,13 @@ describe("kmeans", () => {
   });
 
   it("never returns more clusters than points, and drops empty ones", () => {
-    const clusters = kmeans([[1, 0, 0], [0, 1, 0]], 5);
+    const clusters = kmeans(
+      [
+        [1, 0, 0],
+        [0, 1, 0],
+      ],
+      5,
+    );
     expect(clusters.length).toBeLessThanOrEqual(2);
     expect(clusters.every((c) => c.members.length > 0)).toBe(true);
   });
@@ -115,7 +121,13 @@ describe("kmeans", () => {
   });
 
   it("orders clusters largest first so the themes list reads by prominence", () => {
-    const lopsided = [[1, 0, 0], [0.99, 0.01, 0], [0.98, 0, 0.02], [0.97, 0.02, 0], [0, 1, 0]];
+    const lopsided = [
+      [1, 0, 0],
+      [0.99, 0.01, 0],
+      [0.98, 0, 0.02],
+      [0.97, 0.02, 0],
+      [0, 1, 0],
+    ];
     const clusters = kmeans(lopsided, 2);
     expect(clusters[0]?.members.length).toBeGreaterThanOrEqual(clusters[1]?.members.length ?? 0);
   });

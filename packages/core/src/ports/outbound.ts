@@ -4,14 +4,10 @@
  * `ConversationMessage` and `Tools` are opaque handles the domain shuttles
  * between adapters without inspecting them.
  */
-import type {
-  CapabilityConfig,
-  Identity,
-  IdentityProvider,
-  TinoUser,
-} from "../domain/types.js";
+
 import type { DontLearnFrom } from "../domain/dont-learn-from.js";
 import type { Org } from "../domain/org.js";
+import type { CapabilityConfig, Identity, IdentityProvider, TinoUser } from "../domain/types.js";
 import type { Readers, WhoCanSee } from "../domain/who-can-see.js";
 
 // ── Opaque handles ────────────────────────────────────────────────────────────
@@ -304,14 +300,7 @@ export interface KbBrowseItem {
 // ── Distilled knowledge ───────────────────────────────────────────────────────
 
 /** What a fact is *about* — browse groups by this, not by where it came from. */
-export type KbFactKind =
-  | "project"
-  | "person"
-  | "problem"
-  | "commitment"
-  | "decision"
-  | "preference"
-  | "fact";
+export type KbFactKind = "project" | "person" | "problem" | "commitment" | "decision" | "preference" | "fact";
 
 export const KB_FACT_KINDS: readonly KbFactKind[] = [
   "project",
@@ -440,7 +429,13 @@ export interface KnowledgeStore {
   ): Promise<{ excerptsRemoved: number; factsRemoved: number; factsTrimmed: number }>;
 
   getCursor(scope: KbScope, userId: string, source: string, stream: string): Promise<Record<string, unknown> | null>;
-  setCursor(scope: KbScope, userId: string, source: string, stream: string, state: Record<string, unknown>): Promise<void>;
+  setCursor(
+    scope: KbScope,
+    userId: string,
+    source: string,
+    stream: string,
+    state: Record<string, unknown>,
+  ): Promise<void>;
 
   getIndexState(scope: KbScope, userId: string, source: "slack" | "gmail"): Promise<KbIndexState | null>;
   setIndexState(state: KbIndexState): Promise<void>;
@@ -534,4 +529,3 @@ export interface CryptoAdapter {
   encrypt(plaintext: string, context: EncryptionContext): Promise<EnvelopeCiphertext>;
   decrypt(envelope: EnvelopeCiphertext, context: EncryptionContext): Promise<string>;
 }
-

@@ -13,12 +13,12 @@
  * ever honour a *verified* email — otherwise anyone could sign up as
  * ceo@yourcompany.com and walk into your org.
  */
-import { type Auth, betterAuth } from "better-auth";
-import { APIError } from "better-auth/api";
+
+import type { OrgMember } from "@tino/contracts";
+import type { Logger } from "@tino/core/ports/outbound";
+import { type Auth, type BetterAuthOptions, betterAuth } from "better-auth";
 import { getMigrations } from "better-auth/db/migration";
 import type { MiddlewareHandler } from "hono";
-import type { OrgMember } from "@tino/contracts";
-import type { Logger, MembershipDirectory } from "@tino/core/ports/outbound";
 import type { OrgRuntime } from "../../../bootstrap/org-runtime.js";
 import type { EmailSender } from "../../driven/email/sender.js";
 import type { PgPool } from "../../driven/persistence/db.js";
@@ -49,9 +49,6 @@ export interface AuthOptions {
   requireEmailVerification: boolean;
   /** Tino's Google client for sign-in only (basic scopes). */
   googleSignIn?: { clientId: string; clientSecret: string };
-  /** `closed`: only addresses already invited to an org may create an account. */
-  signups: "open" | "closed";
-  memberships: MembershipDirectory;
   /** Extra origins allowed to call the auth API (the Vite dev server). */
   trustedOrigins?: string[];
   logger: Logger;
@@ -59,7 +56,7 @@ export interface AuthOptions {
 
 export async function createAuth(opts: AuthOptions): Promise<Auth> {
   const { email, logger } = opts;
-  const auth = betterAuth({
+  const options: BetterAuthOptions = {
     baseURL: opts.baseUrl,
     basePath: "/api/auth",
     secret: opts.secret,
@@ -92,24 +89,12 @@ export async function createAuth(opts: AuthOptions): Promise<Auth> {
       ? { google: { clientId: opts.googleSignIn.clientId, clientSecret: opts.googleSignIn.clientSecret } }
       : undefined,
     session: { expiresIn: 60 * 60 * 24 * 14, updateAge: 60 * 60 * 24 },
-    databaseHooks: {
-      user: {
-        create: {
-          before: async (user) => {
-            if (opts.signups === "open") return;
-            const invited = await opts.memberships.byEmail(user.email);
-            if (invited.length === 0) {
-              throw new APIError("FORBIDDEN", { message: "Tino is invite-only right now — ask your admin for an invite." });
-            }
-          },
-        },
-      },
-    },
-  }) as unknown as Auth;
+  };
 
-  // biome-ignore lint/suspicious/noExplicitAny: better-auth's options bag is untyped on the public Auth type
-  const { runMigrations } = await getMigrations((auth as any).options);
+  // Create better-auth's tables before the instance exists, so it never sees an empty schema.
+  const { runMigrations } = await getMigrations(options);
   await runMigrations();
+  const auth = betterAuth(options) as unknown as Auth;
   logger.info({ google: !!opts.googleSignIn, verification: opts.requireEmailVerification }, "auth ready");
   return auth;
 }

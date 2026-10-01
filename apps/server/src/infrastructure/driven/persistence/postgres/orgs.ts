@@ -60,7 +60,8 @@ export function createPgOrgStore({ pool }: { pool: PgPool }): OrgStore {
       const values: unknown[] = [];
       if (patch.name !== undefined) values.push(patch.name) && sets.push(`name = $${values.length}`);
       if (patch.status !== undefined) values.push(patch.status) && sets.push(`status = $${values.length}`);
-      if (patch.slackTeamId !== undefined) values.push(patch.slackTeamId) && sets.push(`slack_team_id = $${values.length}`);
+      if (patch.slackTeamId !== undefined)
+        values.push(patch.slackTeamId) && sets.push(`slack_team_id = $${values.length}`);
       values.push(Date.now());
       sets.push(`updated_at = $${values.length}`);
       values.push(id);

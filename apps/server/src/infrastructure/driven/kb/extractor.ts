@@ -16,10 +16,13 @@
  * already selected the corpus, and drafts can only cite chunks from the batch
  * they were given.
  */
-import { generateText, stepCountIs, tool, type LanguageModel } from "ai";
-import { z } from "zod";
+
 import { KbTruncatedOutputError } from "@tino/core/domain/knowledge";
+import { generateText, type LanguageModel, stepCountIs, tool } from "ai";
+import { z } from "zod";
+
 export { isLikelyNoise } from "@tino/core/domain/knowledge";
+
 import type { KbFactDraft, KbSource, KnowledgeExtractor, Logger } from "@tino/core/ports/outbound";
 
 /**
@@ -37,7 +40,10 @@ export const factSchema = z.object({
           .string()
           .describe("The thing this is about, e.g. 'Stedi POC'. Reuse an existing subject verbatim when it matches."),
         statement: z.string().describe("One sentence, self-contained, readable months later without the source open."),
-        detail: z.string().nullable().describe("At most two sentences of specifics: names, numbers, dates. Null if none."),
+        detail: z
+          .string()
+          .nullable()
+          .describe("At most two sentences of specifics: names, numbers, dates. Null if none."),
         confidence: z.number().describe("Between 0 and 1."),
         evidenceIdx: z
           .array(z.number().int())
@@ -153,7 +159,10 @@ export function createKnowledgeExtractor({ model, logger }: ExtractorDeps): Know
     if (!call) {
       if (result.finishReason === "length") {
         throw new KbTruncatedOutputError(
-          opts.toolName + " answer exceeded the model's output limit (" + String(result.usage.outputTokens) + " tokens)",
+          opts.toolName +
+            " answer exceeded the model's output limit (" +
+            String(result.usage.outputTokens) +
+            " tokens)",
         );
       }
       throw new NoToolCallError(opts.toolName, result.finishReason, result.text);

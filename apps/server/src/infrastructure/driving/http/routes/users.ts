@@ -1,7 +1,7 @@
-import { Hono } from "hono";
 import { ACCESS_DOMAIN_KEY, ACCESS_MODE_KEY, readAccessPolicy } from "@tino/core/domain/access-policy";
 import type { TinoUser } from "@tino/core/domain/types";
 import type { Logger, UserCapabilityStore } from "@tino/core/ports/outbound";
+import { Hono } from "hono";
 import { type AuthVariables, requireAdmin } from "../auth.js";
 
 /**
@@ -84,8 +84,8 @@ export function createUserRoutes(opts: {
     // Console sign-in resolves by email identity; Slack links by profile email.
     await identities.link({ provider: "email", externalId: email, tinoUserId: user.id, linkedAt: now });
     logger.info({ by: c.get("user").id, tinoUserId: user.id, role }, "user invited");
-    await onInvite?.({ email, orgName: rt.org.name, orgSlug: rt.org.slug, invitedBy: c.get("user").email }).catch((err: Error) =>
-      logger.warn({ err: err.message }, "invite email failed"),
+    await onInvite?.({ email, orgName: rt.org.name, orgSlug: rt.org.slug, invitedBy: c.get("user").email }).catch(
+      (err: Error) => logger.warn({ err: err.message }, "invite email failed"),
     );
     return c.json(await view(userCapabilities, user), 201);
   });

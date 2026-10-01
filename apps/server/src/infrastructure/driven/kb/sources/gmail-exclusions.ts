@@ -3,7 +3,7 @@
  * and filters), and which messages an exclusion matches (for cleaning up what
  * was learned before it existed). Uses the person's own read-only grant.
  */
-import { google } from "googleapis";
+
 import {
   describeGmailFilter,
   type GmailExclusion,
@@ -11,6 +11,7 @@ import {
   searchForGmailFilter,
 } from "@tino/core/domain/dont-learn-from";
 import type { UserCapabilityStore } from "@tino/core/ports/outbound";
+import { google } from "googleapis";
 import { readUserCredentials } from "../../tools/credentials.js";
 
 export type GmailClient = ReturnType<typeof google.gmail>;

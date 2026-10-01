@@ -8,8 +8,9 @@
  * hand the event to the org's Bolt app in the background. Retries Slack sends
  * after a slow ack are dropped: the first delivery is already being handled.
  */
-import { Hono } from "hono";
+
 import type { Logger, OrgStore } from "@tino/core/ports/outbound";
+import { Hono } from "hono";
 import type { OrgRuntime } from "../../../../bootstrap/org-runtime.js";
 import { parseSlackBody, verifySlackSignature } from "../../slack/verify.js";
 
@@ -48,9 +49,9 @@ export function createSlackEventRoutes(deps: {
 
     const bolt = rt.slackApp();
     if (bolt) {
-      void bolt.processEvent({ body, ack: async () => {} }).catch((err: Error) =>
-        logger.error({ org: rt.org.slug, err: err.message }, "slack event handler failed"),
-      );
+      void bolt
+        .processEvent({ body, ack: async () => {} })
+        .catch((err: Error) => logger.error({ org: rt.org.slug, err: err.message }, "slack event handler failed"));
     }
     return new Response("", { status: 200 });
   }

@@ -103,8 +103,8 @@ export function slackListChannelsTool(client: webApi.WebClient) {
         const channels: ChannelInfo[] = ((res.channels ?? []) as Array<Record<string, unknown>>).map((ch) => ({
           id: (ch.id as string) ?? "",
           name: (ch.name as string) ?? "",
-          topic: ((ch.topic as { value?: string })?.value ?? ""),
-          purpose: ((ch.purpose as { value?: string })?.value ?? ""),
+          topic: (ch.topic as { value?: string })?.value ?? "",
+          purpose: (ch.purpose as { value?: string })?.value ?? "",
           memberCount: (ch.num_members as number) ?? 0,
         }));
         return { channels, count: channels.length };
@@ -155,7 +155,12 @@ async function readReplies(
   userCache?: UserCache,
 ) {
   try {
-    const res = await client.conversations.replies({ channel, ts: input.threadTs, limit: input.limit, inclusive: true });
+    const res = await client.conversations.replies({
+      channel,
+      ts: input.threadTs,
+      limit: input.limit,
+      inclusive: true,
+    });
     const messages: ChannelMessage[] = await Promise.all(
       (res.messages ?? []).map(async (m) => {
         const userId = (m as { user?: string }).user ?? "";

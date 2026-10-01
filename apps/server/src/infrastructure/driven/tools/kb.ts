@@ -11,9 +11,6 @@
  * questions; chunks are the receipts.
  */
 
-import type { ToolSet } from "ai";
-import { tool } from "ai";
-import { z } from "zod";
 import type {
   ConfigStore,
   Embedder,
@@ -23,6 +20,9 @@ import type {
   KnowledgeStore,
   Logger,
 } from "@tino/core/ports/outbound";
+import type { ToolSet } from "ai";
+import { tool } from "ai";
+import { z } from "zod";
 
 const baseSchema = {
   query: z.string().min(1).describe("Natural-language search — describe the topic, not keywords."),

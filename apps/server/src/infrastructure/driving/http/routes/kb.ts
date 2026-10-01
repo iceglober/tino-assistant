@@ -13,8 +13,9 @@
  * Auth-gated. `scope=private` is bound to the signed-in user server-side — the
  * user id is never taken from the query string.
  */
-import { type Context, Hono } from "hono";
+
 import type { KbFactKind, KbSource, Logger } from "@tino/core/ports/outbound";
+import { type Context, Hono } from "hono";
 import type { AuthVariables } from "../auth.js";
 
 /** What the console asks for. 'private' always means the caller's own scope. */

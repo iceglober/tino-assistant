@@ -1,9 +1,9 @@
+import type { TinoUser } from "@tino/core/domain/types";
+import type { IdentityStore, UserCapabilityStore, UserStore } from "@tino/core/ports/outbound";
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
-import type { TinoUser } from "@tino/core/domain/types";
 import type { AuthVariables } from "../../src/infrastructure/driving/http/auth.js";
 import { createUserRoutes } from "../../src/infrastructure/driving/http/routes/users.js";
-import type { IdentityStore, UserCapabilityStore, UserStore } from "@tino/core/ports/outbound";
 import { makeConfigStore, noopLogger } from "./_helpers.js";
 
 const u = (o: Partial<TinoUser>): TinoUser => ({
@@ -37,14 +37,13 @@ function setup(initial: TinoUser[], as: { id: string; role: "admin" | "member" }
   const caps = { list: vi.fn(async () => []) } as unknown as UserCapabilityStore;
   const config = makeConfigStore();
   const app = new Hono<{ Variables: AuthVariables }>();
+  const org = { org: { name: "Acme", slug: "acme" }, stores: { users, identities, userCapabilities: caps, config } };
   app.use("*", async (c, next) => {
-    c.set("user", { ...as, email: "a@acme.io", status: "active" });
+    c.set("user", { ...as, email: "a@acme.io", name: null, status: "active", slackUserId: null });
+    c.set("org", org as unknown as AuthVariables["org"]);
     await next();
   });
-  app.route(
-    "/api/users",
-    createUserRoutes({ users, identities, userCapabilities: caps, config, logger: noopLogger() }),
-  );
+  app.route("/api/users", createUserRoutes({ logger: noopLogger() }));
   const call = (method: string, path: string, body?: unknown) =>
     app.request(`/api/users${path}`, {
       method,

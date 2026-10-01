@@ -2,8 +2,9 @@
  * Gmail ingestion honouring "don't learn from", with Gmail faked at the API
  * boundary and the knowledge store faked at the port.
  */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+
 import type { DontLearnFrom } from "@tino/core/domain/dont-learn-from";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const gmail = {
   users: {
@@ -65,7 +66,13 @@ function setup(exclusions: DontLearnFrom) {
     messageBudget: 10,
   });
   const run = () => source({ scope: "private", userId: "u1", source: "gmail" }, true);
-  return { store, run, setExclusions: (e: DontLearnFrom) => void (current = e) };
+  return {
+    store,
+    run,
+    setExclusions: (e: DontLearnFrom) => {
+      current = e;
+    },
+  };
 }
 
 const warmup: DontLearnFrom = {

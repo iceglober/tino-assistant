@@ -2,9 +2,10 @@
  * Builds the per-user Google tools (Gmail + Calendar) from the user's stored
  * OAuth credentials. Returns {} if the user hasn't connected Google.
  */
+
+import type { Logger, UserCapabilityStore } from "@tino/core/ports/outbound";
 import type { ToolSet } from "ai";
 import { google } from "googleapis";
-import type { Logger, UserCapabilityStore } from "@tino/core/ports/outbound";
 import { readUserCredentials } from "./credentials.js";
 import { calendarListEventsTool } from "./google/calendar.js";
 import { gmailGetMessageTool, gmailSearchTool } from "./google/gmail.js";

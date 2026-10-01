@@ -1,5 +1,5 @@
 import type { TinoUser } from "@tino/core/domain/types";
-import type { IdentityResolver, Logger, UserStore, IdentityStore } from "@tino/core/ports/outbound";
+import type { IdentityResolver, IdentityStore, Logger, UserStore } from "@tino/core/ports/outbound";
 
 export interface SlackWebClient {
   users: {
@@ -62,7 +62,10 @@ export function createIdentityResolver(opts: IdentityResolverOpts): IdentityReso
           linkedAt: Date.now(),
         });
         const merged = await users.update(existingByEmail.id, { slackUserId });
-        logger.info({ tinoUserId: existingByEmail.id, email: normalizedEmail, mergedProvider: "slack" }, "linked slack identity to existing user by email");
+        logger.info(
+          { tinoUserId: existingByEmail.id, email: normalizedEmail, mergedProvider: "slack" },
+          "linked slack identity to existing user by email",
+        );
         return merged;
       }
 

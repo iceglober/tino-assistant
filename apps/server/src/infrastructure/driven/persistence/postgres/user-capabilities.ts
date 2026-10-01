@@ -46,7 +46,15 @@ export function createPgUserCapabilityStore({
            credentials_json = EXCLUDED.credentials_json,
            settings_json = EXCLUDED.settings_json,
            updated_at = EXCLUDED.updated_at`,
-        [userId, capabilityId, config.enabled, JSON.stringify(encrypted), JSON.stringify(config.settings), Date.now(), orgId],
+        [
+          userId,
+          capabilityId,
+          config.enabled,
+          JSON.stringify(encrypted),
+          JSON.stringify(config.settings),
+          Date.now(),
+          orgId,
+        ],
       );
     },
 
@@ -59,7 +67,8 @@ export function createPgUserCapabilityStore({
     },
 
     async delete(userId: string, capabilityId: string): Promise<boolean> {
-      const res = await pool.query("DELETE FROM user_capability WHERE tino_user_id = $1 AND capability_id = $2 AND org_id = $3",
+      const res = await pool.query(
+        "DELETE FROM user_capability WHERE tino_user_id = $1 AND capability_id = $2 AND org_id = $3",
         [userId, capabilityId, orgId],
       );
       return (res.rowCount ?? 0) > 0;

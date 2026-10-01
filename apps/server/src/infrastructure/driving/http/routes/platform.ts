@@ -7,12 +7,13 @@
  *   POST /api/orgs                   → create an org; the creator is its first admin
  *   POST /api/orgs/:slug/join        → join an org whose policy admits your (verified) domain
  */
-import { Hono } from "hono";
+
 import type { CreateOrgBody, Me, OrgSummary, PlatformInfo, SlugAvailability } from "@tino/contracts";
 import { joinsByDomain, readAccessPolicy } from "@tino/core/domain/access-policy";
 import { type Org, orgSlugProblem, slugify } from "@tino/core/domain/org";
 import { OrgSlugTakenError } from "@tino/core/domain/types";
 import type { Logger } from "@tino/core/ports/outbound";
+import { Hono } from "hono";
 import type { Persistence } from "../../../driven/persistence/postgres/index.js";
 import type { AccountVariables } from "../auth.js";
 
@@ -23,6 +24,8 @@ export function createPlatformRoutes(opts: {
   info: () => PlatformInfo;
   /** Local dev: unverified emails may join and accept invites. */
   trustUnverified: boolean;
+  /** Closed beta: only some addresses may create orgs. */
+  canCreateOrg: (email: string) => boolean;
   logger: Logger;
 }): Hono<{ Variables: AccountVariables }> {
   const app = new Hono<{ Variables: AccountVariables }>();
@@ -44,6 +47,7 @@ export function createPlatformRoutes(opts: {
         .filter((m) => m.org.status === "active")
         .map((m) => ({ org: summary(m.org), role: m.user.role, status: m.user.status })),
       joinable: joinable.map(summary),
+      canCreateOrg: opts.canCreateOrg(account.email),
     };
     return c.json(body);
   });
@@ -65,6 +69,12 @@ export function createPlatformRoutes(opts: {
     if (!account) return c.json({ error: "unauthorized" }, 401);
     if (!account.emailVerified && !opts.trustUnverified) {
       return c.json({ error: "verify_email", message: "confirm your email address first" }, 403);
+    }
+    if (!opts.canCreateOrg(account.email)) {
+      return c.json(
+        { error: "closed_beta", message: "Tino is in private beta — ask for an invite to an existing org." },
+        403,
+      );
     }
     let body: CreateOrgBody;
     try {

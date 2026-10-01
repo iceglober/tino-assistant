@@ -44,7 +44,9 @@ describe("resolveOAuthClient", () => {
   });
 
   it("serves Calendar from a verified platform client", () => {
-    const r = resolveOAuthClient(input({ capability: "google.calendar", platformClient: platform({ approval: "verified" }) }));
+    const r = resolveOAuthClient(
+      input({ capability: "google.calendar", platformClient: platform({ approval: "verified" }) }),
+    );
     expect(r).toMatchObject({ ok: true, ref: { owner: "platform" }, pilot: false });
   });
 
@@ -55,7 +57,10 @@ describe("resolveOAuthClient", () => {
 
   it("runs a pilot above approval only under the cap, and says so", () => {
     const pc = platform({ pilot: { userCap: 100 } });
-    expect(resolveOAuthClient(input({ platformClient: pc, platformClientUsers: 99 }))).toMatchObject({ ok: true, pilot: true });
+    expect(resolveOAuthClient(input({ platformClient: pc, platformClientUsers: 99 }))).toMatchObject({
+      ok: true,
+      pilot: true,
+    });
     expect(resolveOAuthClient(input({ platformClient: pc, platformClientUsers: 100 }))).toMatchObject({
       ok: false,
       reason: "cap_reached",
@@ -64,8 +69,15 @@ describe("resolveOAuthClient", () => {
 
   it("honours an allowlist on the platform client", () => {
     const pc = platform({ approval: "assessed", allowedOrgIds: ["org-2"] });
-    expect(resolveOAuthClient(input({ platformClient: pc }))).toMatchObject({ ok: false, reason: "not_offered" });
+    expect(resolveOAuthClient(input({ platformClient: pc, preference: "managed" }))).toMatchObject({
+      ok: false,
+      reason: "not_offered",
+    });
     expect(resolveOAuthClient(input({ platformClient: pc, orgId: "org-2" }))).toMatchObject({ ok: true });
+  });
+
+  it("with nothing on offer, points at bringing your own client", () => {
+    expect(resolveOAuthClient(input())).toMatchObject({ ok: false, reason: "not_configured" });
   });
 
   it("'own' never falls back to the platform client", () => {
@@ -78,7 +90,9 @@ describe("resolveOAuthClient", () => {
     expect(resolveOAuthClient(input({ preference: "managed", orgClient: own, platformClient: pc }))).toMatchObject({
       ref: { owner: "platform" },
     });
-    expect(resolveOAuthClient(input({ preference: "managed", orgClient: own }))).toMatchObject({ ref: { owner: "org" } });
+    expect(resolveOAuthClient(input({ preference: "managed", orgClient: own }))).toMatchObject({
+      ref: { owner: "org" },
+    });
   });
 });
 

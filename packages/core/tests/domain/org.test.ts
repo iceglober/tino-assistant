@@ -20,7 +20,13 @@ describe("org slugs", () => {
 
 describe("isSecretConfigKey", () => {
   it("classifies secrets by the last segment", () => {
-    for (const k of ["slack.clientSecret", "slack.signingSecret", "slack.botToken", "openai.apiKey", "anthropic.apiKey"]) {
+    for (const k of [
+      "slack.clientSecret",
+      "slack.signingSecret",
+      "slack.botToken",
+      "openai.apiKey",
+      "anthropic.apiKey",
+    ]) {
       expect(isSecretConfigKey(k)).toBe(true);
     }
     for (const k of ["slack.clientId", "model.provider", "azure.resourceName", "kb.recencyWeight"]) {

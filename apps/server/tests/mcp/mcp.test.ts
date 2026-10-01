@@ -1,14 +1,14 @@
-import { Hono } from "hono";
-import { describe, expect, it, vi } from "vitest";
 import { mcpToolName, mcpUrlProblem } from "@tino/core/domain/mcp";
 import type { CapabilityConfig } from "@tino/core/domain/types";
 import { everyoneInWorkspace, onlyUser } from "@tino/core/domain/who-can-see";
+import type { UserCapabilityStore } from "@tino/core/ports/outbound";
+import { Hono } from "hono";
+import { describe, expect, it, vi } from "vitest";
 import type { McpClientPool } from "../../src/infrastructure/driven/mcp/client-pool.js";
 import { createMcpServerStore } from "../../src/infrastructure/driven/mcp/store.js";
 import { mcpToolGroups } from "../../src/infrastructure/driven/tools/mcp.js";
 import type { AuthVariables } from "../../src/infrastructure/driving/http/auth.js";
 import { createMcpRoutes } from "../../src/infrastructure/driving/http/routes/mcp.js";
-import type { UserCapabilityStore } from "@tino/core/ports/outbound";
 import { noopLogger } from "../server/_helpers.js";
 
 function memCaps(): UserCapabilityStore {
@@ -156,10 +156,11 @@ describe("/api/mcp", () => {
     } as unknown as McpClientPool;
     const app = new Hono<{ Variables: AuthVariables }>();
     app.use("*", async (c, next) => {
-      c.set("user", { id: "u1", email: "u@acme.io", role, status: "active" });
+      c.set("user", { id: "u1", email: "u@acme.io", name: null, role, status: "active", slackUserId: null });
+      c.set("org", { mcpServers: store } as unknown as AuthVariables["org"]);
       await next();
     });
-    app.route("/api/mcp", createMcpRoutes({ servers: store, pool, logger: noopLogger() }));
+    app.route("/api/mcp", createMcpRoutes({ pool, logger: noopLogger() }));
     const call = (method: string, path: string, body?: unknown) =>
       app.request(`/api/mcp${path}`, {
         method,

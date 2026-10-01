@@ -1,6 +1,4 @@
 import type { webApi } from "@slack/bolt";
-import type { ToolSet } from "ai";
-import { describe, expect, it, vi } from "vitest";
 import {
   everyoneInWorkspace,
   membersOfChannel,
@@ -8,6 +6,8 @@ import {
   onlyUserInChannel,
   type Readers,
 } from "@tino/core/domain/who-can-see";
+import type { ToolSet } from "ai";
+import { describe, expect, it, vi } from "vitest";
 import { buildMyKnowledgeTools, buildWorkspaceKnowledgeTools } from "../../src/infrastructure/driven/tools/kb.js";
 import {
   createToolProvider,

@@ -4,11 +4,12 @@
  * runtime once the org has an embedder; the platform scheduler drives
  * `indexer.runCycleOnce()` for each org in turn.
  */
-import type { ToolSet } from "ai";
+
 import { createKbIndexer, type KbIndexer } from "@tino/core/application/kb-indexer";
 import { createKbSynthesizer } from "@tino/core/application/kb-synthesizer";
 import { parseDontLearnFrom } from "@tino/core/domain/dont-learn-from";
 import type { KnowledgeExtractor, KnowledgeStore, Logger } from "@tino/core/ports/outbound";
+import type { ToolSet } from "ai";
 import { createDontLearnFromStore } from "../infrastructure/driven/kb/dont-learn-from-store.js";
 import type { NamedEmbedder } from "../infrastructure/driven/kb/embedders.js";
 import { createGmailKbSource } from "../infrastructure/driven/kb/sources/gmail.js";
@@ -188,7 +189,12 @@ export function createOrgKb(opts: {
           return { exclusions, gmailConnected: true, options: await gmailExclusionOptions(gmail) };
         } catch (err) {
           logger.warn({ userId, err: (err as Error).message }, "couldn't read gmail labels/filters");
-          return { exclusions, gmailConnected: true, options: null, optionsError: "couldn't read your Gmail labels and filters" };
+          return {
+            exclusions,
+            gmailConnected: true,
+            options: null,
+            optionsError: "couldn't read your Gmail labels and filters",
+          };
         }
       },
       set: async (userId, input) => {

@@ -5,8 +5,7 @@
  * channel reply. The provider also reports who may see a reply built from the
  * groups it used, so the conversation log can label it.
  */
-import { type ToolSet, tool } from "ai";
-import { z } from "zod";
+
 import {
   everyoneInWorkspace,
   membersOfChannel,
@@ -16,6 +15,8 @@ import {
   type WhoCanSee,
 } from "@tino/core/domain/who-can-see";
 import type { Logger, ToolProvider, ToolRequest, Tools } from "@tino/core/ports/outbound";
+import { type ToolSet, tool } from "ai";
+import { z } from "zod";
 import type { SlackChannelTools } from "./slack.js";
 
 export interface ToolGroup {

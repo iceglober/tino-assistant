@@ -22,7 +22,10 @@ function slackError(err: unknown): { error: string; message: string } {
 }
 
 const searchSchema = z.object({
-  query: z.string().min(1).describe("Slack search query (same syntax as the Slack search box, e.g. 'from:@alice invoice')."),
+  query: z
+    .string()
+    .min(1)
+    .describe("Slack search query (same syntax as the Slack search box, e.g. 'from:@alice invoice')."),
   count: z.number().int().min(1).max(50).default(20).describe("Max matches to return (1–50, default 20)."),
   after: z
     .string()
@@ -41,22 +44,36 @@ const searchSchema = z.object({
       "'timestamp' = newest first. USE 'timestamp' for questions about the user's recent or current state — " +
         "'score' is relevance-ranked with NO recency weighting and often surfaces months-old messages.",
     ),
-  sortDir: z.enum(["desc", "asc"]).default("desc").describe("Sort direction (with sort='timestamp', desc = newest first)."),
+  sortDir: z
+    .enum(["desc", "asc"])
+    .default("desc")
+    .describe("Sort direction (with sort='timestamp', desc = newest first)."),
 });
 
 const historySchema = z.object({
-  channel: z.string().min(1).describe("Conversation/DM ID (e.g. D01ABC123 or C01ABC123). Use slack_list_my_conversations to find it."),
+  channel: z
+    .string()
+    .min(1)
+    .describe("Conversation/DM ID (e.g. D01ABC123 or C01ABC123). Use slack_list_my_conversations to find it."),
   limit: z.number().int().min(1).max(50).default(20).describe("Max messages to return (1–50, default 20)."),
-  oldest: z.string().optional().describe("Only messages after this time — Slack ts ('1753372800.000000') or ISO date ('2026-07-01')."),
+  oldest: z
+    .string()
+    .optional()
+    .describe("Only messages after this time — Slack ts ('1753372800.000000') or ISO date ('2026-07-01')."),
   latest: z.string().optional().describe("Only messages before this time (same formats)."),
 });
 
 const threadSchema = z.object({
-  channel: z.string().min(1).describe("Conversation/DM ID the thread lives in (e.g. D01ABC123). From slack_search_my_messages `channelId`."),
+  channel: z
+    .string()
+    .min(1)
+    .describe("Conversation/DM ID the thread lives in (e.g. D01ABC123). From slack_search_my_messages `channelId`."),
   ts: z
     .string()
     .min(1)
-    .describe("Timestamp of any message in the thread (the `ts` from a search match) — Slack returns the whole thread."),
+    .describe(
+      "Timestamp of any message in the thread (the `ts` from a search match) — Slack returns the whole thread.",
+    ),
   limit: z.number().int().min(1).max(100).default(50).describe("Max replies to return (1–100, default 50)."),
 });
 
@@ -107,7 +124,12 @@ export function slackReadMyConversationTool(client: webApi.WebClient) {
     inputSchema: historySchema,
     execute: async ({ channel, limit, oldest, latest }) => {
       try {
-        const res = await client.conversations.history({ channel, limit, oldest: toSlackTs(oldest), latest: toSlackTs(latest) });
+        const res = await client.conversations.history({
+          channel,
+          limit,
+          oldest: toSlackTs(oldest),
+          latest: toSlackTs(latest),
+        });
         const messages = (res.messages ?? []).map((m) => ({ user: m.user, text: m.text, ts: m.ts }));
         return { messages };
       } catch (err) {

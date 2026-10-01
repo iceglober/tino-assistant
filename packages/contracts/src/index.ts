@@ -12,6 +12,7 @@
 /** GET /api/platform — public; what the sign-in and setup screens need to know. */
 export interface PlatformInfo {
   baseUrl: string;
+  /** `closed`: a private beta — invites and domain joins work, creating orgs is allowlisted. */
   signups: "open" | "closed";
   signIn: { email: true; google: boolean };
   /** True when sign-up needs the emailed link before an org can be created or joined. */
@@ -40,6 +41,8 @@ export interface Me {
   memberships: Array<{ org: OrgSummary; role: Role; status: MemberStatus }>;
   /** Orgs whose join policy admits this address (verified email required to join). */
   joinable: OrgSummary[];
+  /** False during a closed beta for addresses not on the creators list (POST /api/orgs → 403 `closed_beta`). */
+  canCreateOrg: boolean;
 }
 
 /** POST /api/orgs */
@@ -119,7 +122,13 @@ export const SETTINGS: readonly SettingSpec[] = [
       { value: "azure", label: "Azure OpenAI" },
     ],
   },
-  { key: "openai.apiKey", label: "OpenAI API key", group: "model", secret: true, help: "Also used for knowledge-base embeddings." },
+  {
+    key: "openai.apiKey",
+    label: "OpenAI API key",
+    group: "model",
+    secret: true,
+    help: "Also used for knowledge-base embeddings.",
+  },
   { key: "openai.model", label: "OpenAI model", group: "model", secret: false, placeholder: "gpt-5.1" },
   { key: "anthropic.apiKey", label: "Anthropic API key", group: "model", secret: true },
   { key: "anthropic.model", label: "Anthropic model", group: "model", secret: false, placeholder: "claude-sonnet-5-5" },

@@ -6,8 +6,8 @@
  * trip); the tools are cheap to make per reply.
  */
 import { webApi } from "@slack/bolt";
-import type { ToolSet } from "ai";
 import type { ConfigStore, Logger } from "@tino/core/ports/outbound";
+import type { ToolSet } from "ai";
 import {
   publicChannelGuard,
   slackListChannelsTool,

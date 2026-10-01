@@ -1,13 +1,13 @@
-import { describe, expect, it } from "vitest";
 import {
   chunkEmail,
   estimateTokens,
   rollupThread,
+  type SlackKbMessage,
   scoreChunk,
   slackTsToMs,
-  type SlackKbMessage,
   windowMessages,
 } from "@tino/core/domain/kb";
+import { describe, expect, it } from "vitest";
 import { stripQuotedReply } from "../../src/infrastructure/driven/tools/google/gmail-body.js";
 
 const DAY = 86_400_000;
@@ -92,7 +92,12 @@ describe("windowMessages", () => {
 
 describe("chunkEmail", () => {
   it("short email → single chunk with headers", () => {
-    const chunks = chunkEmail({ subject: "Q3 contract", from: "Jane <j@x.io>", dateMs: 1_753_000_000_000, body: "short body" });
+    const chunks = chunkEmail({
+      subject: "Q3 contract",
+      from: "Jane <j@x.io>",
+      dateMs: 1_753_000_000_000,
+      body: "short body",
+    });
     expect(chunks).toHaveLength(1);
     expect(chunks[0]?.text).toContain("Subject: Q3 contract");
     expect(chunks[0]?.text).toContain("From: Jane <j@x.io>");
@@ -111,7 +116,13 @@ describe("chunkEmail", () => {
 
 describe("stripQuotedReply", () => {
   it("drops >-quoted lines and cuts at 'On … wrote:'", () => {
-    const text = ["Thanks, sounds good.", "", "On Jul 20, 2026, at 9:00 AM, Jane Doe <jane@x.io> wrote:", "> earlier text", "> more"].join("\n");
+    const text = [
+      "Thanks, sounds good.",
+      "",
+      "On Jul 20, 2026, at 9:00 AM, Jane Doe <jane@x.io> wrote:",
+      "> earlier text",
+      "> more",
+    ].join("\n");
     expect(stripQuotedReply(text)).toBe("Thanks, sounds good.");
   });
 

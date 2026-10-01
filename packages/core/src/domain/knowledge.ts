@@ -50,14 +50,67 @@ export const KB_FACT_KIND_SET: ReadonlySet<string> = new Set<KbFactKind>([
 ]);
 
 const STOPWORDS = new Set([
-  "the", "a", "an", "is", "are", "was", "were", "to", "of", "and", "or", "in",
-  "on", "for", "with", "that", "this", "it", "as", "at", "by", "from", "has",
-  "have", "had", "be", "been", "will", "would", "their", "they", "there",
+  "the",
+  "a",
+  "an",
+  "is",
+  "are",
+  "was",
+  "were",
+  "to",
+  "of",
+  "and",
+  "or",
+  "in",
+  "on",
+  "for",
+  "with",
+  "that",
+  "this",
+  "it",
+  "as",
+  "at",
+  "by",
+  "from",
+  "has",
+  "have",
+  "had",
+  "be",
+  "been",
+  "will",
+  "would",
+  "their",
+  "they",
+  "there",
   // Email and Slack scaffolding — present in nearly every excerpt, so it
   // describes the format rather than the subject.
-  "subject", "from", "date", "sent", "com", "http", "https", "www", "org",
-  "net", "email", "mail", "message", "re", "fwd", "hi", "hello", "thanks",
-  "please", "team", "click", "view", "here", "new", "get", "you", "your",
+  "subject",
+  "from",
+  "date",
+  "sent",
+  "com",
+  "http",
+  "https",
+  "www",
+  "org",
+  "net",
+  "email",
+  "mail",
+  "message",
+  "re",
+  "fwd",
+  "hi",
+  "hello",
+  "thanks",
+  "please",
+  "team",
+  "click",
+  "view",
+  "here",
+  "new",
+  "get",
+  "you",
+  "your",
 ]);
 
 /**
@@ -82,8 +135,7 @@ function stem(word: string): string {
  * digit lookahead matters: without it this also eats "deployment", "customer",
  * and "workflow", which are exactly the words a good label is made of.
  */
-const isNoiseToken = (w: string): boolean =>
-  /^\d+$/.test(w) || /^[ucdwg](?=[a-z0-9]*\d)[a-z0-9]{7,}$/.test(w);
+const isNoiseToken = (w: string): boolean => /^\d+$/.test(w) || /^[ucdwg](?=[a-z0-9]*\d)[a-z0-9]{7,}$/.test(w);
 
 const tokenize = (text: string): string[] =>
   text
@@ -172,7 +224,7 @@ export function kmeans(vectors: number[][], k: number, iterations = 12): Cluster
   }
 
   let centroids = seeds;
-  let assign: number[] = new Array(pts.length).fill(0);
+  const assign: number[] = new Array(pts.length).fill(0);
   for (let iter = 0; iter < iterations; iter++) {
     let moved = false;
     for (let i = 0; i < pts.length; i++) {

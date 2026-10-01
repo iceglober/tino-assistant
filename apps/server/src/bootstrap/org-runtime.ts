@@ -5,14 +5,21 @@
  * per active org (lazily) and calls `refresh()` when the org's settings change.
  */
 import type { App } from "@slack/bolt";
-import type { OrgSetupStatus } from "@tino/contracts";
 import { WebClient } from "@slack/web-api";
-import type { LanguageModel } from "ai";
+import type { OrgSetupStatus } from "@tino/contracts";
 import { createAssistant } from "@tino/core/application/assistant";
 import { createSenderResolver } from "@tino/core/application/sender";
+import type { PlatformOAuthClient } from "@tino/core/domain/oauth-clients";
 import { type Org, orgOwnerId } from "@tino/core/domain/org";
 import type { Assistant } from "@tino/core/ports/inbound";
-import type { ChannelDirectory, ChatModel, DirectMessenger, KnowledgeExtractor, Logger } from "@tino/core/ports/outbound";
+import type {
+  ChannelDirectory,
+  ChatModel,
+  DirectMessenger,
+  KnowledgeExtractor,
+  Logger,
+} from "@tino/core/ports/outbound";
+import type { LanguageModel } from "ai";
 import { createIdentityResolver } from "../infrastructure/driven/identity/resolver.js";
 import { type NamedEmbedder, resolveEmbedder } from "../infrastructure/driven/kb/embedders.js";
 import { createKnowledgeExtractor } from "../infrastructure/driven/kb/extractor.js";
@@ -29,7 +36,10 @@ import {
 } from "../infrastructure/driven/oauth/org-clients.js";
 import type { PgPool } from "../infrastructure/driven/persistence/db.js";
 import type { OrgStores } from "../infrastructure/driven/persistence/postgres/index.js";
-import { createSlackChannelDirectory, type SlackDirectoryClient } from "../infrastructure/driven/slack/channel-directory.js";
+import {
+  createSlackChannelDirectory,
+  type SlackDirectoryClient,
+} from "../infrastructure/driven/slack/channel-directory.js";
 import { buildGoogleTools } from "../infrastructure/driven/tools/google.js";
 import { mcpToolGroups } from "../infrastructure/driven/tools/mcp.js";
 import { createToolProvider } from "../infrastructure/driven/tools/provider.js";
@@ -37,7 +47,6 @@ import { buildSlackTools, type SlackChannelTools } from "../infrastructure/drive
 import { buildSlackUserTools } from "../infrastructure/driven/tools/slack-user.js";
 import { toSlackMrkdwn } from "../infrastructure/driving/slack/mrkdwn.js";
 import { createSlackApp } from "../infrastructure/driving/slack/slack.js";
-import type { PlatformOAuthClient } from "@tino/core/domain/oauth-clients";
 import { createOrgKb, type OrgKb } from "./org-kb.js";
 
 /** What every org runtime shares: process-wide resources and platform config. */
@@ -83,12 +92,16 @@ function parseValue(raw: string): string | undefined {
   }
 }
 
-const NOT_CONFIGURED =
-  "Tino's model isn't set up for your org yet — an admin can add one in Settings → Model.";
+const NOT_CONFIGURED = "Tino's model isn't set up for your org yet — an admin can add one in Settings → Model.";
 
-export async function createOrgRuntime(initialOrg: Org, stores: OrgStores, platform: PlatformServices): Promise<OrgRuntime> {
+export async function createOrgRuntime(
+  initialOrg: Org,
+  stores: OrgStores,
+  platform: PlatformServices,
+): Promise<OrgRuntime> {
   let org = initialOrg;
-  const logger = (platform.logger as unknown as { child?: (b: object) => Logger }).child?.({ org: org.slug }) ?? platform.logger;
+  const logger =
+    (platform.logger as unknown as { child?: (b: object) => Logger }).child?.({ org: org.slug }) ?? platform.logger;
   const { config, users, identities, conversations } = stores;
 
   const oauth = createOrgOAuthClients({
@@ -116,7 +129,8 @@ export async function createOrgRuntime(initialOrg: Org, stores: OrgStores, platf
   const messenger: DirectMessenger = {
     async sendToUser(userId, text) {
       const user = await users.get(userId);
-      if (!user?.slackUserId || !slackApp) throw new Error("user has no linked Slack account or Slack is not installed");
+      if (!user?.slackUserId || !slackApp)
+        throw new Error("user has no linked Slack account or Slack is not installed");
       const open = await slackApp.client.conversations.open({ users: user.slackUserId });
       if (!open.channel?.id) throw new Error("couldn't open a DM");
       await slackApp.client.chat.postMessage({ channel: open.channel.id, text: toSlackMrkdwn(text) });

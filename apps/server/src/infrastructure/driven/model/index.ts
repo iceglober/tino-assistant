@@ -8,15 +8,22 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createAzure } from "@ai-sdk/azure";
 import { createOpenAI } from "@ai-sdk/openai";
-import type { LanguageModel } from "ai";
 import type { ChatModel } from "@tino/core/ports/outbound";
+import type { LanguageModel } from "ai";
 import { toChatModel } from "./chat-model.js";
 
 export type ModelProvider = "azure" | "openai" | "anthropic";
 
 /** Validated, provider-specific model settings. */
 export type ModelSettings =
-  | { provider: "azure"; apiKey: string; resourceName?: string; baseURL?: string; deployment: string; apiVersion?: string }
+  | {
+      provider: "azure";
+      apiKey: string;
+      resourceName?: string;
+      baseURL?: string;
+      deployment: string;
+      apiVersion?: string;
+    }
   | { provider: "openai"; apiKey: string; model: string }
   | { provider: "anthropic"; apiKey: string; model: string };
 

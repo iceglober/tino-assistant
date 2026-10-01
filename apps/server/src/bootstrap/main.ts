@@ -7,10 +7,14 @@ import "dotenv/config";
 import { createHash } from "node:crypto";
 import type { PlatformInfo } from "@tino/contracts";
 import { covers } from "@tino/core/domain/oauth-clients";
-import { baseUrlOf, isProduction, loadEnv, platformClients } from "../env.js";
+import { baseUrlOf, isProduction, loadEnv, orgCreatorPolicy, platformClients } from "../env.js";
 import { createCryptoAdapter } from "../infrastructure/driven/crypto/factory.js";
 import { createEmailSender } from "../infrastructure/driven/email/sender.js";
-import { createOpenAiEmbedder, createVertexEmbedder, type NamedEmbedder } from "../infrastructure/driven/kb/embedders.js";
+import {
+  createOpenAiEmbedder,
+  createVertexEmbedder,
+  type NamedEmbedder,
+} from "../infrastructure/driven/kb/embedders.js";
 import { createMcpClientPool } from "../infrastructure/driven/mcp/client-pool.js";
 import type { ClientCapability } from "../infrastructure/driven/oauth/org-clients.js";
 import { createDb } from "../infrastructure/driven/persistence/db.js";
@@ -27,7 +31,8 @@ const logger = createLogger(env);
 const baseUrl = baseUrlOf(env);
 const production = isProduction(env);
 
-if (!production && !env.ENCRYPTION_KEY) logger.warn("ENCRYPTION_KEY unset — using the dev key (fine for local data only)");
+if (!production && !env.ENCRYPTION_KEY)
+  logger.warn("ENCRYPTION_KEY unset — using the dev key (fine for local data only)");
 const cryptoAdapter = createCryptoAdapter(env);
 const pool = await createDb({ databaseUrl: env.DATABASE_URL, pgliteDir: env.PGLITE_DIR });
 if (!env.DATABASE_URL) logger.info({ dir: env.PGLITE_DIR }, "using PGlite (local dev database)");
@@ -36,7 +41,10 @@ const persistence = await createPersistence(pool, logger, cryptoAdapter);
 // Sessions and OAuth state are signed with AUTH_SECRET; in dev, a stable key
 // derived from the encryption key keeps sessions across restarts.
 const authSecret =
-  env.AUTH_SECRET ?? createHash("sha256").update(`tino-dev-auth:${env.ENCRYPTION_KEY ?? "dev"}`).digest("hex");
+  env.AUTH_SECRET ??
+  createHash("sha256")
+    .update(`tino-dev-auth:${env.ENCRYPTION_KEY ?? "dev"}`)
+    .digest("hex");
 const signedState = createSignedState(authSecret);
 const clients = platformClients(env);
 const email = createEmailSender({ resendApiKey: env.RESEND_API_KEY, from: env.EMAIL_FROM, logger });
@@ -49,7 +57,8 @@ const platformEmbedder: NamedEmbedder | null = env.PLATFORM_OPENAI_API_KEY
 
 /** People connected through tino's own Google client, across orgs — what a pilot cap counts. */
 async function platformUsers(capability: ClientCapability): Promise<number> {
-  const capabilityId = capability === "google.calendar" ? "calendar" : capability === "google.gmail" ? "gmail" : "slack";
+  const capabilityId =
+    capability === "google.calendar" ? "calendar" : capability === "google.gmail" ? "gmail" : "slack";
   const res = await pool.query<{ n: string }>(
     `SELECT count(*) AS n FROM user_capability
      WHERE capability_id = $1 AND settings_json->'client'->>'owner' = 'platform'`,
@@ -81,9 +90,9 @@ const auth = await createAuth({
   database: pool,
   email,
   requireEmailVerification: production,
-  googleSignIn: clients.google ? { clientId: clients.google.clientId, clientSecret: clients.google.clientSecret } : undefined,
-  signups: env.SIGNUPS,
-  memberships: persistence.memberships,
+  googleSignIn: clients.google
+    ? { clientId: clients.google.clientId, clientSecret: clients.google.clientSecret }
+    : undefined,
   trustedOrigins: production ? [] : ["http://localhost:5173"],
   logger,
 });
@@ -116,6 +125,7 @@ const app = createHttpApp({
   platformSigningSecret: env.PLATFORM_SLACK_SIGNING_SECRET,
   mcpPool,
   trustUnverified: !production,
+  canCreateOrg: orgCreatorPolicy(env),
   onInvite: async ({ email: to, orgName, orgSlug, invitedBy }) =>
     email.send({
       to,

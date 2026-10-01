@@ -28,7 +28,9 @@ describe("resolveModelConfig", () => {
       resolveModelConfig(getter({ "model.provider": "openai", "openai.apiKey": "k", "openai.model": "gpt-4o" })),
     ).toMatchObject({ provider: "openai", model: "gpt-4o" });
     expect(
-      resolveModelConfig(getter({ "model.provider": "anthropic", "anthropic.apiKey": "k", "anthropic.model": "claude" })),
+      resolveModelConfig(
+        getter({ "model.provider": "anthropic", "anthropic.apiKey": "k", "anthropic.model": "claude" }),
+      ),
     ).toMatchObject({ provider: "anthropic", model: "claude" });
   });
 });

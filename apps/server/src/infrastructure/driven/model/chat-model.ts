@@ -4,8 +4,9 @@
  * and returns the text plus the messages to append to history. Every provider
  * adapter funnels through here, so the loop is written once.
  */
-import { generateText, type LanguageModel, type ModelMessage, stepCountIs, type ToolSet } from "ai";
+
 import type { ChatModel } from "@tino/core/ports/outbound";
+import { generateText, type LanguageModel, type ModelMessage, stepCountIs, type ToolSet } from "ai";
 import { describeModelMessage } from "./describe-message.js";
 import { replayableHistory } from "./replayable-history.js";
 

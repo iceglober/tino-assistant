@@ -18,7 +18,13 @@ export const ACCESS_DOMAIN_KEY = "org.accessControl.orgDomain";
 export async function readAccessPolicy(config: ConfigStore): Promise<AccessPolicy> {
   const rawMode = await config.getTyped<string>(ACCESS_MODE_KEY, "");
   const domain = (await config.getTyped<string>(ACCESS_DOMAIN_KEY, "")) || null;
-  const mode = rawMode ? (rawMode === "org-domain" && domain ? "org-domain" : "invite-only") : domain ? "org-domain" : "invite-only";
+  const mode = rawMode
+    ? rawMode === "org-domain" && domain
+      ? "org-domain"
+      : "invite-only"
+    : domain
+      ? "org-domain"
+      : "invite-only";
   return { mode, domain };
 }
 

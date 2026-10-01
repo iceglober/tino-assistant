@@ -21,11 +21,11 @@
  * coming back — so nobody can attach their consent to someone else's account.
  */
 import { webApi } from "@slack/bolt";
-import { google } from "googleapis";
-import { type Context, Hono } from "hono";
 import type { GoogleSetup, InstallStart, ResolutionView, SlackSetup } from "@tino/contracts";
 import type { ClientResolution, OAuthClientCredentials, PlatformOAuthClient } from "@tino/core/domain/oauth-clients";
 import type { Logger, OrgStore } from "@tino/core/ports/outbound";
+import { google } from "googleapis";
+import { type Context, Hono } from "hono";
 import type { OrgRuntime } from "../../../../bootstrap/org-runtime.js";
 import {
   buildSlackManifest,
@@ -101,7 +101,10 @@ export function createOrgConnectionRoutes(deps: ConnectionDeps): Hono<{ Variable
         : [GOOGLE_SCOPES.identity, GOOGLE_SCOPES.gmail, GOOGLE_SCOPES.calendar],
       state: state.issue({ orgId: rt.org.id, userId: me.id, purpose: "google.connect", client: resolution.ref.owner }),
     });
-    logger.info({ org: rt.org.slug, userId: me.id, client: resolution.ref.owner, calendarOnly }, "google connect started");
+    logger.info(
+      { org: rt.org.slug, userId: me.id, client: resolution.ref.owner, calendarOnly },
+      "google connect started",
+    );
     return c.redirect(url);
   });
 
@@ -179,7 +182,10 @@ export function createOrgConnectionRoutes(deps: ConnectionDeps): Hono<{ Variable
     if (!resolution.ok) return c.json({ error: resolution.reason, message: resolution.message }, 409);
     if (resolution.ref.owner === "org" && !(await rt.stores.config.get("slack.signingSecret"))) {
       return c.json(
-        { error: "not_configured", message: "save your Slack app's signing secret first — events can't be verified without it" },
+        {
+          error: "not_configured",
+          message: "save your Slack app's signing secret first — events can't be verified without it",
+        },
         409,
       );
     }
@@ -221,7 +227,8 @@ export function createOAuthCallbackRoutes(deps: ConnectionDeps): Hono<{ Variable
 
   app.get("/google/callback", async (c) => {
     const st = state.verify(c.req.query("state") ?? "");
-    if (!st || st.purpose !== "google.connect") return c.html(page("Link expired", "Start again from Tino.", false), 400);
+    if (!st || st.purpose !== "google.connect")
+      return c.html(page("Link expired", "Start again from Tino.", false), 400);
     const ctx = await load(st, c.get("account"));
     if (!ctx) return c.html(page("Not available", "This connection can't be completed.", false), 400);
     const { rt, member } = ctx;
@@ -240,8 +247,15 @@ export function createOAuthCallbackRoutes(deps: ConnectionDeps): Hono<{ Variable
       const ref = { owner: st.client, clientId: client.clientId };
       const caps = rt.stores.userCapabilities;
       if (granted.has(GOOGLE_SCOPES.gmail)) {
-        await caps.set(member.id, "gmail", { enabled: true, credentials: { refreshToken: tokens.refresh_token }, settings: { client: ref } });
-        await rt.kb()?.reactivate(member.id, "gmail").catch(() => {});
+        await caps.set(member.id, "gmail", {
+          enabled: true,
+          credentials: { refreshToken: tokens.refresh_token },
+          settings: { client: ref },
+        });
+        await rt
+          .kb()
+          ?.reactivate(member.id, "gmail")
+          .catch(() => {});
       }
       if (granted.has(GOOGLE_SCOPES.calendar)) {
         await caps.set(member.id, "calendar", {
@@ -270,7 +284,13 @@ export function createOAuthCallbackRoutes(deps: ConnectionDeps): Hono<{ Variable
     if (!ctx || !owner || !client) return c.html(page("Not available", "Slack isn't set up for this org.", false), 400);
     const token = state.issue({ ...st, client: owner });
     return c.redirect(
-      slackAuthorizeUrl({ clientId: client.clientId, baseUrl, state: token, bot: false, teamId: ctx.rt.org.slackTeamId }),
+      slackAuthorizeUrl({
+        clientId: client.clientId,
+        baseUrl,
+        state: token,
+        bot: false,
+        teamId: ctx.rt.org.slackTeamId,
+      }),
     );
   });
 
@@ -313,10 +333,23 @@ export function createOAuthCallbackRoutes(deps: ConnectionDeps): Hono<{ Variable
       if (!slackUserId || !userToken) return "Slack didn't return a user token";
       const linked = await identities.resolve("slack", slackUserId);
       if (linked && linked !== member.id) return "that Slack account is already linked to someone else in this org";
-      await userCapabilities.set(member.id, "slack", { enabled: true, credentials: { userToken, slackUserId }, settings: {} });
-      if (!linked) await identities.link({ provider: "slack", externalId: slackUserId, tinoUserId: member.id, linkedAt: Date.now() });
+      await userCapabilities.set(member.id, "slack", {
+        enabled: true,
+        credentials: { userToken, slackUserId },
+        settings: {},
+      });
+      if (!linked)
+        await identities.link({
+          provider: "slack",
+          externalId: slackUserId,
+          tinoUserId: member.id,
+          linkedAt: Date.now(),
+        });
       if (member.slackUserId !== slackUserId) await users.update(member.id, { slackUserId });
-      await rt.kb()?.reactivate(member.id, "slack").catch(() => {});
+      await rt
+        .kb()
+        ?.reactivate(member.id, "slack")
+        .catch(() => {});
       return null;
     };
 
@@ -346,14 +379,19 @@ export function createOAuthCallbackRoutes(deps: ConnectionDeps): Hono<{ Variable
     const sameSlackUser = !!member.slackUserId && member.slackUserId === slackUserId;
     if (!sameSlackUser && !ctx.sessionMatches) {
       logger.warn({ org: slug, userId: member.id }, "slack connect refused: started by a different person");
-      return c.html(page("Not your link", "This connect link belongs to someone else. DM tino “connect” for your own.", false), 403);
+      return c.html(
+        page("Not your link", "This connect link belongs to someone else. DM tino “connect” for your own.", false),
+        403,
+      );
     }
     const problem = await connectPerson();
     if (problem) return c.html(page("Couldn't connect", problem, false), 400);
     logger.info({ org: slug, userId: member.id }, "slack connected");
     return ctx.sessionMatches
       ? c.redirect(toConnections(slug, "connected=slack"))
-      : c.html(page("Slack connected", "Tino can now read your messages on your behalf. You can close this tab.", true));
+      : c.html(
+          page("Slack connected", "Tino can now read your messages on your behalf. You can close this tab.", true),
+        );
   });
 
   return app;

@@ -1,31 +1,8 @@
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
-import { createIdentityResolver } from "../../src/infrastructure/driven/identity/resolver.js";
-import type { SlackWebClient } from "../../src/infrastructure/driven/identity/resolver.js";
-import { createSqliteIdentityStore, createSqliteUserStore } from "../../src/infrastructure/driven/identity/store.js";
 import type { Identity, TinoUser } from "@tino/core/domain/types";
-
-const tempFiles: string[] = [];
-
-function tempDbPath(): string {
-  const p = path.join(os.tmpdir(), `tino-resolver-test-${Date.now()}-${Math.random().toString(36).slice(2)}.db`);
-  tempFiles.push(p);
-  return p;
-}
-
-afterEach(() => {
-  for (const p of tempFiles.splice(0)) {
-    for (const suffix of ["", "-journal", "-wal", "-shm"]) {
-      try {
-        fs.unlinkSync(p + suffix);
-      } catch {
-        /* ignore */
-      }
-    }
-  }
-});
+import { describe, expect, it } from "vitest";
+import type { SlackWebClient } from "../../src/infrastructure/driven/identity/resolver.js";
+import { createIdentityResolver } from "../../src/infrastructure/driven/identity/resolver.js";
+import { memoryIdentities, memoryUsers } from "../_memory.js";
 
 const noopLogger = {
   debug: () => {},
@@ -43,9 +20,8 @@ const stubSlackClient: SlackWebClient = {
 };
 
 function setup() {
-  const dbPath = tempDbPath();
-  const users = createSqliteUserStore({ dbPath });
-  const identities = createSqliteIdentityStore({ dbPath });
+  const users = memoryUsers();
+  const identities = memoryIdentities();
   const resolver = createIdentityResolver({
     users,
     identities,
@@ -93,9 +69,8 @@ describe("createIdentityResolver", () => {
 
 describe("provisionFromSlack", () => {
   function setupWithSlackEmail(email: string) {
-    const dbPath = tempDbPath();
-    const users = createSqliteUserStore({ dbPath });
-    const identities = createSqliteIdentityStore({ dbPath });
+    const users = memoryUsers();
+    const identities = memoryIdentities();
     const slackClient: SlackWebClient = {
       users: {
         async info() {

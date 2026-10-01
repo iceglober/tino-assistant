@@ -5,9 +5,9 @@
  * so one dead server never stalls a reply.
  */
 import { createMCPClient } from "@ai-sdk/mcp";
-import type { ToolSet } from "ai";
 import { mcpUrlProblem } from "@tino/core/domain/mcp";
 import type { Logger } from "@tino/core/ports/outbound";
+import type { ToolSet } from "ai";
 import type { StoredMcpServer } from "./store.js";
 
 type Client = Awaited<ReturnType<typeof createMCPClient>>;

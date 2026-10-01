@@ -3,8 +3,8 @@
  * granted via the connect flow. Returns {} if the user hasn't connected Slack.
  */
 import { webApi } from "@slack/bolt";
-import type { ToolSet } from "ai";
 import type { Logger, UserCapabilityStore } from "@tino/core/ports/outbound";
+import type { ToolSet } from "ai";
 import { readUserCredentials } from "./credentials.js";
 import {
   slackListMyConversationsTool,

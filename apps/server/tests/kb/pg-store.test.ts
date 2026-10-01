@@ -3,11 +3,12 @@
  * in-memory PGlite. The store is bound to one org; the last block checks that
  * a second org's store sees none of it.
  */
+
+import type { KbChunk, KbEvidence, KbFact, KnowledgeStore } from "@tino/core/ports/outbound";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { createFakeEmbedder, l2Normalize } from "../../src/infrastructure/driven/kb/embedders.js";
 import { createPgKnowledgeStore, KB_CLUSTER_DIMS } from "../../src/infrastructure/driven/kb/pg-store.js";
 import { KB_EMBED_DIMS } from "../../src/infrastructure/driven/kb/schema.js";
-import { createFakeEmbedder, l2Normalize } from "../../src/infrastructure/driven/kb/embedders.js";
-import type { KbChunk, KbEvidence, KbFact, KnowledgeStore } from "@tino/core/ports/outbound";
 
 import type { PgPool } from "../../src/infrastructure/driven/persistence/db.js";
 import { testDb } from "../_db.js";
@@ -275,9 +276,7 @@ describe("pg knowledge store (pgvector halfvec)", () => {
     const ids = (await store.pendingSynthesis("private", "u-test", 3)).map((c) => c.id);
     expect(ids.length).toBeGreaterThan(0);
 
-    await store.replaceTopics("private", "u-test", [
-      { label: "Billing", summary: "money things", chunkIds: ids },
-    ]);
+    await store.replaceTopics("private", "u-test", [{ label: "Billing", summary: "money things", chunkIds: ids }]);
     let topics = await store.listTopics("private", "u-test");
     expect(topics).toHaveLength(1);
     expect(topics[0]?.chunks).toBe(ids.length);
@@ -305,9 +304,41 @@ describe("pg knowledge store (pgvector halfvec)", () => {
   it("cycle events round trip; a user sees workspace rows and their own only", async () => {
     const at = Date.now();
     await store.recordCycleEvents([
-      { cycleId: "c1", at, scope: "workspace", userId: "", source: "slack", outcome: "ok", chunksUpserted: 4, apiCalls: 3, ms: 120, detail: "2 channels" },
-      { cycleId: "c1", at, scope: "private", userId: "u-test", source: "gmail", outcome: "ok", chunksUpserted: 9, apiCalls: 5, ms: 300 },
-      { cycleId: "c1", at, scope: "private", userId: "u-OTHER", source: "gmail", outcome: "error", chunksUpserted: 0, apiCalls: 0, ms: 5, error: "nope" },
+      {
+        cycleId: "c1",
+        at,
+        scope: "workspace",
+        userId: "",
+        source: "slack",
+        outcome: "ok",
+        chunksUpserted: 4,
+        apiCalls: 3,
+        ms: 120,
+        detail: "2 channels",
+      },
+      {
+        cycleId: "c1",
+        at,
+        scope: "private",
+        userId: "u-test",
+        source: "gmail",
+        outcome: "ok",
+        chunksUpserted: 9,
+        apiCalls: 5,
+        ms: 300,
+      },
+      {
+        cycleId: "c1",
+        at,
+        scope: "private",
+        userId: "u-OTHER",
+        source: "gmail",
+        outcome: "error",
+        chunksUpserted: 0,
+        apiCalls: 0,
+        ms: 5,
+        error: "nope",
+      },
     ]);
 
     const seen = await store.listCycleEvents("u-test", 50);
@@ -359,16 +390,31 @@ describe("forgetting specific source items", () => {
       [basis(1), basis(2), basis(3), basis(4)].map(l2Normalize),
     );
     const ids = Object.fromEntries(
-      (await store.listChunks("private", user, { limit: 10, offset: 0, source: "gmail" })).items.map((c) => [c.sourceRef, c.id]),
+      (await store.listChunks("private", user, { limit: 10, offset: 0, source: "gmail" })).items.map((c) => [
+        c.sourceRef,
+        c.id,
+      ]),
     ) as Record<string, string>;
 
     await store.upsertFacts(
       "private",
       user,
       [
-        fact({ key: "only-warmup", statement: "Only warmup says so.", evidence: [evidence(ids["warm-1"] as string, t0), evidence(ids["warm-2"] as string, t0 + day)] }),
-        fact({ key: "mixed", statement: "Real and warmup both say so.", evidence: [evidence(ids["warm-1"] as string, t0), evidence(ids["real-1"] as string, t0 + 2 * day)] }),
-        fact({ key: "untouched", statement: "Only real mail says so.", evidence: [evidence(ids["real-1"] as string, t0 + 2 * day)] }),
+        fact({
+          key: "only-warmup",
+          statement: "Only warmup says so.",
+          evidence: [evidence(ids["warm-1"] as string, t0), evidence(ids["warm-2"] as string, t0 + day)],
+        }),
+        fact({
+          key: "mixed",
+          statement: "Real and warmup both say so.",
+          evidence: [evidence(ids["warm-1"] as string, t0), evidence(ids["real-1"] as string, t0 + 2 * day)],
+        }),
+        fact({
+          key: "untouched",
+          statement: "Only real mail says so.",
+          evidence: [evidence(ids["real-1"] as string, t0 + 2 * day)],
+        }),
       ],
       [basis(10), basis(11), basis(12)].map(l2Normalize),
     );
@@ -376,7 +422,9 @@ describe("forgetting specific source items", () => {
     const result = await store.forgetSourceItems("private", user, "gmail", ["warm-1", "warm-2", "never-indexed"]);
     expect(result).toEqual({ excerptsRemoved: 2, factsRemoved: 1, factsTrimmed: 1 });
 
-    const left = (await store.listChunks("private", user, { limit: 10, offset: 0, source: "gmail" })).items.map((c) => c.sourceRef);
+    const left = (await store.listChunks("private", user, { limit: 10, offset: 0, source: "gmail" })).items.map(
+      (c) => c.sourceRef,
+    );
     expect(left).toEqual(["real-1"]);
     const facts = (await store.listFacts("private", user, { limit: 10, offset: 0 })).items;
     expect(facts.map((f) => f.key).sort()).toEqual(["mixed", "untouched"]);
@@ -390,17 +438,37 @@ describe("forgetting specific source items", () => {
   });
 
   it("does nothing for an empty list or unknown ids", async () => {
-    expect(await store.forgetSourceItems("private", user, "gmail", [])).toEqual({ excerptsRemoved: 0, factsRemoved: 0, factsTrimmed: 0 });
-    expect(await store.forgetSourceItems("private", user, "gmail", ["nope"])).toEqual({ excerptsRemoved: 0, factsRemoved: 0, factsTrimmed: 0 });
+    expect(await store.forgetSourceItems("private", user, "gmail", [])).toEqual({
+      excerptsRemoved: 0,
+      factsRemoved: 0,
+      factsTrimmed: 0,
+    });
+    expect(await store.forgetSourceItems("private", user, "gmail", ["nope"])).toEqual({
+      excerptsRemoved: 0,
+      factsRemoved: 0,
+      factsTrimmed: 0,
+    });
   });
 });
 
 describe("isolation between orgs", () => {
   it("another org's store finds, counts, distills and forgets none of this org's knowledge", async () => {
-    const ws = chunk({ scope: "workspace", userId: "", source: "slack_channel", sourceRef: "C1:iso", text: "acme only" });
+    const ws = chunk({
+      scope: "workspace",
+      userId: "",
+      source: "slack_channel",
+      sourceRef: "C1:iso",
+      text: "acme only",
+    });
     await store.upsertChunks([ws], [basis(42)]);
     await store.upsertFacts("workspace", "", [fact({ key: "iso-fact" })], [basis(42)]);
-    await store.setIndexState({ scope: "workspace", userId: "", source: "slack", status: "active", backfillDone: true });
+    await store.setIndexState({
+      scope: "workspace",
+      userId: "",
+      source: "slack",
+      status: "active",
+      backfillDone: true,
+    });
 
     const hits = await otherOrgStore.search({
       scope: "workspace",
@@ -413,7 +481,9 @@ describe("isolation between orgs", () => {
     expect(hits).toEqual([]);
     expect((await otherOrgStore.stats("workspace", "")).chunks).toBe(0);
     expect((await otherOrgStore.listFacts("workspace", "", { limit: 10, offset: 0 })).total).toBe(0);
-    expect(await otherOrgStore.searchFacts({ scope: "workspace", userId: "", embedding: basis(42), topK: 5 })).toEqual([]);
+    expect(await otherOrgStore.searchFacts({ scope: "workspace", userId: "", embedding: basis(42), topK: 5 })).toEqual(
+      [],
+    );
     expect(await otherOrgStore.pendingSynthesis("workspace", "", 10)).toEqual([]);
     expect(await otherOrgStore.listIndexStates()).toEqual([]);
 

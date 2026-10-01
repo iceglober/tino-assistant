@@ -1,7 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
 import { createKbSynthesizer } from "@tino/core/application/kb-synthesizer";
 import { KbTruncatedOutputError } from "@tino/core/domain/knowledge";
 import type { KbBrowseItem, KbFactDraft, KnowledgeExtractor, KnowledgeStore } from "@tino/core/ports/outbound";
+import { describe, expect, it, vi } from "vitest";
 
 const noopLogger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
 
@@ -184,7 +184,9 @@ describe("kb synthesizer", () => {
   });
 
   it("keeps halving until the answer fits, rather than giving up after one retry", async () => {
-    const store = fakeStore([[chunk("1"), chunk("2"), chunk("3"), chunk("4"), chunk("5"), chunk("6"), chunk("7"), chunk("8")]]);
+    const store = fakeStore([
+      [chunk("1"), chunk("2"), chunk("3"), chunk("4"), chunk("5"), chunk("6"), chunk("7"), chunk("8")],
+    ]);
     let attempt = 0;
     const synth = createKbSynthesizer({
       store,
@@ -281,10 +283,7 @@ describe("kb synthesizer", () => {
   });
 
   it("does not call the model at all when a batch is entirely bulk mail", async () => {
-    const store = fakeStore([
-      [chunk("1", { source: "gmail", text: "Newsletter. Unsubscribe." })],
-      [],
-    ]);
+    const store = fakeStore([[chunk("1", { source: "gmail", text: "Newsletter. Unsubscribe." })], []]);
     const extractor = extractorReturning([]);
     const synth = createKbSynthesizer({
       store,
@@ -417,7 +416,12 @@ describe("kb synthesizer", () => {
   it("keeps existing themes when every label call fails", async () => {
     const store = fakeStore([[]]);
     store.embeddingsForClustering = vi.fn(async () =>
-      Array.from({ length: 10 }, (_, i) => ({ id: "a" + i, text: "alpha", source: "slack_dm" as const, embedding: [1, 0.01 * i, 0] })),
+      Array.from({ length: 10 }, (_, i) => ({
+        id: "a" + i,
+        text: "alpha",
+        source: "slack_dm" as const,
+        embedding: [1, 0.01 * i, 0],
+      })),
     );
     const synth = createKbSynthesizer({
       store,
@@ -455,12 +459,20 @@ describe("kb synthesizer", () => {
 
   it("labels each cluster and replaces the stored themes", async () => {
     const store = fakeStore([[]]);
-    store.embeddingsForClustering = vi.fn(async () =>
-      [
-        ...Array.from({ length: 5 }, (_, i) => ({ id: "a" + i, text: "alpha", source: "slack_dm" as const, embedding: [1, 0.01 * i, 0] })),
-        ...Array.from({ length: 5 }, (_, i) => ({ id: "b" + i, text: "beta", source: "slack_dm" as const, embedding: [0, 1, 0.01 * i] })),
-      ],
-    );
+    store.embeddingsForClustering = vi.fn(async () => [
+      ...Array.from({ length: 5 }, (_, i) => ({
+        id: "a" + i,
+        text: "alpha",
+        source: "slack_dm" as const,
+        embedding: [1, 0.01 * i, 0],
+      })),
+      ...Array.from({ length: 5 }, (_, i) => ({
+        id: "b" + i,
+        text: "beta",
+        source: "slack_dm" as const,
+        embedding: [0, 1, 0.01 * i],
+      })),
+    ]);
     const extractor = extractorReturning([]);
     const synth = createKbSynthesizer({
       store,

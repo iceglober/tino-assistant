@@ -10,14 +10,11 @@
  * are skipped by label id, and whenever the list changes, mail it matches that
  * was already learned is forgotten (excerpts, and facts resting only on them).
  */
-import {
-  excludedGmailLabelIds,
-  exclusionsFingerprint,
-  gmailSearchExcluding,
-} from "@tino/core/domain/dont-learn-from";
+
+import { KbAuthError, type KbPrincipal, type KbRunResult } from "@tino/core/application/kb-indexer";
+import { excludedGmailLabelIds, exclusionsFingerprint, gmailSearchExcluding } from "@tino/core/domain/dont-learn-from";
 import { chunkEmail } from "@tino/core/domain/kb";
 import { isLikelyNoise } from "@tino/core/domain/knowledge";
-import { KbAuthError, type KbPrincipal, type KbRunResult } from "@tino/core/application/kb-indexer";
 import type {
   ConfigStore,
   DontLearnFromStore,
@@ -87,7 +84,8 @@ export function createGmailKbSource(deps: GmailSourceDeps) {
       const res = await gmail.users.messages.get({ userId: "me", id, format: "full" });
       const data = res.data;
       const headers = data.payload?.headers ?? [];
-      const h = (name: string): string => headers.find((x) => x.name?.toLowerCase() === name.toLowerCase())?.value ?? "";
+      const h = (name: string): string =>
+        headers.find((x) => x.name?.toLowerCase() === name.toLowerCase())?.value ?? "";
       const internalMs = Number(data.internalDate ?? 0);
       if ((data.labelIds ?? []).some((l) => excludedLabels.has(l))) {
         skippedExcluded++;
@@ -199,7 +197,9 @@ export function createGmailKbSource(deps: GmailSourceDeps) {
           skippedExcluded > 0 ? `${skippedExcluded} excluded skipped` : "",
           forgotten.excerpts > 0 ? `forgot ${forgotten.excerpts} excluded excerpts and ${forgotten.facts} facts` : "",
           cursor.backfillDone ? "backfill complete" : "backfilling",
-        ].filter(Boolean).join(", "),
+        ]
+          .filter(Boolean)
+          .join(", "),
       };
     } catch (err) {
       if (isAuthError(err)) throw new KbAuthError((err as Error).message);

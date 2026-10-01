@@ -72,7 +72,9 @@ export function createPgUserStore({ pool, orgId }: { pool: PgPool; orgId: string
     },
 
     async list(): Promise<TinoUser[]> {
-      const res = await pool.query<UserRow>("SELECT * FROM tino_user WHERE org_id = $1 ORDER BY created_at ASC", [orgId]);
+      const res = await pool.query<UserRow>("SELECT * FROM tino_user WHERE org_id = $1 ORDER BY created_at ASC", [
+        orgId,
+      ]);
       return res.rows.map(rowToUser);
     },
 

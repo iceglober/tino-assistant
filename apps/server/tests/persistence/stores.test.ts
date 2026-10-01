@@ -3,11 +3,12 @@
  * point of the file: two orgs with colliding ids and keys must never see each
  * other's rows.
  */
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+
 import type { Org } from "@tino/core/domain/org";
 import { IdentityLinkConflictError, OrgSlugTakenError, type TinoUser } from "@tino/core/domain/types";
 import { membersOfChannel, onlyUser } from "@tino/core/domain/who-can-see";
 import type { LoggedMessage } from "@tino/core/ports/outbound";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { testDb } from "../_db.js";
 
 let db: Awaited<ReturnType<typeof testDb>>;

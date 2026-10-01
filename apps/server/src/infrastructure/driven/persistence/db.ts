@@ -55,7 +55,12 @@ export async function createPglitePool(dataDir?: string): Promise<PgPool> {
       const results = await db.exec(text);
       const last = results[results.length - 1];
       const rows = (last?.rows ?? []) as Record<string, unknown>[];
-      return { rows, rowCount: last?.affectedRows ?? rows.length, command: commandOf(text), fields: last?.fields ?? [] };
+      return {
+        rows,
+        rowCount: last?.affectedRows ?? rows.length,
+        command: commandOf(text),
+        fields: last?.fields ?? [],
+      };
     }
     const res = await db.query<Record<string, unknown>>(text, params);
     const rowCount = res.affectedRows ?? res.rows.length;

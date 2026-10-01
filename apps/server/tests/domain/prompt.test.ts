@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
 import { buildSystemPrompt, type RecalledMessage } from "@tino/core/domain/prompt";
+import { describe, expect, it } from "vitest";
 import { describeModelMessage } from "../../src/infrastructure/driven/model/describe-message.js";
 
 describe("system prompt: who reads the reply", () => {

@@ -2,19 +2,17 @@
  * The assistant end to end, with only Slack and the LLM faked: the real
  * use-case, tool provider, readers logic, and sqlite conversation log.
  */
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import type { ToolSet } from "ai";
-import { describe, expect, it, vi } from "vitest";
+
 import { createAssistant } from "@tino/core/application/assistant";
 import type { TinoUser } from "@tino/core/domain/types";
 import { everyoneInWorkspace, onlyUser } from "@tino/core/domain/who-can-see";
-import { describeModelMessage } from "../../src/infrastructure/driven/model/describe-message.js";
-import { createSqliteConversationLog } from "../../src/infrastructure/driven/persistence/sqlite-conversation-log.js";
-import { createToolProvider, type ToolGroup } from "../../src/infrastructure/driven/tools/provider.js";
 import type { Surface } from "@tino/core/ports/inbound";
 import type { ChannelDirectory, ChatModel, DirectMessenger, UserStore } from "@tino/core/ports/outbound";
+import type { ToolSet } from "ai";
+import { describe, expect, it, vi } from "vitest";
+import { describeModelMessage } from "../../src/infrastructure/driven/model/describe-message.js";
+import { createToolProvider, type ToolGroup } from "../../src/infrastructure/driven/tools/provider.js";
+import { memoryConversations } from "../_memory.js";
 import { makeConfigStore, noopLogger } from "../server/_helpers.js";
 
 const people: Record<string, TinoUser> = Object.fromEntries(
@@ -113,9 +111,7 @@ function world(
     }),
   };
   const users = { get: async (id: string) => people[id] ?? null } as unknown as UserStore;
-  const conversations = createSqliteConversationLog({
-    dbPath: join(mkdtempSync(join(tmpdir(), "tino-asst-")), "t.db"),
-  });
+  const conversations = memoryConversations();
 
   const assistant = createAssistant({
     model,

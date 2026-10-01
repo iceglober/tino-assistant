@@ -70,7 +70,9 @@ export function createOrgRegistry(persistence: Persistence, services: PlatformSe
 
     async warmAll() {
       for (const org of await persistence.orgs.list()) {
-        await forOrg(org).catch((err: Error) => logger.error({ org: org.slug, err: err.message }, "org runtime failed to start"));
+        await forOrg(org).catch((err: Error) =>
+          logger.error({ org: org.slug, err: err.message }, "org runtime failed to start"),
+        );
       }
     },
 

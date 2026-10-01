@@ -9,7 +9,7 @@
  * activity row per principal so the console can show what actually happened
  * rather than just a total.
  */
-import type { KbSynthesizer } from "./kb-synthesizer.js";
+
 import type {
   ConfigStore,
   KbCycleEvent,
@@ -20,6 +20,7 @@ import type {
   UserCapabilityStore,
   UserStore,
 } from "../ports/outbound.js";
+import type { KbSynthesizer } from "./kb-synthesizer.js";
 
 export interface KbPrincipal {
   scope: KbScope;
@@ -172,9 +173,7 @@ export function createKbIndexer(deps: KbIndexerDeps): KbIndexer {
 
   /** Who has content worth distilling: the shared workspace plus active users. */
   async function synthesisPrincipals(): Promise<Array<{ scope: KbScope; userId: string; owner?: string }>> {
-    const list: Array<{ scope: KbScope; userId: string; owner?: string }> = [
-      { scope: "workspace", userId: "" },
-    ];
+    const list: Array<{ scope: KbScope; userId: string; owner?: string }> = [{ scope: "workspace", userId: "" }];
     for (const user of await users.list()) {
       if (user.status !== "active") continue;
       list.push({ scope: "private", userId: user.id, owner: user.name ?? user.email });

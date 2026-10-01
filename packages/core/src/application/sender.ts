@@ -44,7 +44,9 @@ export function createSenderResolver(deps: SenderDeps): SenderResolver {
         // mode; only org-domain mode may create a brand-new account.
         const linked = await resolver.provisionFromSlack(
           slackUserId,
-          policy.mode === "invite-only" ? { mode: "allowlist" } : { mode: "org-domain", orgDomain: policy.domain ?? undefined },
+          policy.mode === "invite-only"
+            ? { mode: "allowlist" }
+            : { mode: "org-domain", orgDomain: policy.domain ?? undefined },
         );
         if (linked.status === "suspended") {
           return { ok: false, message: "your access to tino has been revoked. ask your admin if this is a mistake." };

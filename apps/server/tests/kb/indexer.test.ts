@@ -1,6 +1,12 @@
-import { describe, expect, it, vi } from "vitest";
 import { createKbIndexer, KbAuthError, type KbSourceRunner } from "@tino/core/application/kb-indexer";
-import type { KbCycleEvent, KbIndexState, KnowledgeStore, UserCapabilityStore, UserStore } from "@tino/core/ports/outbound";
+import type {
+  KbCycleEvent,
+  KbIndexState,
+  KnowledgeStore,
+  UserCapabilityStore,
+  UserStore,
+} from "@tino/core/ports/outbound";
+import { describe, expect, it, vi } from "vitest";
 
 const noopLogger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
 
@@ -48,7 +54,15 @@ function fakeStore(): KnowledgeStore & {
 const usersWith = (ids: string[]): UserStore =>
   ({
     list: vi.fn(async () =>
-      ids.map((id) => ({ id, email: `${id}@x.io`, role: "member", status: "active", slackUserId: null, createdAt: 1, updatedAt: 1 })),
+      ids.map((id) => ({
+        id,
+        email: `${id}@x.io`,
+        role: "member",
+        status: "active",
+        slackUserId: null,
+        createdAt: 1,
+        updatedAt: 1,
+      })),
     ),
     get: vi.fn(),
     getByEmail: vi.fn(),

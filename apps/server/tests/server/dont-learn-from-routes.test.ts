@@ -1,11 +1,11 @@
-import { Hono } from "hono";
-import { describe, expect, it, vi } from "vitest";
 import { parseDontLearnFrom } from "@tino/core/domain/dont-learn-from";
 import type { CapabilityConfig } from "@tino/core/domain/types";
+import type { UserCapabilityStore } from "@tino/core/ports/outbound";
+import { Hono } from "hono";
+import { describe, expect, it, vi } from "vitest";
 import { createDontLearnFromStore } from "../../src/infrastructure/driven/kb/dont-learn-from-store.js";
 import type { AuthVariables } from "../../src/infrastructure/driving/http/auth.js";
 import { createKbRoutes, type KbRoutesDeps } from "../../src/infrastructure/driving/http/routes/kb.js";
-import type { UserCapabilityStore } from "@tino/core/ports/outbound";
 import { noopLogger } from "./_helpers.js";
 
 function memCaps(): UserCapabilityStore {
@@ -34,10 +34,21 @@ function app(userId: string | null) {
   } as unknown as KbRoutesDeps;
   const a = new Hono<{ Variables: AuthVariables }>();
   a.use("*", async (c, next) => {
-    if (userId) c.set("user", { id: userId, email: "u@acme.io", role: "member", status: "active" });
+    if (userId)
+      c.set("user", {
+        id: userId,
+        email: "u@acme.io",
+        name: null,
+        role: "member",
+        status: "active",
+        slackUserId: null,
+      });
     await next();
   });
-  a.route("/api/kb", createKbRoutes(deps));
+  a.route(
+    "/api/kb",
+    createKbRoutes(() => deps),
+  );
   const call = (method: string, body?: unknown) =>
     a.request("/api/kb/dont-learn-from", {
       method,

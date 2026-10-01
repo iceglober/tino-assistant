@@ -34,8 +34,7 @@ const toVectorLiteral = (v: number[]): string => `[${v.join(",")}]`;
 const sha256 = (text: string): string => createHash("sha256").update(text).digest("hex");
 
 /** pgvector renders vectors as '[a,b,c]'. */
-const parseVectorLiteral = (raw: string): number[] =>
-  raw.slice(1, -1).split(",").map(Number);
+const parseVectorLiteral = (raw: string): number[] => raw.slice(1, -1).split(",").map(Number);
 
 /** Keep the newest N receipts per fact — enough to justify it, bounded in size. */
 const EVIDENCE_CAP = 8;
@@ -304,7 +303,10 @@ export function createPgKnowledgeStore({
         await client.query("DELETE FROM kb_facts WHERE scope='private' AND user_id=$1 AND org_id=$2", [userId, orgId]);
         await client.query("DELETE FROM kb_topics WHERE scope='private' AND user_id=$1 AND org_id=$2", [userId, orgId]);
         await client.query("DELETE FROM kb_chunks WHERE scope='private' AND user_id=$1 AND org_id=$2", [userId, orgId]);
-        await client.query("DELETE FROM kb_cursors WHERE scope='private' AND user_id=$1 AND org_id=$2", [userId, orgId]);
+        await client.query("DELETE FROM kb_cursors WHERE scope='private' AND user_id=$1 AND org_id=$2", [
+          userId,
+          orgId,
+        ]);
         // Tombstone (not delete) — auto-consent must not re-index next cycle.
         for (const source of ["slack", "gmail"]) {
           await client.query(
@@ -351,7 +353,9 @@ export function createPgKnowledgeStore({
         let factsRemoved = 0;
         let factsTrimmed = 0;
         for (const fact of citing.rows) {
-          const remaining = (Array.isArray(fact.evidence) ? fact.evidence : []).filter((e) => !gone.has(String(e.chunkId)));
+          const remaining = (Array.isArray(fact.evidence) ? fact.evidence : []).filter(
+            (e) => !gone.has(String(e.chunkId)),
+          );
           if (remaining.length === 0) {
             await client.query("DELETE FROM kb_facts WHERE id=$1 AND org_id=$2", [fact.id, orgId]);
             factsRemoved++;
@@ -429,9 +433,10 @@ export function createPgKnowledgeStore({
     },
 
     async listIndexStates() {
-      const res = await pool.query<StateRow>("SELECT * FROM kb_index_state WHERE org_id=$1 ORDER BY scope, user_id, source", [
-        orgId,
-      ]);
+      const res = await pool.query<StateRow>(
+        "SELECT * FROM kb_index_state WHERE org_id=$1 ORDER BY scope, user_id, source",
+        [orgId],
+      );
       return res.rows.map(rowToState);
     },
 

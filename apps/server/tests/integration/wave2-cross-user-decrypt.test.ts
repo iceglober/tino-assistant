@@ -8,10 +8,10 @@
  * ciphertext access from yielding plaintext without the correct context.
  */
 
+import type { EncryptionContext } from "@tino/core/ports/outbound";
 import { describe, expect, it } from "vitest";
 import type { Env } from "../../src/env.js";
 import { createCryptoAdapter } from "../../src/infrastructure/driven/crypto/factory.js";
-import type { EncryptionContext } from "@tino/core/ports/outbound";
 
 describe("Cross-user decrypt isolation", () => {
   it("fails to decrypt user A's credentials with user B's encryption context", async () => {

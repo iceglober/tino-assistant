@@ -1,5 +1,5 @@
-import { z } from "zod";
 import type { ApprovalLevel, PlatformOAuthClient } from "@tino/core/domain/oauth-clients";
+import { z } from "zod";
 
 /**
  * Platform environment: what the *operator* of the managed service sets. Every
@@ -27,8 +27,14 @@ const EnvSchema = z.object({
   /** Signs sessions and OAuth state. Required in production. */
   AUTH_SECRET: z.string().min(32).optional(),
 
-  /** `open`: anyone can create an account and org. `closed`: only invited addresses can sign up. */
+  /**
+   * `open`: anyone who signs up can create an org. `closed` (a private beta):
+   * anyone can still accept an invite or join by domain, but only
+   * ORG_CREATORS may create new orgs.
+   */
   SIGNUPS: z.enum(["open", "closed"]).default("open"),
+  /** Comma-separated emails or @domains allowed to create orgs while SIGNUPS=closed. */
+  ORG_CREATORS: z.string().default(""),
 
   /** Transactional email (verification, invites). Unset = links are logged instead of sent. */
   RESEND_API_KEY: z.string().min(1).optional(),
@@ -88,7 +94,9 @@ export const baseUrlOf = (env: Env): string => (env.BASE_URL ?? `http://localhos
 
 /** The platform's managed OAuth clients, as the policy in domain/oauth-clients.ts reads them. */
 export function platformClients(env: Env): { google: PlatformOAuthClient | null; slack: PlatformOAuthClient | null } {
-  const allowedOrgIds = env.PLATFORM_CLIENT_ORGS?.split(",").map((s) => s.trim()).filter(Boolean);
+  const allowedOrgIds = env.PLATFORM_CLIENT_ORGS?.split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
   const make = (
     clientId: string | undefined,
     clientSecret: string | undefined,
@@ -111,9 +119,20 @@ export function platformClients(env: Env): { google: PlatformOAuthClient | null;
       env.PLATFORM_GOOGLE_APPROVAL,
       env.PLATFORM_GOOGLE_PILOT_CAP,
     ),
-    slack:
-      env.PLATFORM_SLACK_SIGNING_SECRET
-        ? make(env.PLATFORM_SLACK_CLIENT_ID, env.PLATFORM_SLACK_CLIENT_SECRET, env.PLATFORM_SLACK_APPROVAL)
-        : null,
+    slack: env.PLATFORM_SLACK_SIGNING_SECRET
+      ? make(env.PLATFORM_SLACK_CLIENT_ID, env.PLATFORM_SLACK_CLIENT_SECRET, env.PLATFORM_SLACK_APPROVAL)
+      : null,
+  };
+}
+
+/** Who may create an org: everyone, or (closed beta) the ORG_CREATORS allowlist of emails and @domains. */
+export function orgCreatorPolicy(env: Env): (email: string) => boolean {
+  if (env.SIGNUPS === "open") return () => true;
+  const entries = env.ORG_CREATORS.split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+  return (email) => {
+    const e = email.toLowerCase();
+    return entries.some((entry) => (entry.startsWith("@") ? e.endsWith(entry) : e === entry));
   };
 }

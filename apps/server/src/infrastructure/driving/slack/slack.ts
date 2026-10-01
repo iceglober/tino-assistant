@@ -92,7 +92,9 @@ export function createSlackApp(opts: CreateSlackAppOpts): App {
       }
       if (cmd === "forget me confirm" && kbForgetUser) {
         await kbForgetUser(userId);
-        await say({ text: "done — your indexed data is deleted and indexing is off. DM me 'connect' anytime to start again." });
+        await say({
+          text: "done — your indexed data is deleted and indexing is off. DM me 'connect' anytime to start again.",
+        });
         return;
       }
 
@@ -109,7 +111,13 @@ export function createSlackApp(opts: CreateSlackAppOpts): App {
         await say({ text: formatted });
       }
       logger.info(
-        { user: m.user, tinoUserId: userId, channel: m.channel, replyLen: formatted.length, durationMs: Date.now() - start },
+        {
+          user: m.user,
+          tinoUserId: userId,
+          channel: m.channel,
+          replyLen: formatted.length,
+          durationMs: Date.now() - start,
+        },
         "DM handled",
       );
     } catch (err) {
@@ -139,7 +147,10 @@ export function createSlackApp(opts: CreateSlackAppOpts): App {
     const userId = res.userId;
 
     try {
-      logger.info({ user: event.user, tinoUserId: userId, channel: event.channel, textLen: text.length }, "channel mention received");
+      logger.info(
+        { user: event.user, tinoUserId: userId, channel: event.channel, textLen: text.length },
+        "channel mention received",
+      );
       const placeholder = await say({ text: "thinking...", thread_ts: threadTs });
       const placeholderTs = (placeholder as { ts?: string })?.ts;
 
@@ -168,7 +179,13 @@ export function createSlackApp(opts: CreateSlackAppOpts): App {
         await say({ text: formatted, thread_ts: threadTs });
       }
       logger.info(
-        { user: event.user, tinoUserId: userId, channel: event.channel, replyLen: formatted.length, durationMs: Date.now() - start },
+        {
+          user: event.user,
+          tinoUserId: userId,
+          channel: event.channel,
+          replyLen: formatted.length,
+          durationMs: Date.now() - start,
+        },
         "channel mention handled",
       );
     } catch (err) {
@@ -197,7 +214,12 @@ async function buildMentionContext(
     const threadTs = event.thread_ts;
     const historyResult = threadTs
       ? await app.client.conversations.replies({ channel: event.channel, ts: threadTs, limit: 30 })
-      : await app.client.conversations.history({ channel: event.channel, latest: event.ts, limit: 20, inclusive: false });
+      : await app.client.conversations.history({
+          channel: event.channel,
+          latest: event.ts,
+          limit: 20,
+          inclusive: false,
+        });
 
     const msgs = (historyResult.messages ?? []).filter((msg) => msg.ts !== event.ts && msg.text).slice(-20);
 

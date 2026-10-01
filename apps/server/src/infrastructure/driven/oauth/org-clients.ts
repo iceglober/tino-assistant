@@ -101,7 +101,9 @@ export function withGoogleClientSecrets(caps: UserCapabilityStore, clients: OrgO
       const ref = clientRefOf(cfg);
       const client = ref ? await clients.forRef("google", ref) : null;
       const { clientId: _id, clientSecret: _secret, ...rest } = cfg.credentials;
-      return client ? { ...cfg, credentials: { ...rest, clientId: client.clientId, clientSecret: client.clientSecret } } : { ...cfg, credentials: rest };
+      return client
+        ? { ...cfg, credentials: { ...rest, clientId: client.clientId, clientSecret: client.clientSecret } }
+        : { ...cfg, credentials: rest };
     },
   };
 }

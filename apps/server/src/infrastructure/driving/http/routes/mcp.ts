@@ -1,11 +1,6 @@
-import { Hono } from "hono";
-import {
-  isValidMcpId,
-  type McpAuth,
-  type McpScope,
-  mcpUrlProblem,
-} from "@tino/core/domain/mcp";
+import { isValidMcpId, type McpAuth, type McpScope, mcpUrlProblem } from "@tino/core/domain/mcp";
 import type { Logger } from "@tino/core/ports/outbound";
+import { Hono } from "hono";
 import type { McpClientPool } from "../../../driven/mcp/client-pool.js";
 import type { StoredMcpServer } from "../../../driven/mcp/store.js";
 import type { AuthVariables } from "../auth.js";
@@ -66,7 +61,9 @@ export function createMcpRoutes(opts: { pool: McpClientPool; logger: Logger }): 
       auth,
       enabled: b.enabled ?? existing?.enabled ?? true,
       resultsVisibleTo:
-        scope === "workspace" && (b.resultsVisibleTo ?? existing?.resultsVisibleTo) === "workspace" ? "workspace" : "asker",
+        scope === "workspace" && (b.resultsVisibleTo ?? existing?.resultsVisibleTo) === "workspace"
+          ? "workspace"
+          : "asker",
       token: b.token === undefined ? existing?.token : b.token || undefined,
     };
   }

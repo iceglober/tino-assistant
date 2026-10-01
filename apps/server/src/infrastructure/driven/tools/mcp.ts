@@ -4,9 +4,10 @@
  * tool provider only connects to servers whose results the readers may see.
  * Tool names are namespaced `mcp_<server>_<tool>`; unreachable servers add none.
  */
-import type { ToolSet } from "ai";
+
 import { mcpToolName } from "@tino/core/domain/mcp";
 import { everyoneInWorkspace, onlyUser } from "@tino/core/domain/who-can-see";
+import type { ToolSet } from "ai";
 import type { McpClientPool } from "../mcp/client-pool.js";
 import type { McpServerStore } from "../mcp/store.js";
 import type { ToolGroup } from "./provider.js";
