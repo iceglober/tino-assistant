@@ -6,11 +6,14 @@ import { createAssistant } from "../application/assistant.js";
 import { createKbIndexer, type KbIndexer } from "../application/kb-indexer.js";
 import { createKbSynthesizer } from "../application/kb-synthesizer.js";
 import { createSenderResolver } from "../application/sender.js";
+import { parseDontLearnFrom } from "../domain/dont-learn-from.js";
 import { loadEnv } from "../env.js";
 import { createKnowledgeExtractor } from "../infrastructure/driven/kb/extractor.js";
 import { createPgKnowledgeStore } from "../infrastructure/driven/kb/pg-store.js";
 import { ensureKbSchema } from "../infrastructure/driven/kb/schema.js";
+import { createDontLearnFromStore } from "../infrastructure/driven/kb/dont-learn-from-store.js";
 import { createGmailKbSource } from "../infrastructure/driven/kb/sources/gmail.js";
+import { gmailClientFor, gmailExclusionOptions } from "../infrastructure/driven/kb/sources/gmail-exclusions.js";
 import { createSlackKbSource } from "../infrastructure/driven/kb/sources/slack.js";
 import { createVertexEmbedder } from "../infrastructure/driven/kb/vertex-embedder.js";
 import { buildMyKnowledgeTools, buildWorkspaceKnowledgeTools } from "../infrastructure/driven/tools/kb.js";
@@ -132,7 +135,8 @@ if (pgPool && process.env.KB_ENABLED !== "0" && vertexProject) {
   if (kbReady) {
     const kbStore = createPgKnowledgeStore({ pool: pgPool });
     const embedder = createVertexEmbedder({ project: vertexProject, location: vertexLocation });
-    const srcDeps = { store: kbStore, embedder, config, userCapabilities, logger };
+    const dontLearnFrom = createDontLearnFromStore(userCapabilities);
+    const srcDeps = { store: kbStore, embedder, config, userCapabilities, dontLearnFrom, logger };
     const synthesizer = createKbSynthesizer({
       store: kbStore,
       embedder,
@@ -293,6 +297,26 @@ if (pgPool && process.env.KB_ENABLED !== "0" && vertexProject) {
               indexedAt: new Date(i.indexedAt).toISOString(),
             })),
           };
+        },
+
+        dontLearnFrom: {
+          get: async (userId) => {
+            const exclusions = await dontLearnFrom.get(userId);
+            const gmail = await gmailClientFor(userId, userCapabilities);
+            if (!gmail) return { exclusions, gmailConnected: false, options: null };
+            try {
+              return { exclusions, gmailConnected: true, options: await gmailExclusionOptions(gmail) };
+            } catch (err) {
+              logger.warn({ userId, err: (err as Error).message }, "couldn't read gmail labels/filters");
+              return { exclusions, gmailConnected: true, options: null, optionsError: "couldn't read your Gmail labels and filters" };
+            }
+          },
+          set: async (userId, input) => {
+            const parsed = parseDontLearnFrom(input);
+            if (typeof parsed === "string") return { ok: false as const, error: parsed };
+            await dontLearnFrom.set(userId, parsed);
+            return { ok: true as const, value: { exclusions: parsed, appliesBy: indexer.status().nextRunAt ?? null } };
+          },
         },
 
         activity: async (userId, limit) => {

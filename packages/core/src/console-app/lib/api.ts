@@ -408,6 +408,27 @@ export async function getKbActivity(limit = 60): Promise<{ items: KbActivityEven
   return unwrap(r);
 }
 
+// ── Don't learn from ────────────────────────────────────────────────────────
+
+export type GmailExclusion =
+  | { kind: "gmailLabel"; labelId: string; name: string }
+  | { kind: "gmailSearch"; query: string; name: string; fromFilterId?: string };
+
+export interface DontLearnFromView {
+  enabled?: false;
+  exclusions: { gmail: GmailExclusion[] };
+  gmailConnected: boolean;
+  options: {
+    labels: Array<{ id: string; name: string }>;
+    filters: Array<{ id: string; description: string; query: string; labelIds: string[] }>;
+  } | null;
+  optionsError?: string;
+}
+
+export const getDontLearnFrom = (): Promise<DontLearnFromView> => send("GET", "/api/kb/dont-learn-from");
+export const saveDontLearnFrom = (gmail: GmailExclusion[]): Promise<{ exclusions: { gmail: GmailExclusion[] }; appliesBy: number | null }> =>
+  send("PUT", "/api/kb/dont-learn-from", { gmail });
+
 // ── Chat ────────────────────────────────────────────────────────────────────
 
 /** Send one message to Tino and get the reply (same agent path as Slack). */

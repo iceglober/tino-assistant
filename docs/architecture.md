@@ -145,6 +145,16 @@ entire backlog three chunks at a time. Facts merge on
 claim, so re-observing something extends its date range and evidence instead of
 duplicating it.
 
+**Don't learn from.** Each person keeps a list of exclusions in their own
+terms per source (`domain/dont-learn-from.ts`) — for Gmail, labels (by id) and
+searches (typed, or converted from one of their Gmail filters). The Gmail
+source leaves excluded searches out of its query, skips messages carrying an
+excluded label, and, whenever the list's fingerprint changes, asks Gmail which
+already-indexed messages match and calls `KnowledgeStore.forgetSourceItems`:
+excerpts deleted, facts resting only on them deleted, other facts' evidence
+trimmed. Gmail's filters decide what's noise; tino honours the labels they
+leave rather than re-running their rules.
+
 Retrieval blends similarity with recency —
 `score = (1−w)·sim + w·exp(−age/τ)` (`w=0.3`, `τ=30d`, both config-tunable),
 with `w` forced to 0 when the caller passes explicit date filters. The

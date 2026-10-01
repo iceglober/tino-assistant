@@ -4,19 +4,38 @@
  * restart-safe; historyId expires and delivers label noise). Backfill walks
  * `before:` windows newest→oldest to the horizon. Promotions/social/forums
  * are excluded; SENT is included (the user's own words are high-signal).
+ *
+ * The person's "don't learn from" list is honoured three ways: excluded
+ * searches are left out of the Gmail query, messages carrying an excluded label
+ * are skipped by label id, and whenever the list changes, mail it matches that
+ * was already learned is forgotten (excerpts, and facts resting only on them).
  */
-import { google } from "googleapis";
+import {
+  excludedGmailLabelIds,
+  exclusionsFingerprint,
+  gmailSearchExcluding,
+} from "../../../../domain/dont-learn-from.js";
 import { chunkEmail } from "../../../../domain/kb.js";
 import { isLikelyNoise } from "../../../../domain/knowledge.js";
 import { KbAuthError, type KbPrincipal, type KbRunResult } from "../../../../application/kb-indexer.js";
-import type { ConfigStore, Embedder, KbChunk, KnowledgeStore, Logger, UserCapabilityStore } from "../../../../ports/outbound.js";
+import type {
+  ConfigStore,
+  DontLearnFromStore,
+  Embedder,
+  KbChunk,
+  KnowledgeStore,
+  Logger,
+  UserCapabilityStore,
+} from "../../../../ports/outbound.js";
 import { extractBody, stripQuotedReply } from "../../tools/google/gmail-body.js";
-import { readUserCredentials } from "../../tools/credentials.js";
+import { gmailClientFor, messagesMatching } from "./gmail-exclusions.js";
 
 interface GmailCursor {
   lastInternalDateMs?: number;
   backfillBeforeMs?: number;
   backfillDone?: boolean;
+  /** Fingerprint of the exclusion list whose already-learned mail has been forgotten. */
+  exclusionsCleanedUp?: string;
   [key: string]: unknown;
 }
 
@@ -25,6 +44,7 @@ interface GmailSourceDeps {
   embedder: Embedder;
   config: ConfigStore;
   userCapabilities: UserCapabilityStore;
+  dontLearnFrom: DontLearnFromStore;
   logger: Logger;
   backfillDays?: number;
   messageBudget?: number;
@@ -39,18 +59,16 @@ function isAuthError(err: unknown): boolean {
 }
 
 export function createGmailKbSource(deps: GmailSourceDeps) {
-  const { store, embedder, config, userCapabilities, logger } = deps;
+  const { store, embedder, userCapabilities, dontLearnFrom, logger } = deps;
   const backfillDays = deps.backfillDays ?? 90;
 
   return async (principal: KbPrincipal, backfillDone: boolean): Promise<KbRunResult> => {
-    const cap = await readUserCredentials(principal.userId, "gmail", userCapabilities);
-    const creds = cap?.credentials;
-    if (!creds?.clientId || !creds?.clientSecret || !creds?.refreshToken) {
-      throw new KbAuthError("no gmail credentials");
-    }
-    const auth = new google.auth.OAuth2(creds.clientId, creds.clientSecret);
-    auth.setCredentials({ refresh_token: creds.refreshToken });
-    const gmail = google.gmail({ version: "v1", auth });
+    const gmail = await gmailClientFor(principal.userId, userCapabilities);
+    if (!gmail) throw new KbAuthError("no gmail credentials");
+
+    const exclusions = await dontLearnFrom.get(principal.userId);
+    const excludedLabels = excludedGmailLabelIds(exclusions);
+    const exclude = `${EXCLUDE}${gmailSearchExcluding(exclusions)}`;
 
     const messageBudget = deps.messageBudget ?? (backfillDone ? 25 : 100);
     let apiCalls = 0;
@@ -61,6 +79,8 @@ export function createGmailKbSource(deps: GmailSourceDeps) {
       ((await store.getCursor(principal.scope, principal.userId, "gmail", "inbox")) as GmailCursor | null) ?? {};
     let messagesIndexed = 0;
     let skippedNoise = 0;
+    let skippedExcluded = 0;
+    let forgotten = { excerpts: 0, facts: 0 };
 
     const indexMessage = async (id: string): Promise<number> => {
       apiCalls++;
@@ -69,6 +89,10 @@ export function createGmailKbSource(deps: GmailSourceDeps) {
       const headers = data.payload?.headers ?? [];
       const h = (name: string): string => headers.find((x) => x.name?.toLowerCase() === name.toLowerCase())?.value ?? "";
       const internalMs = Number(data.internalDate ?? 0);
+      if ((data.labelIds ?? []).some((l) => excludedLabels.has(l))) {
+        skippedExcluded++;
+        return internalMs;
+      }
       const body = stripQuotedReply(extractBody(data.payload ?? undefined)).slice(0, 100_000);
       if (!body && !h("Subject")) return internalMs;
 
@@ -102,6 +126,26 @@ export function createGmailKbSource(deps: GmailSourceDeps) {
     try {
       let budget = messageBudget;
 
+      // ── Forget mail the current exclusions match, once per change of list ──
+      const fingerprint = exclusionsFingerprint(exclusions);
+      if ((cursor.exclusionsCleanedUp ?? "") !== fingerprint) {
+        // Reach back to the oldest thing indexed, not just today's horizon.
+        const oldest = (await store.stats(principal.scope, principal.userId)).oldestMs ?? horizonMs;
+        const afterSec = Math.floor(Math.min(oldest, horizonMs) / 1000) - 86_400;
+        const matched = new Set<string>();
+        for (const exclusion of exclusions.gmail) {
+          const { ids, apiCalls: calls } = await messagesMatching(gmail, exclusion, afterSec);
+          apiCalls += calls;
+          for (const id of ids) matched.add(id);
+        }
+        const removed = await store.forgetSourceItems(principal.scope, principal.userId, "gmail", [...matched]);
+        forgotten = { excerpts: removed.excerptsRemoved, facts: removed.factsRemoved };
+        cursor.exclusionsCleanedUp = fingerprint;
+        if (removed.excerptsRemoved > 0) {
+          logger.info({ userId: principal.userId, ...removed }, "forgot mail matching don't-learn-from exclusions");
+        }
+      }
+
       // ── Steady state: everything since the cursor (2-min overlap for skew) ──
       const afterSec = cursor.lastInternalDateMs
         ? Math.floor(cursor.lastInternalDateMs / 1000) - 120
@@ -109,7 +153,7 @@ export function createGmailKbSource(deps: GmailSourceDeps) {
       apiCalls++;
       const list = await gmail.users.messages.list({
         userId: "me",
-        q: `after:${afterSec} ${EXCLUDE}`,
+        q: `after:${afterSec} ${exclude}`,
         maxResults: Math.min(budget, 100),
       });
       let maxSeen = cursor.lastInternalDateMs ?? 0;
@@ -128,7 +172,7 @@ export function createGmailKbSource(deps: GmailSourceDeps) {
         apiCalls++;
         const back = await gmail.users.messages.list({
           userId: "me",
-          q: `before:${beforeSec} after:${Math.floor(horizonMs / 1000)} ${EXCLUDE}`,
+          q: `before:${beforeSec} after:${Math.floor(horizonMs / 1000)} ${exclude}`,
           maxResults: Math.min(budget, 100),
         });
         const ids = (back.data.messages ?? []).map((m) => m.id).filter(Boolean) as string[];
@@ -152,6 +196,8 @@ export function createGmailKbSource(deps: GmailSourceDeps) {
         detail: [
           messagesIndexed + " messages read",
           skippedNoise > 0 ? skippedNoise + " bulk mail skipped" : "",
+          skippedExcluded > 0 ? `${skippedExcluded} excluded skipped` : "",
+          forgotten.excerpts > 0 ? `forgot ${forgotten.excerpts} excluded excerpts and ${forgotten.facts} facts` : "",
           cursor.backfillDone ? "backfill complete" : "backfilling",
         ].filter(Boolean).join(", "),
       };

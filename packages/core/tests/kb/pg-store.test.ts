@@ -440,3 +440,57 @@ describe.skipIf(!DB_URL)("kb scope migration (user → private)", () => {
     expect(Number(pending.rows[0].count)).toBe(2); // legacy rows queue for distillation
   });
 });
+
+describe.skipIf(!DB_URL)("forgetting specific source items", () => {
+  const user = `u-forget-${Date.now()}`;
+  const other = `${user}-other`;
+
+  beforeAll(async () => {
+    await ensureKbSchema(pool, noopLogger);
+  });
+
+  it("removes the items' excerpts and the facts resting only on them; trims the rest", async () => {
+    const day = 86_400_000;
+    const t0 = Date.now() - 10 * day;
+    const mail = (ref: string, ts: number, userId = user): KbChunk =>
+      chunk({ userId, source: "gmail", sourceRef: ref, text: `email ${ref} ${userId}`, ts });
+    await store.upsertChunks(
+      [mail("warm-1", t0), mail("warm-2", t0 + day), mail("real-1", t0 + 2 * day), mail("warm-1", t0, other)],
+      [basis(1), basis(2), basis(3), basis(4)].map(l2Normalize),
+    );
+    const ids = Object.fromEntries(
+      (await store.listChunks("private", user, { limit: 10, offset: 0, source: "gmail" })).items.map((c) => [c.sourceRef, c.id]),
+    ) as Record<string, string>;
+
+    await store.upsertFacts(
+      "private",
+      user,
+      [
+        fact({ key: "only-warmup", statement: "Only warmup says so.", evidence: [evidence(ids["warm-1"] as string, t0), evidence(ids["warm-2"] as string, t0 + day)] }),
+        fact({ key: "mixed", statement: "Real and warmup both say so.", evidence: [evidence(ids["warm-1"] as string, t0), evidence(ids["real-1"] as string, t0 + 2 * day)] }),
+        fact({ key: "untouched", statement: "Only real mail says so.", evidence: [evidence(ids["real-1"] as string, t0 + 2 * day)] }),
+      ],
+      [basis(10), basis(11), basis(12)].map(l2Normalize),
+    );
+
+    const result = await store.forgetSourceItems("private", user, "gmail", ["warm-1", "warm-2", "never-indexed"]);
+    expect(result).toEqual({ excerptsRemoved: 2, factsRemoved: 1, factsTrimmed: 1 });
+
+    const left = (await store.listChunks("private", user, { limit: 10, offset: 0, source: "gmail" })).items.map((c) => c.sourceRef);
+    expect(left).toEqual(["real-1"]);
+    const facts = (await store.listFacts("private", user, { limit: 10, offset: 0 })).items;
+    expect(facts.map((f) => f.key).sort()).toEqual(["mixed", "untouched"]);
+    const mixed = facts.find((f) => f.key === "mixed");
+    expect(mixed?.evidence.map((e) => e.chunkId)).toEqual([ids["real-1"]]);
+    // Its dates now come from what's left.
+    expect(Math.abs((mixed?.firstSeenMs ?? 0) - (t0 + 2 * day))).toBeLessThan(1000);
+
+    // Someone else's copy of the same message id is untouched.
+    expect((await store.listChunks("private", other, { limit: 10, offset: 0 })).total).toBe(1);
+  });
+
+  it("does nothing for an empty list or unknown ids", async () => {
+    expect(await store.forgetSourceItems("private", user, "gmail", [])).toEqual({ excerptsRemoved: 0, factsRemoved: 0, factsTrimmed: 0 });
+    expect(await store.forgetSourceItems("private", user, "gmail", ["nope"])).toEqual({ excerptsRemoved: 0, factsRemoved: 0, factsTrimmed: 0 });
+  });
+});

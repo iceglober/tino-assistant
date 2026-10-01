@@ -7,6 +7,8 @@
  *   GET /topics/:id/chunks?scope=   → the messages behind one theme
  *   GET /browse?scope=&q=&source=   → raw chunk listing / search (drill-down)
  *   GET /activity?limit=            → per-cycle, per-source indexer log
+ *   GET /dont-learn-from            → the caller's exclusions + what they can pick
+ *   PUT /dont-learn-from            → replace the caller's exclusions
  *
  * Auth-gated. `scope=private` is bound to the signed-in user server-side — the
  * user id is never taken from the query string.
@@ -49,6 +51,12 @@ export interface KbRoutesDeps {
   browse: (query: KbBrowseQuery) => Promise<unknown>;
   /** Recent indexer cycle events. */
   activity: (userId: string, limit: number) => Promise<unknown>;
+  /** The caller's "don't learn from" list, and the labels/filters they can pick from. */
+  dontLearnFrom: {
+    get: (userId: string) => Promise<unknown>;
+    /** Validates; returns an error message for bad input. */
+    set: (userId: string, input: unknown) => Promise<{ ok: true; value: unknown } | { ok: false; error: string }>;
+  };
   logger: Logger;
 }
 
@@ -133,6 +141,29 @@ export function createKbRoutes(deps?: KbRoutesDeps): Hono<{ Variables: AuthVaria
   app.get("/activity", async (c) => {
     if (!deps) return c.json({ enabled: false, items: [] });
     return guard(c, "activity", () => deps.activity(c.get("user").id, readLimit(c.req.query("limit"), 60, 200)));
+  });
+
+  app.get("/dont-learn-from", async (c) => {
+    const user = c.get("user");
+    if (!user) return c.json({ error: "unauthorized" }, 401);
+    if (!deps) return c.json({ enabled: false });
+    return c.json(await deps.dontLearnFrom.get(user.id));
+  });
+
+  app.put("/dont-learn-from", async (c) => {
+    const user = c.get("user");
+    if (!user) return c.json({ error: "unauthorized" }, 401);
+    if (!deps) return c.json({ error: "the knowledge base is off" }, 409);
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: "Request body must be valid JSON" }, 400);
+    }
+    const result = await deps.dontLearnFrom.set(user.id, body);
+    if (!result.ok) return c.json({ error: result.error }, 400);
+    deps.logger.info({ userId: user.id }, "don't-learn-from list updated");
+    return c.json(result.value);
   });
 
   return app;

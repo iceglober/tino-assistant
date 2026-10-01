@@ -310,6 +310,61 @@ export function createPgKnowledgeStore({ pool }: { pool: PgPool }): KnowledgeSto
       }
     },
 
+    async forgetSourceItems(scope, userId, source, sourceRefs) {
+      const none = { excerptsRemoved: 0, factsRemoved: 0, factsTrimmed: 0 };
+      if (sourceRefs.length === 0) return none;
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const deleted = await client.query<{ id: string }>(
+          "DELETE FROM kb_chunks WHERE scope=$1 AND user_id=$2 AND source=$3 AND source_ref = ANY($4) RETURNING id",
+          [scope, userId, source, sourceRefs],
+        );
+        const gone = new Set(deleted.rows.map((r) => String(r.id)));
+        if (gone.size === 0) {
+          await client.query("COMMIT");
+          return none;
+        }
+
+        // Facts citing any removed excerpt: drop those citations; a fact with
+        // nothing left to stand on goes too.
+        const citing = await client.query<{ id: string; evidence: KbEvidence[] }>(
+          `SELECT id, evidence FROM kb_facts
+           WHERE scope=$1 AND user_id=$2
+             AND EXISTS (SELECT 1 FROM jsonb_array_elements(evidence) e WHERE e->>'chunkId' = ANY($3))`,
+          [scope, userId, [...gone]],
+        );
+        let factsRemoved = 0;
+        let factsTrimmed = 0;
+        for (const fact of citing.rows) {
+          const remaining = (Array.isArray(fact.evidence) ? fact.evidence : []).filter((e) => !gone.has(String(e.chunkId)));
+          if (remaining.length === 0) {
+            await client.query("DELETE FROM kb_facts WHERE id=$1", [fact.id]);
+            factsRemoved++;
+          } else {
+            const times = remaining.map((e) => e.ts);
+            await client.query(
+              "UPDATE kb_facts SET evidence=$2::jsonb, first_seen=$3, last_seen=$4, updated_at=now() WHERE id=$1",
+              [
+                fact.id,
+                JSON.stringify(remaining),
+                new Date(Math.min(...times)).toISOString(),
+                new Date(Math.max(...times)).toISOString(),
+              ],
+            );
+            factsTrimmed++;
+          }
+        }
+        await client.query("COMMIT");
+        return { excerptsRemoved: gone.size, factsRemoved, factsTrimmed };
+      } catch (err) {
+        await client.query("ROLLBACK").catch(() => {});
+        throw err;
+      } finally {
+        client.release();
+      }
+    },
+
     async getCursor(scope, userId, source, stream) {
       const res = await pool.query<{ state: Record<string, unknown> }>(
         "SELECT state FROM kb_cursors WHERE scope=$1 AND user_id=$2 AND source=$3 AND stream=$4",

@@ -10,6 +10,7 @@ import type {
   IdentityProvider,
   TinoUser,
 } from "../domain/types.js";
+import type { DontLearnFrom } from "../domain/dont-learn-from.js";
 import type { Readers, WhoCanSee } from "../domain/who-can-see.js";
 
 // ── Opaque handles ────────────────────────────────────────────────────────────
@@ -394,6 +395,17 @@ export interface KnowledgeStore {
   stats(scope: KbScope, userId: string): Promise<{ chunks: number; oldestMs: number | null; newestMs: number | null }>;
   /** Delete a user's chunks + cursors and tombstone their index state. */
   forgetUser(userId: string): Promise<void>;
+  /**
+   * Forget specific items from one source (e.g. Gmail message ids): delete
+   * their excerpts, delete facts whose every piece of evidence was one of them,
+   * and drop them from the evidence of facts that also rest on other items.
+   */
+  forgetSourceItems(
+    scope: KbScope,
+    userId: string,
+    source: KbSource,
+    sourceRefs: string[],
+  ): Promise<{ excerptsRemoved: number; factsRemoved: number; factsTrimmed: number }>;
 
   getCursor(scope: KbScope, userId: string, source: string, stream: string): Promise<Record<string, unknown> | null>;
   setCursor(scope: KbScope, userId: string, source: string, stream: string, state: Record<string, unknown>): Promise<void>;
@@ -439,6 +451,14 @@ export interface KnowledgeStore {
   recordCycleEvents(events: Array<Omit<KbCycleEvent, "id">>): Promise<void>;
   /** Workspace events plus this user's own, newest first. */
   listCycleEvents(userId: string, limit: number): Promise<KbCycleEvent[]>;
+}
+
+// ── What not to learn from ────────────────────────────────────────────────────
+
+/** Each person's "don't learn from" list. */
+export interface DontLearnFromStore {
+  get(userId: string): Promise<DontLearnFrom>;
+  set(userId: string, value: DontLearnFrom): Promise<void>;
 }
 
 // ── Knowledge extraction ──────────────────────────────────────────────────────

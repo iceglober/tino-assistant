@@ -121,6 +121,13 @@ An admin can switch mentions to "the asker's private context too" (Setup). Then 
 
 **Browse knowledge.** The console *knowledge* page shows private and workspace facts, themes, raw excerpts, semantic search, and the indexer's activity.
 
+**Keep noise out ("don't learn from").** On the knowledge page, in your private view, exclude mail that looks real but isn't — domain warmup, bots, test sends:
+- pick one of your **Gmail labels** (matched by id, so renaming is fine), or
+- pick one of your **Gmail filters** — tino turns its criteria into a search, useful when the filter only archives, or
+- type a **Gmail search**.
+
+Excluded mail is never indexed. Mail tino already learned from that matches is forgotten on the next indexing cycle (≤5 min): its excerpts are deleted, facts that rested only on it are removed, and facts with other evidence lose those citations. Removing an exclusion only affects new mail. Live Gmail searches you ask for still see everything. The idiomatic setup: let your Gmail filter label the mail, and exclude that label — Gmail stays the one place that decides what's noise.
+
 ---
 
 ## 5. admin: managing people

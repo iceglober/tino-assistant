@@ -1,4 +1,5 @@
 import { type JSX, useCallback, useEffect, useMemo, useState } from "react";
+import { DontLearnFrom } from "../components/DontLearnFrom.js";
 import {
   browseKb,
   getKbActivity,
@@ -519,6 +520,8 @@ export function Knowledge({ onBack }: { onBack: () => void }): JSX.Element {
             ) : null}
           </p>
         </section>
+
+        {scope === "private" ? <DontLearnFrom /> : null}
 
         {/* ── Views ──────────────────────────────────────────────────────── */}
         <section className="kb-card">
