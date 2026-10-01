@@ -106,6 +106,29 @@ describe("slack channel directory", () => {
     expect(slack.users.list).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps the channel types it has scopes for, and stops asking for the others", async () => {
+    const slack = fakeSlack({ channels: {}, userChannels: { U1: [["C1"]] } });
+    slack.users.conversations = vi.fn(async ({ types }: { types: string }) => {
+      if (types.includes("mpim")) {
+        throw Object.assign(new Error("An API error occurred: missing_scope"), {
+          data: { ok: false, error: "missing_scope", needed: "mpim:read" },
+        });
+      }
+      return {
+        channels: types === "public_channel" ? [{ id: "C1" }] : [{ id: "G1" }],
+        response_metadata: { next_cursor: "" },
+      };
+    });
+    const dir = createSlackChannelDirectory(slack as unknown as SlackDirectoryClient, noopLogger());
+    expect([...(await dir.channelsOfSlackUser("U1"))].sort()).toEqual(["C1", "G1"]);
+    // Next person: mpim is no longer requested at all.
+    vi.mocked(slack.users.conversations).mockClear();
+    await dir.channelsOfSlackUser("U2");
+    expect(vi.mocked(slack.users.conversations).mock.calls.map((c) => c[0].types)).toEqual([
+      "public_channel,private_channel",
+    ]);
+  });
+
   it("lists every channel a person is in, across pages", async () => {
     const slack = fakeSlack({ channels: {}, userChannels: { U1: [["C1", "C2"], ["C3"]] } });
     const dir = createSlackChannelDirectory(slack as unknown as SlackDirectoryClient, noopLogger());

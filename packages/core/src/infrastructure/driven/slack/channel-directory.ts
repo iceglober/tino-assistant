@@ -53,6 +53,11 @@ interface SlackUser {
 }
 
 const CACHE_MS = 2 * 60_000;
+const CHANNEL_TYPES = ["public_channel", "private_channel", "mpim"];
+
+const isMissingScope = (err: unknown): boolean =>
+  (err as { data?: { error?: string } }).data?.error === "missing_scope" ||
+  /missing_scope/.test((err as Error).message ?? "");
 const DIRECTORY_CACHE_MS = 10 * 60_000;
 /** Beyond this many members we stop paging and assume outsiders may be present. */
 const MAX_MEMBERS_CHECKED = 20_000;
@@ -72,6 +77,26 @@ export function createSlackChannelDirectory(client: SlackDirectoryClient, logger
   const channelCache = cached<{ includesOutsiders: boolean }>(CACHE_MS);
   const userChannelsCache = cached<ReadonlySet<string>>(CACHE_MS);
   let insiders: { at: number; homeTeamId: string; ids: Set<string> } | null = null;
+  /** Channel types the bot turned out not to have the scope to list — not asked for again. */
+  const typesWithoutScope = new Set<string>();
+
+  async function listChannels(slackUserId: string, types: string[]): Promise<Set<string>> {
+    const ids = new Set<string>();
+    if (types.length === 0) return ids;
+    let cursor: string | undefined;
+    do {
+      const page = await client.users.conversations({
+        user: slackUserId,
+        types: types.join(","),
+        exclude_archived: true,
+        limit: 1000,
+        cursor,
+      });
+      for (const c of page.channels ?? []) if (c.id) ids.add(c.id);
+      cursor = page.response_metadata?.next_cursor || undefined;
+    } while (cursor);
+    return ids;
+  }
 
   /** Everyone who is a full member of our own workspace. */
   async function loadInsiders(): Promise<Set<string>> {
@@ -123,19 +148,28 @@ export function createSlackChannelDirectory(client: SlackDirectoryClient, logger
 
     channelsOfSlackUser(slackUserId) {
       return userChannelsCache(slackUserId, async () => {
+        const allowed = CHANNEL_TYPES.filter((t) => !typesWithoutScope.has(t));
+        try {
+          return await listChannels(slackUserId, allowed);
+        } catch (err) {
+          if (!isMissingScope(err)) throw err;
+        }
+        // The bot lacks a scope for one of the types: ask one type at a time and
+        // keep what it can see. A type it can't read just contributes nothing.
         const ids = new Set<string>();
-        let cursor: string | undefined;
-        do {
-          const page = await client.users.conversations({
-            user: slackUserId,
-            types: "public_channel,private_channel,mpim",
-            exclude_archived: true,
-            limit: 1000,
-            cursor,
-          });
-          for (const c of page.channels ?? []) if (c.id) ids.add(c.id);
-          cursor = page.response_metadata?.next_cursor || undefined;
-        } while (cursor);
+        for (const type of allowed) {
+          try {
+            for (const id of await listChannels(slackUserId, [type])) ids.add(id);
+          } catch (err) {
+            if (!isMissingScope(err)) throw err;
+            typesWithoutScope.add(type);
+            const needed = (err as { data?: { needed?: string } }).data?.needed;
+            logger.warn(
+              { type, needed },
+              "slack bot can't list this channel type for a person — add the scope to recall it",
+            );
+          }
+        }
         return ids;
       });
     },

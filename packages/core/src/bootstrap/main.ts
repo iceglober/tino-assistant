@@ -57,6 +57,33 @@ function parseConfigValue(raw: string | null): string | undefined {
   }
 }
 
+/** The env var that backs a config key when the console hasn't set it: azure.apiKey → AZURE_API_KEY. */
+const envName = (key: string): string =>
+  key
+    .replace(/\./g, "_")
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .toUpperCase();
+
+/** Settings Setup shows that the deployment can also provide through env vars. */
+const SETUP_KEYS = [
+  "slack.botToken",
+  "slack.appToken",
+  "slack.clientId",
+  "slack.clientSecret",
+  "google.oauth.clientId",
+  "google.oauth.clientSecret",
+  "model.provider",
+  "azure.apiKey",
+  "azure.resourceName",
+  "azure.baseURL",
+  "azure.deployment",
+  "azure.apiVersion",
+  "openai.apiKey",
+  "openai.model",
+  "anthropic.apiKey",
+  "anthropic.model",
+];
+
 const baseUrl = process.env.CONSOLE_BASE_URL ?? `http://localhost:${port}`;
 
 // Connect-token signer for the bot-DM'd Slack OAuth link. Uses a dedicated
@@ -305,11 +332,6 @@ async function refreshRuntime(): Promise<void> {
   const entries = await config.list();
   const cfgMap = new Map(entries.map((e) => [e.key, parseConfigValue(e.value)]));
   // Env fallback: dot + camelCase key → UPPER_SNAKE (azure.apiKey → AZURE_API_KEY).
-  const envName = (key: string): string =>
-    key
-      .replace(/\./g, "_")
-      .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
-      .toUpperCase();
   const get = (key: string): string | undefined => cfgMap.get(key) ?? process.env[envName(key)];
 
   const settings = resolveModelConfig(get);
@@ -436,12 +458,18 @@ async function setupStatus() {
     has("google.oauth.clientId", "GOOGLE_OAUTH_CLIENT_ID"),
     has("google.oauth.clientSecret", "GOOGLE_OAUTH_CLIENT_SECRET"),
   ]);
+  // Names only, never values: settings the deployment provides and the console doesn't override.
+  const fromEnvironment: string[] = [];
+  for (const key of SETUP_KEYS) {
+    if (process.env[envName(key)] && !parseConfigValue(await config.get(key))) fromEnvironment.push(key);
+  }
   return {
     slack: botToken && appToken,
     model: languageModel !== null,
     slackConnect: slackClientId && slackClientSecret,
     googleConnect: googleId && googleSecret,
     kb: kb !== null,
+    fromEnvironment,
   };
 }
 

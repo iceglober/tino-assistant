@@ -33,7 +33,10 @@ export function createChatRoutes(opts: {
       return c.json({ reply });
     } catch (err) {
       logger.error({ err: (err as Error).message, userId: user.id }, "chat request failed");
-      return c.json({ error: "chat failed" }, 500);
+      return c.json(
+        { error: "chat_failed", message: "tino couldn't reply — the model returned an error. The details are in the server logs." },
+        500,
+      );
     }
   });
 

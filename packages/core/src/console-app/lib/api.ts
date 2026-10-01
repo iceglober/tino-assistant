@@ -23,7 +23,14 @@ async function unwrap<T>(res: Response): Promise<T> {
   if (res.status === 401) throw new UnauthorizedError();
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(text || `${res.status} ${res.statusText}`);
+    let message = text;
+    try {
+      const body = JSON.parse(text) as { message?: string; error?: string };
+      message = body.message ?? body.error ?? text;
+    } catch {
+      /* not JSON — show the text */
+    }
+    throw new Error(message || `${res.status} ${res.statusText}`);
   }
   return res.json() as Promise<T>;
 }
@@ -53,6 +60,8 @@ export interface SetupStatus {
   slackConnect: boolean;
   googleConnect: boolean;
   kb: boolean;
+  /** Setup keys provided by the deployment's environment (names only). */
+  fromEnvironment: string[];
 }
 
 export async function getStatus(): Promise<SetupStatus> {

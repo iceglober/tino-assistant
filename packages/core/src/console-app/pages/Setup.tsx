@@ -1,4 +1,5 @@
 import { type JSX, useEffect, useState } from "react";
+import { PageShell } from "../components/PageShell.js";
 import { RevealInput } from "../components/RevealInput.js";
 import { SaveButton, useSaveState } from "../components/SaveButton.js";
 import { useToast } from "../hooks/useToast.js";
@@ -24,8 +25,18 @@ const PROVIDERS: Record<string, { label: string; note?: string; fields: Provider
     label: "Azure OpenAI",
     fields: [
       { key: "azure.apiKey", label: "API Key", secret: true, placeholder: "your Azure OpenAI key" },
-      { key: "azure.resourceName", label: "Resource Name", placeholder: "my-openai-resource", hint: "From your endpoint: https://<name>.openai.azure.com" },
-      { key: "azure.deployment", label: "Deployment (model)", placeholder: "gpt-4o", hint: "The deployment name you created, not the base model id." },
+      {
+        key: "azure.resourceName",
+        label: "Resource Name",
+        placeholder: "my-openai-resource",
+        hint: "From your endpoint: https://<name>.openai.azure.com",
+      },
+      {
+        key: "azure.deployment",
+        label: "Deployment (model)",
+        placeholder: "gpt-4o",
+        hint: "The deployment name you created, not the base model id.",
+      },
       { key: "azure.apiVersion", label: "API Version", placeholder: "leave blank for the default", optional: true },
     ],
   },
@@ -49,22 +60,68 @@ const PROVIDER_IDS = Object.keys(PROVIDERS);
 const MENTIONS_KEY = "slack.channelMentions";
 
 const SLACK_FIELDS: ProviderField[] = [
-  { key: "slack.botToken", label: "Bot Token", secret: true, placeholder: "xoxb-…", hint: "Slack → your app → OAuth & Permissions → Bot User OAuth Token" },
-  { key: "slack.appToken", label: "App Token", secret: true, placeholder: "xapp-…", hint: "Slack → your app → Basic Information → App-Level Tokens (connections:write)" },
-  { key: "slack.clientId", label: "OAuth Client ID", placeholder: "1234.5678", optional: true, hint: "For per-user connect: Basic Information → App Credentials. Add redirect URL <your-url>/api/oauth/slack/callback + User Token Scopes (im/mpim/groups/channels history+read, search:read)." },
+  {
+    key: "slack.botToken",
+    label: "Bot Token",
+    secret: true,
+    placeholder: "xoxb-…",
+    hint: "Slack → your app → OAuth & Permissions → Bot User OAuth Token",
+  },
+  {
+    key: "slack.appToken",
+    label: "App Token",
+    secret: true,
+    placeholder: "xapp-…",
+    hint: "Slack → your app → Basic Information → App-Level Tokens (connections:write)",
+  },
+  {
+    key: "slack.clientId",
+    label: "OAuth Client ID",
+    placeholder: "1234.5678",
+    optional: true,
+    hint: "For per-user connect: Basic Information → App Credentials. Add redirect URL <your-url>/api/oauth/slack/callback + User Token Scopes (im/mpim/groups/channels history+read, search:read).",
+  },
   { key: "slack.clientSecret", label: "OAuth Client Secret", secret: true, optional: true },
 ];
 const GOOGLE_FIELDS: ProviderField[] = [
-  { key: "google.oauth.clientId", label: "OAuth Client ID", placeholder: "…apps.googleusercontent.com", hint: "Enables Google sign-in to this console and lets people connect Gmail + Calendar. Redirect URIs: <your-url>/api/auth/callback/google and <your-url>/api/oauth/google/callback.", optional: true },
+  {
+    key: "google.oauth.clientId",
+    label: "OAuth Client ID",
+    placeholder: "…apps.googleusercontent.com",
+    hint: "Enables Google sign-in to this console and lets people connect Gmail + Calendar. Redirect URIs: <your-url>/api/auth/callback/google and <your-url>/api/oauth/google/callback.",
+    optional: true,
+  },
   { key: "google.oauth.clientSecret", label: "OAuth Client Secret", secret: true, optional: true },
 ];
 
-export function Setup({ onComplete }: { onComplete: () => void }): JSX.Element {
+/** The env var a setting falls back to: google.oauth.clientId → GOOGLE_OAUTH_CLIENT_ID. Mirrors the server. */
+const envNameOf = (key: string): string =>
+  key
+    .replace(/\./g, "_")
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .toUpperCase();
+
+/**
+ * `onBack` is set when Setup is opened from the app (tino already works); it is
+ * absent on first run, where finishing Setup is the only way forward.
+ * `fromEnvironment` lists settings the deployment already provides.
+ */
+export function Setup({
+  onComplete,
+  onBack,
+  fromEnvironment = [],
+}: {
+  onComplete: () => void;
+  onBack?: () => void;
+  fromEnvironment?: string[];
+}): JSX.Element {
   const toast = useToast();
   const save = useSaveState();
   const [loaded, setLoaded] = useState(false);
   const [provider, setProvider] = useState<string>("azure");
   const [values, setValues] = useState<Record<string, string>>({});
+  /** The deployment provides this setting and the form leaves it blank (so it's kept). */
+  const providedByDeployment = (key: string): boolean => fromEnvironment.includes(key) && !values[key]?.trim();
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const val = (key: string): string => values[key] ?? "";
@@ -93,12 +150,14 @@ export function Setup({ onComplete }: { onComplete: () => void }): JSX.Element {
 
   const validate = (): boolean => {
     const e: Record<string, string> = {};
-    if (!val("slack.botToken").trim()) e["slack.botToken"] = "Bot token is required.";
-    else if (!val("slack.botToken").trim().startsWith("xoxb-")) e["slack.botToken"] = "Must start with xoxb-";
-    if (!val("slack.appToken").trim()) e["slack.appToken"] = "App token is required.";
-    else if (!val("slack.appToken").trim().startsWith("xapp-")) e["slack.appToken"] = "Must start with xapp-";
+    const bot = val("slack.botToken").trim();
+    const app = val("slack.appToken").trim();
+    if (!bot && !providedByDeployment("slack.botToken")) e["slack.botToken"] = "Bot token is required.";
+    else if (bot && !bot.startsWith("xoxb-")) e["slack.botToken"] = "Must start with xoxb-";
+    if (!app && !providedByDeployment("slack.appToken")) e["slack.appToken"] = "App token is required.";
+    else if (app && !app.startsWith("xapp-")) e["slack.appToken"] = "Must start with xapp-";
     for (const f of PROVIDERS[provider].fields) {
-      if (!f.optional && !val(f.key).trim()) e[f.key] = `${f.label} is required.`;
+      if (!f.optional && !val(f.key).trim() && !providedByDeployment(f.key)) e[f.key] = `${f.label} is required.`;
     }
     setErrors(e);
     return Object.keys(e).length === 0;
@@ -136,32 +195,54 @@ export function Setup({ onComplete }: { onComplete: () => void }): JSX.Element {
     setTimeout(() => onComplete(), 600);
   };
 
-  const renderField = (f: ProviderField): JSX.Element => (
-    <div className="field-group" key={f.key}>
-      <label className="field-label" htmlFor={f.key}>
-        {f.label}
-        {f.optional ? <span className="field-label-mono"> optional</span> : null}
-      </label>
-      {f.secret ? (
-        <RevealInput id={f.key} value={val(f.key)} onChange={(v) => setVal(f.key, v)} placeholder={f.placeholder} ariaLabel={f.label} invalid={!!errors[f.key]} />
-      ) : (
-        <input
-          id={f.key}
-          className="field-input"
-          type="text"
-          value={val(f.key)}
-          onChange={(e) => setVal(f.key, e.target.value)}
-          placeholder={f.placeholder}
-          autoComplete="off"
-          aria-invalid={errors[f.key] ? "true" : undefined}
-        />
-      )}
-      {f.hint ? <div className="field-hint">{f.hint}</div> : null}
-      <div className={`field-error${errors[f.key] ? " visible" : ""}`} role="alert" aria-live="polite">
-        {errors[f.key] ?? ""}
+  const renderField = (f: ProviderField): JSX.Element => {
+    const fromDeployment = providedByDeployment(f.key);
+    const placeholder = fromDeployment ? "set by the deployment — leave blank to keep it" : f.placeholder;
+    return (
+      <div className="field-group" key={f.key}>
+        <label className="field-label" htmlFor={f.key}>
+          {f.label}
+          {fromDeployment ? (
+            <span className="field-label-mono"> from deployment</span>
+          ) : f.optional ? (
+            <span className="field-label-mono"> optional</span>
+          ) : null}
+        </label>
+        {f.secret ? (
+          <RevealInput
+            id={f.key}
+            value={val(f.key)}
+            onChange={(v) => setVal(f.key, v)}
+            placeholder={placeholder}
+            ariaLabel={f.label}
+            invalid={!!errors[f.key]}
+          />
+        ) : (
+          <input
+            id={f.key}
+            className="field-input"
+            type="text"
+            value={val(f.key)}
+            onChange={(e) => setVal(f.key, e.target.value)}
+            placeholder={placeholder}
+            autoComplete="off"
+            aria-invalid={errors[f.key] ? "true" : undefined}
+          />
+        )}
+        {fromDeployment ? (
+          <div className="field-hint">
+            Already configured through the deployment's <code>{envNameOf(f.key)}</code>. Entering a value here overrides
+            it.
+          </div>
+        ) : f.hint ? (
+          <div className="field-hint">{f.hint}</div>
+        ) : null}
+        <div className={`field-error${errors[f.key] ? " visible" : ""}`} role="alert" aria-live="polite">
+          {errors[f.key] ?? ""}
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   if (!loaded) {
     return (
@@ -175,79 +256,93 @@ export function Setup({ onComplete }: { onComplete: () => void }): JSX.Element {
     );
   }
 
+  const form = (
+    <div className="setup-screen">
+      {onBack ? null : (
+        <>
+          <h1 className="setup-heading">set up tino.</h1>
+          <p className="setup-lead">connect Slack, pick a model provider, and (optionally) Google.</p>
+        </>
+      )}
+
+      <h2 className="setup-section">Slack</h2>
+      {SLACK_FIELDS.map(renderField)}
+
+      <div className="field-group">
+        <label className="field-label" htmlFor="channel-mentions">
+          When @mentioned in a channel, tino may use
+        </label>
+        <select
+          id="channel-mentions"
+          className="field-input"
+          value={val(MENTIONS_KEY) === "asker" ? "asker" : "workspace"}
+          onChange={(e) => setVal(MENTIONS_KEY, e.target.value)}
+        >
+          <option value="workspace">only what the channel can see (recommended)</option>
+          <option value="asker">the asker's private context too</option>
+        </select>
+        <div className="field-hint">
+          {val(MENTIONS_KEY) === "asker"
+            ? "Channel replies can draw on the asker's email, calendar, DMs, private knowledge, personal MCP servers, and private conversations. Only an instruction to the model keeps private details out of a reply the whole channel reads — and anyone in the channel can post text that tries to override it."
+            : "Channel replies use only what everyone in the channel may see: public channels, the channel itself, the workspace knowledge base, and workspace MCP servers marked as shareable. In channels with people from outside the company, only the channel itself. For anything private, tino answers in the asker's DM."}
+        </div>
+      </div>
+
+      <h2 className="setup-section">Model</h2>
+      <div className="field-group">
+        <label className="field-label" htmlFor="model-provider">
+          Provider
+        </label>
+        <select
+          id="model-provider"
+          className="field-input"
+          value={provider}
+          onChange={(e) => {
+            setProvider(e.target.value);
+            setErrors({});
+          }}
+        >
+          {PROVIDER_IDS.map((id) => (
+            <option key={id} value={id}>
+              {PROVIDERS[id].label}
+            </option>
+          ))}
+        </select>
+        {PROVIDERS[provider].note ? <div className="field-hint">{PROVIDERS[provider].note}</div> : null}
+      </div>
+      {PROVIDERS[provider].fields.map(renderField)}
+
+      <h2 className="setup-section">Google sign-in + Gmail (optional)</h2>
+      {GOOGLE_FIELDS.map(renderField)}
+
+      <div className="btn-row">
+        <SaveButton
+          state={save.state}
+          idleLabel="save & connect"
+          savingLabel="saving…"
+          savedLabel="saved"
+          errorLabel="failed — retry"
+          size="large"
+          onClick={onSave}
+        />
+      </div>
+    </div>
+  );
+
+  if (onBack) {
+    return (
+      <PageShell title="settings" onBack={onBack}>
+        {form}
+      </PageShell>
+    );
+  }
   return (
     <div className="page">
       <div className="logo-block">
         <img src="/assets/tino-logo.png" alt="tino" className="logo-img" />
         <span className="logo-wordmark">tino</span>
       </div>
-
-      <div className="setup-screen">
-        <h1 className="setup-heading">set up tino.</h1>
-        <p className="setup-lead">connect Slack, pick a model provider, and (optionally) Google.</p>
-
-        <h2 className="setup-section">Slack</h2>
-        {SLACK_FIELDS.map(renderField)}
-
-        <div className="field-group">
-          <label className="field-label" htmlFor="channel-mentions">
-            When @mentioned in a channel, tino may use
-          </label>
-          <select
-            id="channel-mentions"
-            className="field-input"
-            value={val(MENTIONS_KEY) === "asker" ? "asker" : "workspace"}
-            onChange={(e) => setVal(MENTIONS_KEY, e.target.value)}
-          >
-            <option value="workspace">only what the channel can see (recommended)</option>
-            <option value="asker">the asker's private context too</option>
-          </select>
-          <div className="field-hint">
-            {val(MENTIONS_KEY) === "asker"
-              ? "Channel replies can draw on the asker's email, calendar, DMs, private knowledge, personal MCP servers, and private conversations. Only an instruction to the model keeps private details out of a reply the whole channel reads — and anyone in the channel can post text that tries to override it."
-              : "Channel replies use only what everyone in the channel may see: public channels, the channel itself, the workspace knowledge base, and workspace MCP servers marked as shareable. In channels with people from outside the company, only the channel itself. For anything private, tino answers in the asker's DM."}
-          </div>
-        </div>
-
-        <h2 className="setup-section">Model</h2>
-        <div className="field-group">
-          <label className="field-label" htmlFor="model-provider">
-            Provider
-          </label>
-          <select
-            id="model-provider"
-            className="field-input"
-            value={provider}
-            onChange={(e) => {
-              setProvider(e.target.value);
-              setErrors({});
-            }}
-          >
-            {PROVIDER_IDS.map((id) => (
-              <option key={id} value={id}>
-                {PROVIDERS[id].label}
-              </option>
-            ))}
-          </select>
-          {PROVIDERS[provider].note ? <div className="field-hint">{PROVIDERS[provider].note}</div> : null}
-        </div>
-        {PROVIDERS[provider].fields.map(renderField)}
-
-        <h2 className="setup-section">Google sign-in + Gmail (optional)</h2>
-        {GOOGLE_FIELDS.map(renderField)}
-
-        <div className="btn-row">
-          <SaveButton
-            state={save.state}
-            idleLabel="save & connect"
-            savingLabel="saving…"
-            savedLabel="saved"
-            errorLabel="failed — retry"
-            size="large"
-            onClick={onSave}
-          />
-        </div>
-      </div>
+      {form}
     </div>
   );
 }

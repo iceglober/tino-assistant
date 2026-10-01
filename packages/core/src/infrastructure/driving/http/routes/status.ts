@@ -12,6 +12,8 @@ export interface SetupStatus {
   googleConnect: boolean;
   /** The knowledge base is running. */
   kb: boolean;
+  /** Setup keys the deployment provides via env vars (names only). */
+  fromEnvironment: string[];
 }
 
 /**
