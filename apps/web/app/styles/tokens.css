@@ -1,0 +1,161 @@
+/*
+ * Tino design tokens.
+ *
+ * Direction: "warm ledger" — navy ink on warm paper, an editorial serif for
+ * headings, a sturdy humanist sans for dense UI, amber as the one accent
+ * (complement of the navy). Status colours come from the bot's own palette
+ * (green #6aab7a, warm red #d9826b) and never carry meaning alone: every
+ * status also has a word or a glyph.
+ *
+ * Type scale ≈ ×1.25 from 15px; spacing on a 4px grid.
+ */
+:root {
+  color-scheme: light;
+
+  /* Brand constants */
+  --brand-navy: #141c27;
+  --brand-cream: #f2ebe3;
+  --brand-green: #6aab7a;
+  --brand-red: #d9826b;
+
+  /* Surfaces */
+  --paper: #f7f3ee;
+  --paper-raised: #fffcf8;
+  --paper-sunk: #efe8df;
+  --paper-hover: #ece4d9;
+
+  /* Text */
+  --ink: #141c27;
+  --ink-2: #3b4655;
+  --ink-3: #5f6876;
+  --ink-inverse: #f7f3ee;
+
+  /* Lines */
+  --line: #e3dace;
+  --line-strong: #cbbfb0;
+
+  /* Accent (focus, active markers, highlights) */
+  --accent: #c9772f;
+  --accent-ink: #8f4e14;
+  --accent-wash: #f6e6d3;
+
+  /* Status */
+  --ok: #356c45;
+  --ok-dot: var(--brand-green);
+  --ok-wash: #e2eee3;
+  --warn: #7f5410;
+  --warn-dot: #d7a341;
+  --warn-wash: #f5e8cc;
+  --err: #a2442c;
+  --err-dot: var(--brand-red);
+  --err-wash: #f6e0d7;
+
+  /* Primary action */
+  --primary: var(--brand-navy);
+  --primary-hover: #26344a;
+  --primary-ink: #f7f3ee;
+
+  /* Navigation rail (navy in both themes) */
+  --nav-bg: #141c27;
+  --nav-ink: #f2ebe3;
+  --nav-ink-2: #a8b0bb;
+  --nav-hover: #1d2836;
+  --nav-active: #24314280;
+  --nav-line: #263142;
+
+  /* Type */
+  --font-sans: "IBM Plex Sans", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-serif: "Newsreader Variable", "Newsreader", Georgia, "Times New Roman", serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+
+  --text-xs: 0.75rem; /* 12 */
+  --text-sm: 0.8125rem; /* 13 */
+  --text-base: 0.9375rem; /* 15 */
+  --text-md: 1.0625rem; /* 17 */
+  --text-lg: 1.3125rem; /* 21 */
+  --text-xl: 1.75rem; /* 28 */
+  --text-2xl: clamp(1.875rem, 1.4rem + 1.6vw, 2.5rem); /* 30 → 40 */
+
+  --leading-tight: 1.2;
+  --leading: 1.5;
+
+  /* Space (4px grid) */
+  --s-1: 0.25rem;
+  --s-2: 0.5rem;
+  --s-3: 0.75rem;
+  --s-4: 1rem;
+  --s-5: 1.5rem;
+  --s-6: 2rem;
+  --s-7: 3rem;
+  --s-8: 4rem;
+
+  /* Shape */
+  --radius-sm: 4px;
+  --radius: 6px;
+  --radius-lg: 10px;
+
+  /* Depth: navy-tinted, never pure black */
+  --shadow-1: 0 1px 2px rgb(20 28 39 / 0.06), 0 1px 1px rgb(20 28 39 / 0.04);
+  --shadow-2: 0 6px 24px rgb(20 28 39 / 0.12), 0 2px 6px rgb(20 28 39 / 0.06);
+  --focus-ring: 0 0 0 2px var(--paper), 0 0 0 4px var(--accent);
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --ease-in: cubic-bezier(0.55, 0.06, 0.68, 0.19);
+  --t-fast: 120ms;
+  --t: 200ms;
+
+  /* Layout */
+  --rail-w: 236px;
+  --content-max: 960px;
+  --measure: 68ch;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+
+    --paper: #10161f;
+    --paper-raised: #161e29;
+    --paper-sunk: #0c1118;
+    --paper-hover: #1c2531;
+
+    --ink: #f2ebe3;
+    --ink-2: #cbc3b8;
+    --ink-3: #9aa1aa;
+    --ink-inverse: #141c27;
+
+    --line: #253040;
+    --line-strong: #364253;
+
+    --accent: #e0a45a;
+    --accent-ink: #ebb877;
+    --accent-wash: #33281b;
+
+    --ok: #92caa0;
+    --ok-wash: #1b2b22;
+    --warn: #e8c47c;
+    --warn-wash: #302816;
+    --err: #eba08b;
+    --err-wash: #36211b;
+
+    --primary: #f2ebe3;
+    --primary-hover: #ffffff;
+    --primary-ink: #141c27;
+
+    --nav-bg: #0b1017;
+    --nav-hover: #141c27;
+    --nav-active: #1b2533;
+    --nav-line: #1c2633;
+
+    --shadow-1: 0 1px 2px rgb(0 0 0 / 0.3);
+    --shadow-2: 0 10px 30px rgb(0 0 0 / 0.45), 0 2px 6px rgb(0 0 0 / 0.3);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --t-fast: 0ms;
+    --t: 0ms;
+  }
+}
