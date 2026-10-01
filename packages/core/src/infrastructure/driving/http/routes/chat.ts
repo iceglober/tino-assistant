@@ -29,7 +29,7 @@ export function createChatRoutes(opts: {
     if (!text) return c.json({ error: "empty message" }, 400);
 
     try {
-      const reply = await assistant.handleMessage(user.id, text);
+      const reply = await assistant.handleMessage(user.id, text, { kind: "web_chat" });
       return c.json({ reply });
     } catch (err) {
       logger.error({ err: (err as Error).message, userId: user.id }, "chat request failed");

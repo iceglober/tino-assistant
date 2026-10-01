@@ -10,6 +10,7 @@ import type {
   IdentityProvider,
   TinoUser,
 } from "../domain/types.js";
+import type { Readers, WhoCanSee } from "../domain/who-can-see.js";
 
 // ── Opaque handles ────────────────────────────────────────────────────────────
 
@@ -47,20 +48,82 @@ export interface ChatModel {
     userText: string;
     tools: Tools;
   }): Promise<{ text: string; newMessages: ConversationMessage[] }>;
+  /**
+   * Who wrote a message and its plain text, without exposing the SDK shape.
+   * `text` is null for messages with nothing a person would read (tool calls
+   * and results).
+   */
+  describe(message: ConversationMessage): { role: "user" | "assistant" | "tool" | "system"; text: string | null };
 }
 
-/** Builds the toolset for a given user and names the tools inside a handle. */
+/** What a reply is being built for — enough for the provider to pick safe tools. */
+export interface ToolRequest {
+  /** The person asking. Their credentials are the ones used. */
+  userId: string;
+  readers: Readers;
+  /** The channel tino was @mentioned in, if any. */
+  askedInChannelId?: string;
+  /** Offered only when others will read the reply: hand the private part to the asker's DM. */
+  continueInDm?: () => void;
+}
+
+/**
+ * Builds the toolset for one reply: every tool group whose results the readers
+ * may see, and nothing else. Also reports who may see a reply built from them
+ * (null when no tool group contributed anything).
+ */
 export interface ToolProvider {
-  forUser(userId: string): Promise<Tools>;
+  toolsFor(request: ToolRequest): Promise<{ tools: Tools; whoCanSeeResults: WhoCanSee | null }>;
   names(tools: Tools): string[];
 }
 
-// ── Conversation history ──────────────────────────────────────────────────────
+// ── Conversation log ──────────────────────────────────────────────────────────
 
-export interface HistoryStore {
-  get(userId: string): Promise<ConversationMessage[]>;
-  append(userId: string, msgs: ConversationMessage[]): Promise<void>;
-  reset(userId: string): Promise<void>;
+/** Where a message was asked. */
+export type AskedWhere = "slack_dm" | "web_chat" | "channel";
+
+/** One stored message. Every message of one reply shares a `turnId` and `whoCanSee`. */
+export interface LoggedMessage {
+  /** 'direct:<userId>' for DMs + web chat, 'channel:<channelId>:<threadTs>' for threads. */
+  threadKey: string;
+  turnId: string;
+  askedBy: string;
+  askedWhere: AskedWhere;
+  whoCanSee: WhoCanSee;
+  role: "user" | "assistant" | "tool" | "system";
+  /** Plain text for recall elsewhere; null for tool traffic. */
+  text: string | null;
+  message: ConversationMessage;
+  createdAt: number;
+}
+
+/**
+ * Every conversation tino has had, labelled with who may see each message.
+ * Replaces the per-user history blob so a reply can draw on any conversation
+ * its readers are allowed to see, not just the one it's in.
+ */
+export interface ConversationLog {
+  append(messages: LoggedMessage[]): Promise<void>;
+  /** The latest `limit` messages of a thread, oldest first. */
+  recentInThread(threadKey: string, limit: number): Promise<LoggedMessage[]>;
+  /** The latest `limit` messages from turns this user asked, anywhere, oldest first. */
+  recentAskedBy(userId: string, limit: number): Promise<LoggedMessage[]>;
+  clearThread(threadKey: string): Promise<void>;
+}
+
+// ── Slack channel facts + sending ─────────────────────────────────────────────
+
+/** What tino needs to know about Slack channels to decide who reads a reply. */
+export interface ChannelDirectory {
+  /** Null when the channel can't be looked up — callers must then assume the worst. */
+  describeChannel(channelId: string): Promise<{ includesOutsiders: boolean } | null>;
+  /** Channels this Slack user is a member of (that the bot can see). */
+  channelsOfSlackUser(slackUserId: string): Promise<ReadonlySet<string>>;
+}
+
+/** Sends a private message to one tino user (a Slack DM). */
+export interface DirectMessenger {
+  sendToUser(userId: string, text: string): Promise<void>;
 }
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -106,7 +169,7 @@ export interface IdentityResolver {
   resolveGoogle(email: string): Promise<string | null>;
   provisionFromSlack(
     slackUserId: string,
-    opts: { mode: "org-domain"; orgDomain?: string },
+    opts: { mode: "allowlist" | "org-domain"; orgDomain?: string },
   ): Promise<TinoUser>;
 }
 

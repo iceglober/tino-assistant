@@ -2,8 +2,8 @@
  * Tiny fetch-based API client for the console.
  *
  * Everything is gated by the server's auth middleware; a 401 means "no session"
- * and the SPA falls back to <Login>. Only the burned-down surface remains:
- * config (Slack/Azure/Google keys), session, hot-reload, and the chat box.
+ * and the SPA falls back to <Login>. Config, users, and hot-reload are
+ * admin-only; status, chat, knowledge, and MCP servers work for everyone.
  */
 
 export interface ConfigEntry {
@@ -44,6 +44,102 @@ export async function putConfig(key: string, value: unknown): Promise<{ ok: true
   });
   return unwrap(r);
 }
+
+// ── Status (any signed-in user) ─────────────────────────────────────────────
+
+export interface SetupStatus {
+  slack: boolean;
+  model: boolean;
+  slackConnect: boolean;
+  googleConnect: boolean;
+  kb: boolean;
+}
+
+export async function getStatus(): Promise<SetupStatus> {
+  const r = await fetch("/api/status", { credentials: "include" });
+  return unwrap<SetupStatus>(r);
+}
+
+async function send<T>(method: string, url: string, body?: unknown): Promise<T> {
+  const r = await fetch(url, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (r.status === 401) throw new UnauthorizedError();
+  const data = (await r.json().catch(() => ({}))) as T & { error?: string };
+  if (!r.ok) throw new Error(data.error ?? `${r.status} ${r.statusText}`);
+  return data;
+}
+
+// ── Users (admin) ───────────────────────────────────────────────────────────
+
+export interface ManagedUser {
+  id: string;
+  email: string;
+  name: string | null;
+  role: "admin" | "member";
+  status: "active" | "invited" | "suspended";
+  slackLinked: boolean;
+  connections: string[];
+  createdAt: string;
+}
+
+export interface AccessPolicy {
+  mode: "org-domain" | "invite-only";
+  domain: string | null;
+}
+
+export const listUsers = (): Promise<{ items: ManagedUser[] }> => send("GET", "/api/users");
+export const inviteUser = (email: string, role: "admin" | "member"): Promise<ManagedUser> =>
+  send("POST", "/api/users", { email, role });
+export const updateUser = (
+  id: string,
+  patch: { role?: "admin" | "member"; status?: "active" | "suspended" },
+): Promise<ManagedUser> => send("PATCH", `/api/users/${encodeURIComponent(id)}`, patch);
+export const getAccessPolicy = (): Promise<AccessPolicy> => send("GET", "/api/users/access");
+export const setAccessPolicy = (policy: { mode: AccessPolicy["mode"]; domain?: string }): Promise<AccessPolicy> =>
+  send("PUT", "/api/users/access", policy);
+
+// ── MCP servers ─────────────────────────────────────────────────────────────
+
+export type McpScope = "workspace" | "personal";
+export type McpAuthKind = "none" | "bearer" | "header";
+
+export interface McpServer {
+  id: string;
+  scope: McpScope;
+  name: string;
+  url: string;
+  transport: "http" | "sse";
+  auth: { kind: McpAuthKind; headerName?: string };
+  enabled: boolean;
+  /** Workspace servers only: may everyone see results (usable in channels) or only the asker. */
+  resultsVisibleTo: "asker" | "workspace";
+  hasToken: boolean;
+}
+
+export interface McpServerInput {
+  name?: string;
+  url?: string;
+  transport?: "http" | "sse";
+  auth?: { kind: McpAuthKind; headerName?: string };
+  /** Omit to keep the stored token; "" clears it. */
+  token?: string;
+  enabled?: boolean;
+  resultsVisibleTo?: "asker" | "workspace";
+}
+
+export const listMcpServers = (): Promise<{ canManageWorkspace: boolean; workspace: McpServer[]; personal: McpServer[] }> =>
+  send("GET", "/api/mcp/servers");
+export const saveMcpServer = (scope: McpScope, id: string, input: McpServerInput): Promise<McpServer> =>
+  send("PUT", `/api/mcp/servers/${scope}/${encodeURIComponent(id)}`, input);
+export const deleteMcpServer = (scope: McpScope, id: string): Promise<{ ok: boolean }> =>
+  send("DELETE", `/api/mcp/servers/${scope}/${encodeURIComponent(id)}`);
+export const testMcpServer = (
+  input: McpServerInput & { id?: string; scope: McpScope },
+): Promise<{ ok: boolean; tools?: string[]; error?: string }> => send("POST", "/api/mcp/test", input);
 
 // ── Session ─────────────────────────────────────────────────────────────────
 
@@ -119,6 +215,16 @@ export async function reloadSlack(): Promise<ReloadResult> {
     return (await r.json()) as ReloadResult;
   } catch (err) {
     if (err instanceof UnauthorizedError) throw err;
+    return { ok: false, error: (err as Error).message };
+  }
+}
+
+/** Rebuild console auth so a newly saved Google OAuth client takes effect. */
+export async function reloadAuth(): Promise<ReloadResult> {
+  try {
+    const r = await fetch("/api/reload/auth", { method: "POST", credentials: "include" });
+    return (await r.json()) as ReloadResult;
+  } catch (err) {
     return { ok: false, error: (err as Error).message };
   }
 }

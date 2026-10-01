@@ -90,7 +90,7 @@ export function createSlackApp(opts: CreateSlackAppOpts): App {
       const placeholderTs = (placeholder as { ts?: string })?.ts;
 
       const start = Date.now();
-      const formatted = toSlackMrkdwn(await assistant.handleMessage(userId, m.text));
+      const formatted = toSlackMrkdwn(await assistant.handleMessage(userId, m.text, { kind: "slack_dm" }));
 
       if (placeholderTs && m.channel) {
         await app.client.chat.update({ channel: m.channel, ts: placeholderTs, text: formatted });
@@ -113,32 +113,48 @@ export function createSlackApp(opts: CreateSlackAppOpts): App {
     if (!event.user || !event.text) return;
 
     const text = event.text.replace(/<@[A-Z0-9]+>/g, "").trim();
+    // Reply to the thread's parent: a reply's own ts is not a valid thread_ts.
+    const threadTs = event.thread_ts ?? event.ts;
     if (!text) {
-      await say({ text: "hey — what can I help with?", thread_ts: event.ts });
+      await say({ text: "hey — what can I help with?", thread_ts: threadTs });
       return;
     }
 
     const res = await senderResolver.resolveSlack(event.user);
     if (!res.ok) {
-      await say({ text: res.message, thread_ts: event.ts });
+      await say({ text: res.message, thread_ts: threadTs });
       return;
     }
     const userId = res.userId;
 
     try {
       logger.info({ user: event.user, tinoUserId: userId, channel: event.channel, textLen: text.length }, "channel mention received");
-      const placeholder = await say({ text: "thinking...", thread_ts: event.ts });
+      const placeholder = await say({ text: "thinking...", thread_ts: threadTs });
       const placeholderTs = (placeholder as { ts?: string })?.ts;
 
-      const contextPrefix = await buildMentionContext(app, event, logger);
+      const [recentChannelMessages, permalink] = await Promise.all([
+        buildMentionContext(app, event, logger),
+        app.client.chat
+          .getPermalink({ channel: event.channel, message_ts: event.ts })
+          .then((r) => r.permalink)
+          .catch(() => undefined),
+      ]);
 
       const start = Date.now();
-      const formatted = toSlackMrkdwn(await assistant.handleMessage(userId, contextPrefix + text));
+      const formatted = toSlackMrkdwn(
+        await assistant.handleMessage(userId, text, {
+          kind: "channel",
+          channelId: event.channel,
+          threadTs,
+          recentChannelMessages,
+          permalink,
+        }),
+      );
 
       if (placeholderTs) {
         await app.client.chat.update({ channel: event.channel, ts: placeholderTs, text: formatted });
       } else {
-        await say({ text: formatted, thread_ts: event.ts });
+        await say({ text: formatted, thread_ts: threadTs });
       }
       logger.info(
         { user: event.user, tinoUserId: userId, channel: event.channel, replyLen: formatted.length, durationMs: Date.now() - start },
@@ -146,7 +162,7 @@ export function createSlackApp(opts: CreateSlackAppOpts): App {
       );
     } catch (err) {
       logger.error({ err }, "channel mention handler threw");
-      await say({ text: "something went wrong — check the logs.", thread_ts: event.ts });
+      await say({ text: "something went wrong — check the logs.", thread_ts: threadTs });
     }
   });
 
@@ -179,7 +195,7 @@ async function buildMentionContext(
       return (
         "[You were @mentioned in a Slack channel. Below are the most recent messages from the conversation for context. " +
         'When the user says "this" or references something discussed, use this context to understand what they mean. ' +
-        "If you need more context, use your Slack tools (slack_read_channel, slack_read_channel_thread) and any other tools (gmail, calendar) that would help. " +
+        "If you need more context, use slack_read_this_channel / slack_read_this_thread and any other tools you have. " +
         PRIVACY_RULE +
         "\n\n" +
         lines.join("\n") +

@@ -1,17 +1,10 @@
 import { z } from "zod";
 
 /**
- * Bootstrap-only environment schema.
- *
- * Philosophy: Only the minimum required to start the process lives here.
- * - Persistence config tells the process where to store data.
- * - All credentials (Slack tokens, GitHub PAT, Google OAuth, Linear token,
- *   etc.) live in the DynamoDB config store and are read at startup.
- *   Use the web console at localhost:3001 to manage credentials.
- *
- * On first startup, if the old env vars (SLACK_BOT_TOKEN, GITHUB_TOKEN, etc.)
- * are still set, they are auto-migrated to the config store and can then be
- * removed from .env.
+ * Bootstrap-only environment schema: where to store data and how to serve.
+ * Everything else (Slack tokens, model keys, Google OAuth client) is set in the
+ * console Setup screen and lives in the config store; the few env vars that
+ * remain as fallbacks are listed at the bottom.
  */
 const EnvSchema = z.object({
   // Persistence adapter selection. Default: 'sqlite' (local dev).
@@ -29,7 +22,7 @@ const EnvSchema = z.object({
   // better-auth sqlite file path (sqlite adapter only). Default: /tmp/tino-auth.db.
   AUTH_DB_PATH: z.string().min(1).optional(),
 
-  // HTTP port for the console server. Default: 3001. Cloud Run sets PORT.
+  // HTTP port for the console server. Default: 3001 locally; the Helm chart sets 8080.
   PORT: z.coerce.number().int().positive().optional(),
 
   LOG_LEVEL: z.enum(["trace", "debug", "info", "warn", "error", "fatal"]).default("info"),
@@ -41,23 +34,11 @@ const EnvSchema = z.object({
   // WARNING: Changing this key invalidates all existing encrypted payloads.
   LOCAL_DEV_CRYPTO_KEY: z.string().min(1).optional(),
 
-  // ── Legacy migration vars (optional) ──────────────────────────────────────
-  // These are read during the one-time migration from env vars to the config
-  // store. After migration, they can be removed from .env.
-  // They are kept here so loadEnv() doesn't throw on first startup.
+  // Fallbacks for config-store values (the config store wins when both are set).
   SLACK_BOT_TOKEN: z.string().min(1).optional(),
   SLACK_APP_TOKEN: z.string().min(1).optional(),
-  ALLOWED_SLACK_USER_ID: z.string().min(1).optional(),
-  GITHUB_TOKEN: z.string().min(1).optional(),
-  GITHUB_DEFAULT_REPO: z
-    .string()
-    .regex(/^[^/\s]+\/[^/\s]+$/, 'GITHUB_DEFAULT_REPO must be in "owner/repo" format')
-    .optional(),
   GOOGLE_OAUTH_CLIENT_ID: z.string().min(1).optional(),
   GOOGLE_OAUTH_CLIENT_SECRET: z.string().min(1).optional(),
-  GOOGLE_OAUTH_REFRESH_TOKEN: z.string().min(1).optional(),
-  SLACK_USER_TOKEN: z.string().min(1).optional(),
-  LINEAR_DEVELOPER_TOKEN: z.string().min(1).optional(),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

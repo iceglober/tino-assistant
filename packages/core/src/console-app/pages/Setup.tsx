@@ -2,11 +2,11 @@ import { type JSX, useEffect, useState } from "react";
 import { RevealInput } from "../components/RevealInput.js";
 import { SaveButton, useSaveState } from "../components/SaveButton.js";
 import { useToast } from "../hooks/useToast.js";
-import { getConfig, putConfig, reloadSlack } from "../lib/api.js";
+import { getConfig, putConfig, reloadAuth, reloadSlack } from "../lib/api.js";
 
 /**
- * One-screen setup: Slack tokens, the model provider + model, and (optionally)
- * Google OAuth. Writes the exact config keys the backend reads, then hot-reloads
+ * One-screen setup (admins only): Slack tokens, the model provider + model, and
+ * (optionally) the Google OAuth client used for sign-in and Gmail/Calendar. Writes the exact config keys the backend reads, then hot-reloads
  * Slack (which also rebuilds the model) so edits take effect without a restart.
  */
 
@@ -43,11 +43,10 @@ const PROVIDERS: Record<string, { label: string; note?: string; fields: Provider
       { key: "anthropic.model", label: "Model", placeholder: "claude-sonnet-4-5" },
     ],
   },
-  // Bedrock intentionally not offered: it authenticates via an AWS IAM role,
-  // which doesn't exist on the GCP deployment. The registry code still
-  // understands `model.provider=bedrock` if set manually with AWS env creds.
 };
 const PROVIDER_IDS = Object.keys(PROVIDERS);
+/** Mirrors CHANNEL_MENTION_POLICY_KEY in domain/types.ts. */
+const MENTIONS_KEY = "slack.channelMentions";
 
 const SLACK_FIELDS: ProviderField[] = [
   { key: "slack.botToken", label: "Bot Token", secret: true, placeholder: "xoxb-…", hint: "Slack → your app → OAuth & Permissions → Bot User OAuth Token" },
@@ -56,7 +55,7 @@ const SLACK_FIELDS: ProviderField[] = [
   { key: "slack.clientSecret", label: "OAuth Client Secret", secret: true, optional: true },
 ];
 const GOOGLE_FIELDS: ProviderField[] = [
-  { key: "google.oauth.clientId", label: "OAuth Client ID", placeholder: "…apps.googleusercontent.com", hint: "Needed so you can connect Gmail + Calendar from the chat.", optional: true },
+  { key: "google.oauth.clientId", label: "OAuth Client ID", placeholder: "…apps.googleusercontent.com", hint: "Enables Google sign-in to this console and lets people connect Gmail + Calendar. Redirect URIs: <your-url>/api/auth/callback/google and <your-url>/api/oauth/google/callback.", optional: true },
   { key: "google.oauth.clientSecret", label: "OAuth Client Secret", secret: true, optional: true },
 ];
 
@@ -114,6 +113,7 @@ export function Setup({ onComplete }: { onComplete: () => void }): JSX.Element {
       for (const f of SLACK_FIELDS) {
         if (val(f.key).trim()) await putConfig(f.key, val(f.key).trim());
       }
+      await putConfig(MENTIONS_KEY, val(MENTIONS_KEY) === "asker" ? "asker" : "workspace");
       await putConfig("model.provider", provider);
       for (const f of PROVIDERS[provider].fields) {
         if (val(f.key).trim()) await putConfig(f.key, val(f.key).trim());
@@ -129,6 +129,10 @@ export function Setup({ onComplete }: { onComplete: () => void }): JSX.Element {
     }
     const reload = await reloadSlack();
     if (!reload.ok) toast.show(`Saved, but Slack connect failed: ${reload.error ?? "unknown"}`, "err");
+    if (GOOGLE_FIELDS.some((f) => val(f.key).trim())) {
+      const auth = await reloadAuth();
+      if (!auth.ok) toast.show(`Saved, but Google sign-in reload failed: ${auth.error ?? "unknown"}`, "err");
+    }
     setTimeout(() => onComplete(), 600);
   };
 
@@ -185,6 +189,26 @@ export function Setup({ onComplete }: { onComplete: () => void }): JSX.Element {
         <h2 className="setup-section">Slack</h2>
         {SLACK_FIELDS.map(renderField)}
 
+        <div className="field-group">
+          <label className="field-label" htmlFor="channel-mentions">
+            When @mentioned in a channel, tino may use
+          </label>
+          <select
+            id="channel-mentions"
+            className="field-input"
+            value={val(MENTIONS_KEY) === "asker" ? "asker" : "workspace"}
+            onChange={(e) => setVal(MENTIONS_KEY, e.target.value)}
+          >
+            <option value="workspace">only what the channel can see (recommended)</option>
+            <option value="asker">the asker's private context too</option>
+          </select>
+          <div className="field-hint">
+            {val(MENTIONS_KEY) === "asker"
+              ? "Channel replies can draw on the asker's email, calendar, DMs, private knowledge, personal MCP servers, and private conversations. Only an instruction to the model keeps private details out of a reply the whole channel reads — and anyone in the channel can post text that tries to override it."
+              : "Channel replies use only what everyone in the channel may see: public channels, the channel itself, the workspace knowledge base, and workspace MCP servers marked as shareable. In channels with people from outside the company, only the channel itself. For anything private, tino answers in the asker's DM."}
+          </div>
+        </div>
+
         <h2 className="setup-section">Model</h2>
         <div className="field-group">
           <label className="field-label" htmlFor="model-provider">
@@ -209,7 +233,7 @@ export function Setup({ onComplete }: { onComplete: () => void }): JSX.Element {
         </div>
         {PROVIDERS[provider].fields.map(renderField)}
 
-        <h2 className="setup-section">Google (optional)</h2>
+        <h2 className="setup-section">Google sign-in + Gmail (optional)</h2>
         {GOOGLE_FIELDS.map(renderField)}
 
         <div className="btn-row">

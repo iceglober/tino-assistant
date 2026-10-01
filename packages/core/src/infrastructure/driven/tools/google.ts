@@ -4,20 +4,19 @@
  */
 import type { ToolSet } from "ai";
 import { google } from "googleapis";
-import type { ConfigStore, Logger, UserCapabilityStore } from "../../../ports/outbound.js";
+import type { Logger, UserCapabilityStore } from "../../../ports/outbound.js";
 import { readUserCredentials } from "./credentials.js";
 import { calendarListEventsTool } from "./google/calendar.js";
 import { gmailGetMessageTool, gmailSearchTool } from "./google/gmail.js";
 
 export async function buildGoogleTools(
   userId: string,
-  configStore: ConfigStore,
   userCapabilities: UserCapabilityStore,
   logger: Logger,
 ): Promise<ToolSet> {
   const cfg =
-    (await readUserCredentials(userId, "gmail", configStore, userCapabilities)) ??
-    (await readUserCredentials(userId, "calendar", configStore, userCapabilities));
+    (await readUserCredentials(userId, "gmail", userCapabilities)) ??
+    (await readUserCredentials(userId, "calendar", userCapabilities));
   const creds = cfg?.credentials;
   if (!creds?.clientId || !creds?.clientSecret || !creds?.refreshToken) return {};
 

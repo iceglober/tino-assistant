@@ -1,11 +1,13 @@
 import { Hono } from "hono";
 import type { ConfigStore } from "../../../../ports/outbound.js";
 import type { Logger } from "../../../../ports/outbound.js";
-import type { AuthVariables } from "../auth.js";
+import { type AuthVariables, requireAdmin } from "../auth.js";
 
 /**
  * /api/config — list, set, delete config entries (Slack/Azure/Google keys).
- * Auth-gated by the top-level middleware; the signed-in user owns the deployment.
+ * Admin-only: these entries include every deployment secret (Slack tokens,
+ * model keys, the Google OAuth client). Members read what they need from
+ * /api/status instead.
  */
 export function createConfigRoutes(opts: {
   config: ConfigStore;
@@ -14,10 +16,7 @@ export function createConfigRoutes(opts: {
   const app = new Hono<{ Variables: AuthVariables }>();
   const { config, logger } = opts;
 
-  app.use("*", async (c, next) => {
-    if (!c.get("user")) return c.json({ error: "unauthorized" }, 401);
-    await next();
-  });
+  app.use("*", requireAdmin);
 
   app.get("/", async (c) => {
     const entries = await config.list();

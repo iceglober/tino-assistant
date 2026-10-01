@@ -42,10 +42,6 @@ export function createIdentityResolver(opts: IdentityResolverOpts): IdentityReso
         if (existing) return existing;
       }
 
-      if (provisionOpts.mode === "allowlist") {
-        throw new Error("unknown_user");
-      }
-
       const resp = await slackClient.users.info({ user: slackUserId });
       const email = resp.user?.profile?.email;
       if (!email) {
@@ -82,6 +78,11 @@ export function createIdentityResolver(opts: IdentityResolverOpts): IdentityReso
         const merged = await users.update(existingGoogleId, { slackUserId });
         logger.info({ tinoUserId: existingGoogleId, mergedProvider: "slack" }, "merged identity into existing user");
         return merged;
+      }
+
+      // Invite-only: existing (invited) users link above; nobody new is created.
+      if (provisionOpts.mode === "allowlist") {
+        throw new Error("unknown_user");
       }
 
       // New user — domain check gates account creation

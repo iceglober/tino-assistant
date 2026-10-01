@@ -43,7 +43,7 @@ export function createGmailKbSource(deps: GmailSourceDeps) {
   const backfillDays = deps.backfillDays ?? 90;
 
   return async (principal: KbPrincipal, backfillDone: boolean): Promise<KbRunResult> => {
-    const cap = await readUserCredentials(principal.userId, "gmail", config, userCapabilities);
+    const cap = await readUserCredentials(principal.userId, "gmail", userCapabilities);
     const creds = cap?.credentials;
     if (!creds?.clientId || !creds?.clientSecret || !creds?.refreshToken) {
       throw new KbAuthError("no gmail credentials");

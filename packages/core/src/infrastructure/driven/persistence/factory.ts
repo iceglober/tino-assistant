@@ -2,7 +2,7 @@ import type { Env } from "../../../env.js";
 import type {
   ConfigStore,
   CryptoAdapter,
-  HistoryStore,
+  ConversationLog,
   IdentityStore,
   Logger,
   UserCapabilityStore,
@@ -10,8 +10,8 @@ import type {
 } from "../../../ports/outbound.js";
 
 export interface Persistence {
-  /** Conversation history (per user, cap 40). */
-  history: HistoryStore;
+  /** Every conversation, one labelled row per message. */
+  conversations: ConversationLog;
   /** Config KV — Slack/model/Google keys + per-user creds fallback. */
   config: ConfigStore;
   /** Per-user record store. */
@@ -50,7 +50,7 @@ export async function createPersistence(
   }
 
   const dbPath = env.DB_PATH ?? "./tino.db";
-  const { createSqliteHistoryStore } = await import("./sqlite-history.js");
+  const { createSqliteConversationLog } = await import("./sqlite-conversation-log.js");
   const { createConfigStore } = await import("./config.js");
   const { createSqliteUserStore, createSqliteIdentityStore } = await import("../identity/store.js");
   const { createSqliteUserCapabilityStore } = await import("./user-capabilities.js");
@@ -60,7 +60,7 @@ export async function createPersistence(
     throw new Error("CryptoAdapter is required for SQLite persistence layer");
   }
 
-  const history = createSqliteHistoryStore({ dbPath, cap: 40 });
+  const conversations = createSqliteConversationLog({ dbPath, logger });
   const config = createConfigStore({ dbPath });
   const users = createSqliteUserStore({ dbPath });
   const identities = createSqliteIdentityStore({ dbPath });
@@ -86,5 +86,5 @@ export async function createPersistence(
   };
 
   logger.info({ adapter: "sqlite", dbPath, authDbPath }, "persistence initialized");
-  return { history, config, users, identities, userCapabilities, authDatabase, getGoogleRefreshToken };
+  return { conversations, config, users, identities, userCapabilities, authDatabase, getGoogleRefreshToken };
 }

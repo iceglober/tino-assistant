@@ -26,11 +26,6 @@ const makeDeps = (overrides: Partial<SenderDeps> = {}): SenderDeps => ({
     list: vi.fn().mockResolvedValue([]),
     update: vi.fn(),
   },
-  identities: {
-    resolve: vi.fn().mockResolvedValue(null),
-    link: vi.fn(),
-    listForUser: vi.fn().mockResolvedValue([]),
-  },
   config: {
     get: vi.fn().mockResolvedValue(null),
     set: vi.fn(),
@@ -79,9 +74,30 @@ describe("createSenderResolver.resolveSlack", () => {
   it("unknown user in allowlist mode is rejected", async () => {
     const deps = makeDeps();
     fn(deps.config.get).mockResolvedValue(null);
+    fn(deps.users.list).mockResolvedValue([makeUser()]);
 
     const result = await createSenderResolver(deps).resolveSlack("U_STRANGER");
-    expect(result).toEqual({ ok: false, message: "i don't recognize you. ask your admin to add you to tino." });
+    expect(result).toEqual({ ok: false, message: "i don't recognize you. ask your admin to invite you to tino." });
+    expect(deps.resolver.provisionFromSlack).toHaveBeenCalledWith("U_STRANGER", { mode: "allowlist" });
+  });
+
+  it("invited user in allowlist mode is linked by Slack email and activated", async () => {
+    const deps = makeDeps();
+    fn(deps.config.get).mockResolvedValue(null);
+    fn(deps.resolver.provisionFromSlack).mockResolvedValue(makeUser({ id: "invited-uuid", status: "invited" }));
+
+    const result = await createSenderResolver(deps).resolveSlack("U_INVITED");
+    expect(result).toEqual({ ok: true, userId: "invited-uuid" });
+    expect(deps.users.update).toHaveBeenCalledWith("invited-uuid", { status: "active" });
+  });
+
+  it("a suspended account found by Slack email is still rejected", async () => {
+    const deps = makeDeps();
+    fn(deps.config.get).mockResolvedValue(null);
+    fn(deps.resolver.provisionFromSlack).mockResolvedValue(makeUser({ status: "suspended" }));
+
+    const result = await createSenderResolver(deps).resolveSlack("U_NEWID");
+    expect(result.ok).toBe(false);
   });
 
   it("unknown user in org-domain mode with matching email auto-provisions", async () => {
@@ -98,17 +114,17 @@ describe("createSenderResolver.resolveSlack", () => {
     expect(deps.resolver.provisionFromSlack).toHaveBeenCalledWith("U_NEWBIE", { mode: "org-domain", orgDomain: "acme.io" });
   });
 
-  it("bootstrap: links a lone unlinked active user when provisioning fails", async () => {
+  it("never links an unverified sender to the lone account without a Slack link", async () => {
     const deps = makeDeps();
     fn(deps.config.get).mockImplementation(async (key: string) =>
       key === "org.accessControl.mode" ? JSON.stringify("org-domain") : key === "org.accessControl.orgDomain" ? JSON.stringify("acme.io") : null,
     );
-    fn(deps.resolver.provisionFromSlack).mockRejectedValue(new Error("unknown_user"));
+    fn(deps.resolver.provisionFromSlack).mockRejectedValue(new Error("domain_mismatch"));
     fn(deps.users.list).mockResolvedValue([makeUser({ id: "sole", slackUserId: null })]);
 
-    const result = await createSenderResolver(deps).resolveSlack("U_ADMIN");
-    expect(result).toEqual({ ok: true, userId: "sole" });
-    expect(deps.identities.link).toHaveBeenCalledWith(expect.objectContaining({ provider: "slack", tinoUserId: "sole" }));
+    const result = await createSenderResolver(deps).resolveSlack("U_STRANGER");
+    expect(result.ok).toBe(false);
+    expect(deps.users.update).not.toHaveBeenCalled();
   });
 
   it("zero users — rejects with the setup-needed message", async () => {
@@ -134,7 +150,8 @@ describe("createSenderResolver.resolveSlack", () => {
     const result = await createSenderResolver(deps).resolveSlack("U_OUTSIDER");
     expect(result).toEqual({
       ok: false,
-      message: "i couldn't verify your identity. try signing in at the tino console to connect your Slack account.",
+      message:
+        "i couldn't match your Slack account to anyone allowed to use tino. ask your admin to invite your Slack email.",
     });
   });
 });

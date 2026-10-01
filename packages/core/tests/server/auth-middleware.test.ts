@@ -208,9 +208,37 @@ describe("auth middleware — tino-UUID resolution (wave 3 a6)", () => {
     expect(body.message).toBe("your access has been revoked");
   });
 
-  it("unknown user with no org-domain returns 403", async () => {
+  it("fresh install with no domain: the first person to sign in becomes admin", async () => {
     const identities = makeIdentities({});
     const users = makeUsers([]);
+    const app = buildApp(stubAuth({ user: { id: "ba-id", email: "founder@acme.io", name: "F" } }), {
+      identities,
+      users,
+      configStore: makeConfigStore({}),
+    });
+
+    const res = await app.request("/api/user-info");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as AuthVariables["user"];
+    expect(body.role).toBe("admin");
+  });
+
+  it("invited user is activated when they first sign in", async () => {
+    const invited: TinoUser = { ...memberUser, id: "tino-uuid-inv", email: "inv@acme.io", status: "invited" };
+    const identities = makeIdentities({ "inv@acme.io": "tino-uuid-inv" });
+    const users = makeUsers([invited]);
+    (users.update as ReturnType<typeof vi.fn>).mockResolvedValue({ ...invited, status: "active" });
+    const app = buildApp(stubAuth({ user: { id: "ba-id", email: "inv@acme.io", name: "Inv" } }), { identities, users });
+
+    const res = await app.request("/api/user-info");
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as AuthVariables["user"]).status).toBe("active");
+    expect(users.update).toHaveBeenCalledWith("tino-uuid-inv", expect.objectContaining({ status: "active" }));
+  });
+
+  it("unknown user with no org-domain returns 403 once someone has set tino up", async () => {
+    const identities = makeIdentities({});
+    const users = makeUsers([adminUser]);
     const configStore = makeConfigStore({});
     const app = buildApp(stubAuth({ user: { id: "ba-id", email: "stranger@other.io", name: "X" } }), {
       identities,

@@ -6,6 +6,7 @@
  */
 import { generateText, type LanguageModel, type ModelMessage, stepCountIs, type ToolSet } from "ai";
 import type { ChatModel } from "../../../ports/outbound.js";
+import { describeModelMessage } from "./describe-message.js";
 
 export function toChatModel(model: LanguageModel): ChatModel {
   return {
@@ -23,5 +24,7 @@ export function toChatModel(model: LanguageModel): ChatModel {
 
       return { text: result.text, newMessages: [userMsg, ...result.response.messages] };
     },
+
+    describe: describeModelMessage,
   };
 }

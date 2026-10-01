@@ -92,7 +92,7 @@ export function createSlackKbSource(deps: SlackSourceDeps, mode: "workspace" | "
     if (mode === "workspace") {
       token = parseJson(await config.get("slack.botToken"));
     } else {
-      const cap = await readUserCredentials(principal.userId, "slack", config, userCapabilities);
+      const cap = await readUserCredentials(principal.userId, "slack", userCapabilities);
       token = cap?.credentials?.userToken;
     }
     if (!token) throw new KbAuthError(`no slack token for ${mode} principal`);

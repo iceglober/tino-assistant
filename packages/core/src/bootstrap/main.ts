@@ -13,16 +13,21 @@ import { ensureKbSchema } from "../infrastructure/driven/kb/schema.js";
 import { createGmailKbSource } from "../infrastructure/driven/kb/sources/gmail.js";
 import { createSlackKbSource } from "../infrastructure/driven/kb/sources/slack.js";
 import { createVertexEmbedder } from "../infrastructure/driven/kb/vertex-embedder.js";
-import { buildKbTools } from "../infrastructure/driven/tools/kb.js";
+import { buildMyKnowledgeTools, buildWorkspaceKnowledgeTools } from "../infrastructure/driven/tools/kb.js";
 import { buildLanguageModel, resolveModelConfig } from "../infrastructure/driven/model/index.js";
 import { toChatModel } from "../infrastructure/driven/model/chat-model.js";
 import { createCryptoAdapter } from "../infrastructure/driven/crypto/factory.js";
 import { createIdentityResolver } from "../infrastructure/driven/identity/resolver.js";
+import { createMcpClientPool } from "../infrastructure/driven/mcp/client-pool.js";
+import { createMcpServerStore } from "../infrastructure/driven/mcp/store.js";
 import { createPersistence } from "../infrastructure/driven/persistence/factory.js";
 import { buildGoogleTools } from "../infrastructure/driven/tools/google.js";
-import { buildSlackTools } from "../infrastructure/driven/tools/slack.js";
+import { mcpToolGroups } from "../infrastructure/driven/tools/mcp.js";
+import { buildSlackTools, type SlackChannelTools } from "../infrastructure/driven/tools/slack.js";
 import { buildSlackUserTools } from "../infrastructure/driven/tools/slack-user.js";
 import { createToolProvider } from "../infrastructure/driven/tools/provider.js";
+import { createSlackChannelDirectory, type SlackDirectoryClient } from "../infrastructure/driven/slack/channel-directory.js";
+import { toSlackMrkdwn } from "../infrastructure/driving/slack/mrkdwn.js";
 import { createSlackApp } from "../infrastructure/driving/slack/slack.js";
 import type { KbRoutesDeps } from "../infrastructure/driving/http/routes/kb.js";
 import { startServer } from "../infrastructure/driving/http/server.js";
@@ -30,7 +35,7 @@ import { createConnectTokens } from "../infrastructure/security/connect-token.js
 import { createLogger } from "../logging.js";
 import type { LanguageModel } from "ai";
 import type { Assistant, SenderResolver } from "../ports/inbound.js";
-import type { ChatModel, KnowledgeExtractor } from "../ports/outbound.js";
+import type { ChannelDirectory, ChatModel, DirectMessenger, KnowledgeExtractor } from "../ports/outbound.js";
 
 const env = loadEnv();
 const logger = createLogger(env);
@@ -38,7 +43,7 @@ const logger = createLogger(env);
 // Crypto adapter — encrypts per-user Google credentials in the capability store.
 const cryptoAdapter = await createCryptoAdapter(env);
 
-const { history, config, users, identities, userCapabilities, authDatabase, getGoogleRefreshToken, pgPool } =
+const { conversations, config, users, identities, userCapabilities, authDatabase, getGoogleRefreshToken, pgPool } =
   await createPersistence(env, logger, cryptoAdapter);
 
 const port = env.PORT ?? 3001;
@@ -66,12 +71,17 @@ const connectTokens = createConnectTokens(connectSecret);
 const slackConnectLink = (userId: string): string =>
   `${baseUrl}/api/oauth/slack/authorize?state=${encodeURIComponent(connectTokens.issue(userId))}`;
 
+// Remote MCP servers — one connection pool for the process, like the KB.
+const mcpServers = createMcpServerStore(userCapabilities);
+const mcpPool = createMcpClientPool({ logger });
+
 // ── Knowledge base (Postgres + pgvector + Vertex embeddings) ─────────────────
 // Constructed once (independent of Slack reconnects); tools reference it via a
 // late-binding closure so refreshRuntime rebuilds never recreate it.
 interface KbRuntime {
   indexer: KbIndexer;
-  buildTools: (userId: string) => Promise<ToolSet>;
+  workspaceKnowledge: () => Promise<ToolSet>;
+  myKnowledge: (userId: string) => Promise<ToolSet>;
   forgetUser: (userId: string) => Promise<void>;
   reactivate: (userId: string, source: "slack" | "gmail") => Promise<void>;
   routes: KbRoutesDeps;
@@ -135,7 +145,8 @@ if (pgPool && process.env.KB_ENABLED !== "0" && vertexProject) {
 
     kb = {
       indexer,
-      buildTools: (userId) => buildKbTools(userId, { store: kbStore, embedder, config, logger }),
+      workspaceKnowledge: () => buildWorkspaceKnowledgeTools({ store: kbStore, embedder, config, logger }),
+      myKnowledge: (userId) => buildMyKnowledgeTools(userId, { store: kbStore, embedder, config, logger }),
       forgetUser: (userId) => kbStore.forgetUser(userId),
       reactivate: async (userId, source) => {
         await kbStore.setIndexState({ scope: "private", userId, source, status: "active", backfillDone: false });
@@ -272,6 +283,22 @@ if (pgPool && process.env.KB_ENABLED !== "0" && vertexProject) {
 // ── Runtime that depends on config the console can change (model + tools).
 //    Rebuilt at startup and on reconnect so Setup edits take effect live. ──────
 let assistant: Assistant | null = null;
+type SlackBoltApp = import("@slack/bolt").App;
+let app: SlackBoltApp | null = null;
+let slackChannelTools: SlackChannelTools = { publicChannels: () => ({}), thisChannel: () => ({}) };
+/** Slack channel lookups; set once Slack connects. */
+let channelDirectory: ChannelDirectory | null = null;
+
+/** DMs a tino user through the bot — used for the "continue in DM" follow-up. */
+const slackMessenger: DirectMessenger = {
+  async sendToUser(userId, text) {
+    const user = await users.get(userId);
+    if (!user?.slackUserId || !app) throw new Error("user has no linked Slack account or Slack is offline");
+    const open = await app.client.conversations.open({ users: user.slackUserId });
+    if (!open.channel?.id) throw new Error("couldn't open a DM");
+    await app.client.chat.postMessage({ channel: open.channel.id, text: toSlackMrkdwn(text) });
+  },
+};
 
 async function refreshRuntime(): Promise<void> {
   // Read every config key once, falling back to env (dot key → UPPER_SNAKE).
@@ -297,15 +324,29 @@ async function refreshRuntime(): Promise<void> {
     logger.warn(`model not configured (provider=${get("model.provider") ?? "azure"}) — configure it in Setup`);
   }
 
-  const slackTools = await buildSlackTools(config, logger);
+  slackChannelTools = await buildSlackTools(config, logger);
   const tools = createToolProvider({
-    slackTools,
-    buildGoogle: (userId) => buildGoogleTools(userId, config, userCapabilities, logger),
-    buildSlackUser: (userId) => buildSlackUserTools(userId, config, userCapabilities, logger),
-    buildKb: (userId) => (kb ? kb.buildTools(userId) : Promise.resolve({})),
+    slack: () => slackChannelTools,
+    gmailAndCalendar: (userId) => buildGoogleTools(userId, userCapabilities, logger),
+    mySlackMessages: (userId) => buildSlackUserTools(userId, userCapabilities, logger),
+    myKnowledge: (userId) => (kb ? kb.myKnowledge(userId) : Promise.resolve({})),
+    workspaceKnowledge: () => (kb ? kb.workspaceKnowledge() : Promise.resolve({})),
+    mcp: (userId) => mcpToolGroups(userId, { servers: mcpServers, pool: mcpPool }),
+    logger,
   });
 
-  assistant = model ? createAssistant({ model, tools, history, users, logger }) : null;
+  assistant = model
+    ? createAssistant({
+        model,
+        tools,
+        conversations,
+        users,
+        config,
+        directory: () => channelDirectory,
+        messenger: () => (app ? slackMessenger : null),
+        logger,
+      })
+    : null;
 }
 
 await refreshRuntime();
@@ -314,13 +355,12 @@ await refreshRuntime();
 // assistant, or returns a friendly message when the model isn't configured yet.
 const NOT_CONFIGURED = "Tino's model isn't configured yet — set the Azure credentials in Setup.";
 const assistantFacade: Assistant = {
-  handleMessage: (userId, text) => (assistant ? assistant.handleMessage(userId, text) : Promise.resolve(NOT_CONFIGURED)),
+  handleMessage: (userId, text, surface) =>
+    assistant ? assistant.handleMessage(userId, text, surface) : Promise.resolve(NOT_CONFIGURED),
   reset: (userId) => (assistant ? assistant.reset(userId) : Promise.resolve(false)),
 };
 
 // ── Slack lifecycle ──────────────────────────────────────────────────────────
-type SlackBoltApp = import("@slack/bolt").App;
-let app: SlackBoltApp | null = null;
 
 async function reconnectSlack(): Promise<{ ok: boolean; error?: string }> {
   await refreshRuntime();
@@ -340,8 +380,9 @@ async function reconnectSlack(): Promise<{ ok: boolean; error?: string }> {
   }
 
   const slackClient = new WebClient(botToken);
+  channelDirectory = createSlackChannelDirectory(slackClient as unknown as SlackDirectoryClient, logger);
   const resolver = createIdentityResolver({ users, identities, slackClient, logger });
-  const senderResolver: SenderResolver = createSenderResolver({ resolver, users, identities, config, logger });
+  const senderResolver: SenderResolver = createSenderResolver({ resolver, users, config, logger });
 
   try {
     const nextApp = createSlackApp({
@@ -367,6 +408,7 @@ async function reconnectSlack(): Promise<{ ok: boolean; error?: string }> {
 const shutdown = async (signal: string): Promise<void> => {
   logger.info({ signal }, "tino stopping");
   kb?.indexer.stop();
+  await mcpPool.closeAll();
   try {
     consoleServer.close();
   } catch {
@@ -382,6 +424,27 @@ const shutdown = async (signal: string): Promise<void> => {
   process.exit(0);
 };
 
+/** Booleans only — what members may know about the deployment's configuration. */
+async function setupStatus() {
+  const has = async (key: string, envKey?: string): Promise<boolean> =>
+    !!(parseConfigValue(await config.get(key)) || (envKey ? process.env[envKey] : undefined));
+  const [botToken, appToken, slackClientId, slackClientSecret, googleId, googleSecret] = await Promise.all([
+    has("slack.botToken", "SLACK_BOT_TOKEN"),
+    has("slack.appToken", "SLACK_APP_TOKEN"),
+    has("slack.clientId", "SLACK_CLIENT_ID"),
+    has("slack.clientSecret", "SLACK_CLIENT_SECRET"),
+    has("google.oauth.clientId", "GOOGLE_OAUTH_CLIENT_ID"),
+    has("google.oauth.clientSecret", "GOOGLE_OAUTH_CLIENT_SECRET"),
+  ]);
+  return {
+    slack: botToken && appToken,
+    model: languageModel !== null,
+    slackConnect: slackClientId && slackClientSecret,
+    googleConnect: googleId && googleSecret,
+    kb: kb !== null,
+  };
+}
+
 // Console (setup + chat) — always starts, regardless of Slack status.
 const consoleServer = await startServer({
   config,
@@ -396,6 +459,9 @@ const consoleServer = await startServer({
   getGoogleRefreshToken,
   assistant: assistantFacade,
   connectTokens,
+  mcpServers,
+  mcpPool,
+  setupStatus,
   kbRoutes: kb ? (kb as KbRuntime).routes : undefined,
   kbReactivate: kb ? (userId: string, source: "slack" | "gmail") => (kb as KbRuntime).reactivate(userId, source) : undefined,
 });

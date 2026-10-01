@@ -4,7 +4,7 @@
  */
 import { webApi } from "@slack/bolt";
 import type { ToolSet } from "ai";
-import type { ConfigStore, Logger, UserCapabilityStore } from "../../../ports/outbound.js";
+import type { Logger, UserCapabilityStore } from "../../../ports/outbound.js";
 import { readUserCredentials } from "./credentials.js";
 import {
   slackListMyConversationsTool,
@@ -15,11 +15,10 @@ import {
 
 export async function buildSlackUserTools(
   userId: string,
-  configStore: ConfigStore,
   userCapabilities: UserCapabilityStore,
   logger: Logger,
 ): Promise<ToolSet> {
-  const cfg = await readUserCredentials(userId, "slack", configStore, userCapabilities);
+  const cfg = await readUserCredentials(userId, "slack", userCapabilities);
   const token = cfg?.credentials?.userToken;
   if (!token) return {};
 

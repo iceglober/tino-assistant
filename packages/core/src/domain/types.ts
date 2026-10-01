@@ -69,3 +69,23 @@ export interface CapabilityConfig {
  * a user we should serve, or they're rejected with a message to show them.
  */
 export type ResolveResult = { ok: true; userId: string } | { ok: false; message: string };
+
+// ── Channel replies ─────────────────────────────────────────────────────────
+
+/**
+ * Config key: who tino treats as the reader of a channel @mention. `workspace`
+ * (default): everyone in the channel, so only what they may all see is used.
+ * `asker`: just the person asking — their private context is used, and only an
+ * instruction to the model keeps it out of a reply the channel reads.
+ */
+export const CHANNEL_MENTION_POLICY_KEY = "slack.channelMentions";
+
+/** Conversation-log key for a channel thread. Everyone asking in the thread shares it. */
+export const channelThreadKey = (channelId: string, threadTs: string): string => `channel:${channelId}:${threadTs}`;
+
+/** Conversation-log key for one person's DM + web chat conversation. */
+export const directThreadKey = (userId: string): string => `direct:${userId}`;
+
+/** The channel id inside a channel thread key, or null for a direct thread. */
+export const channelOfThreadKey = (threadKey: string): string | null =>
+  threadKey.startsWith("channel:") ? (threadKey.split(":")[1] ?? null) : null;

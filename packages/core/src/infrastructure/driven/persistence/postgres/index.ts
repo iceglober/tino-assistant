@@ -1,5 +1,6 @@
 /**
- * Postgres persistence assembly: one pg Pool, ensure-DDL, the five stores, plus
+ * Postgres persistence assembly: one pg Pool, ensure-DDL (+ the one-time move
+ * of old history into the conversation log), the five stores, plus
  * the auth-DB handle better-auth uses directly (the same pool) and the raw
  * account-table read for Google credential sync.
  */
@@ -9,7 +10,7 @@ import type { Persistence } from "../factory.js";
 import { getGoogleRefreshTokenPg } from "./auth-account.js";
 import { createPgPool } from "./client.js";
 import { createPgConfigStore } from "./config.js";
-import { createPgHistoryStore } from "./history.js";
+import { createPgConversationLog, importOldHistoryOnce } from "./conversation-log.js";
 import { ensureSchema } from "./schema.js";
 import { createPgUserCapabilityStore } from "./user-capabilities.js";
 import { createPgIdentityStore, createPgUserStore } from "./users.js";
@@ -24,10 +25,11 @@ export async function createPgPersistence(env: Env, logger: Logger, cryptoAdapte
 
   const pool = createPgPool(env.DATABASE_URL);
   await ensureSchema(pool, logger);
+  await importOldHistoryOnce(pool, logger);
 
   logger.info({ adapter: "postgres" }, "persistence initialized");
   return {
-    history: createPgHistoryStore({ pool, cap: 40 }),
+    conversations: createPgConversationLog({ pool }),
     config: createPgConfigStore({ pool }),
     users: createPgUserStore({ pool }),
     identities: createPgIdentityStore({ pool }),

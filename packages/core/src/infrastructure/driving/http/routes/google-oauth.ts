@@ -8,7 +8,6 @@ import type { AuthVariables } from "../auth.js";
 const GOOGLE_SCOPES = [
   "https://www.googleapis.com/auth/gmail.readonly",
   "https://www.googleapis.com/auth/calendar.readonly",
-  "https://www.googleapis.com/auth/drive.appdata",
 ];
 
 /**
@@ -25,7 +24,7 @@ const GOOGLE_SCOPES = [
  */
 export function createGoogleOAuthRoutes(opts: {
   config: ConfigStore;
-  userCapabilities?: UserCapabilityStore;
+  userCapabilities: UserCapabilityStore;
   logger: Logger;
   baseUrl: string;
   /** Re-activate KB indexing for this user (fresh consent on reconnect). */
@@ -124,13 +123,8 @@ export function createGoogleOAuthRoutes(opts: {
         settings: { calendarId: "primary" },
       };
 
-      if (userCapabilities) {
-        await userCapabilities.set(user.id, "gmail", capConfig);
-        await userCapabilities.set(user.id, "calendar", calConfig);
-      } else {
-        await config.set(`user.${user.id}.capability.gmail`, capConfig);
-        await config.set(`user.${user.id}.capability.calendar`, calConfig);
-      }
+      await userCapabilities.set(user.id, "gmail", capConfig);
+      await userCapabilities.set(user.id, "calendar", calConfig);
 
       await kbReactivate?.(user.id, "gmail").catch(() => {});
       logger.info({ userId: user.id, email: user.email }, "Google OAuth connected — gmail + calendar capabilities stored");

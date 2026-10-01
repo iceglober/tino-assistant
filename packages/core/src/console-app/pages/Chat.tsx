@@ -1,6 +1,7 @@
 import { type JSX, useEffect, useRef, useState } from "react";
 import { useToast } from "../hooks/useToast.js";
-import { chatSend, type Session } from "../lib/api.js";
+import type { View } from "../App.js";
+import { chatSend, type Session, type SetupStatus } from "../lib/api.js";
 
 interface Msg {
   role: "user" | "tino";
@@ -14,15 +15,16 @@ interface Msg {
  */
 export function Chat({
   session,
+  status,
   signOut,
-  onSetup,
-  onKnowledge,
+  onNavigate,
 }: {
   session: Session;
+  status: SetupStatus;
   signOut: () => Promise<void>;
-  onSetup: () => void;
-  onKnowledge?: () => void;
+  onNavigate: (view: View) => void;
 }): JSX.Element {
+  const isAdmin = session.user.role === "admin";
   const toast = useToast();
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
@@ -67,17 +69,29 @@ export function Chat({
           <span className="logo-wordmark">tino</span>
         </div>
         <div className="chat-header-actions">
-          <a className="btn-ghost" href="/api/oauth/google/authorize">
-            connect Google
-          </a>
-          {onKnowledge ? (
-            <button className="btn-ghost" type="button" onClick={onKnowledge}>
+          {status.googleConnect ? (
+            <a className="btn-ghost" href="/api/oauth/google/authorize">
+              connect Google
+            </a>
+          ) : null}
+          {status.kb ? (
+            <button className="btn-ghost" type="button" onClick={() => onNavigate("knowledge")}>
               knowledge
             </button>
           ) : null}
-          <button className="btn-ghost" type="button" onClick={onSetup}>
-            settings
+          <button className="btn-ghost" type="button" onClick={() => onNavigate("tools")}>
+            tools
           </button>
+          {isAdmin ? (
+            <>
+              <button className="btn-ghost" type="button" onClick={() => onNavigate("users")}>
+                users
+              </button>
+              <button className="btn-ghost" type="button" onClick={() => onNavigate("setup")}>
+                settings
+              </button>
+            </>
+          ) : null}
           <span className="chat-email">{session.user.email}</span>
           <button className="btn-ghost" type="button" onClick={() => void signOut()}>
             sign out
@@ -90,6 +104,11 @@ export function Chat({
           <div className="chat-empty">
             <p>say hi to tino.</p>
             <p className="chat-empty-sub">ask about your inbox, calendar, or a Slack channel.</p>
+            {status.slackConnect ? (
+              <p className="chat-empty-sub">
+                to let tino read your own Slack DMs and private channels, DM it <code>connect</code> in Slack.
+              </p>
+            ) : null}
           </div>
         ) : (
           messages.map((m, i) => (

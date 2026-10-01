@@ -13,6 +13,7 @@
  *
  * Returns false (KB disabled) when pgvector/halfvec is unavailable.
  */
+import { SCHEMA_LOCK_KEY } from "../persistence/postgres/schema.js";
 import type { Logger } from "../../../ports/outbound.js";
 import type { PgPool } from "../persistence/postgres/client.js";
 
@@ -152,7 +153,9 @@ DELETE FROM kb_cycle_events WHERE at < now() - interval '${KB_EVENT_RETENTION_DA
 export async function ensureKbSchema(pool: PgPool, logger: Logger): Promise<boolean> {
   const client = await pool.connect();
   try {
-    await client.query("SELECT pg_advisory_lock($1)", [0x74696b62]); // "tikb"
+    // The same lock as the core schema: both run CREATE EXTENSION vector, and two
+    // concurrent CREATE EXTENSIONs fail one of them even with IF NOT EXISTS.
+    await client.query("SELECT pg_advisory_lock($1)", [SCHEMA_LOCK_KEY]);
     try {
       await client.query("CREATE EXTENSION IF NOT EXISTS vector");
       await client.query(DDL);
@@ -164,7 +167,7 @@ export async function ensureKbSchema(pool: PgPool, logger: Logger): Promise<bool
       return false;
     }
   } finally {
-    await client.query("SELECT pg_advisory_unlock($1)", [0x74696b62]).catch(() => {});
+    await client.query("SELECT pg_advisory_unlock($1)", [SCHEMA_LOCK_KEY]).catch(() => {});
     client.release();
   }
 }

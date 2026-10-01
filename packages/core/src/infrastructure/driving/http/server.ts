@@ -5,6 +5,8 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import { type Context, Hono } from "hono";
 import type { Assistant } from "../../../ports/inbound.js";
 import type { ConfigStore, IdentityStore, Logger, UserCapabilityStore, UserStore } from "../../../ports/outbound.js";
+import type { McpClientPool } from "../../driven/mcp/client-pool.js";
+import type { McpServerStore } from "../../driven/mcp/store.js";
 import type { ConnectTokens } from "../../security/connect-token.js";
 import { type AuthVariables, buildAuthMiddleware, createAuth } from "./auth.js";
 import { createChatRoutes } from "./routes/chat.js";
@@ -12,8 +14,11 @@ import { createConfigRoutes } from "./routes/config.js";
 import { createGoogleOAuthRoutes } from "./routes/google-oauth.js";
 import { createHealthRoutes } from "./routes/health.js";
 import { createKbRoutes, type KbRoutesDeps } from "./routes/kb.js";
+import { createMcpRoutes } from "./routes/mcp.js";
 import { createReloadRoutes } from "./routes/reload.js";
 import { createSlackOAuthRoutes } from "./routes/slack-oauth.js";
+import { createStatusRoutes, type SetupStatus } from "./routes/status.js";
+import { createUserRoutes } from "./routes/users.js";
 
 /**
  * Tino console HTTP server — Hono on `@hono/node-server`.
@@ -22,11 +27,16 @@ import { createSlackOAuthRoutes } from "./routes/slack-oauth.js";
  *   /api/health        → public liveness
  *   /api/auth/*        → better-auth handler (auth lives here)
  *   /api/me            → the signed-in tino user
- *   /api/config*       → auth-gated config CRUD (Slack/Azure/Google keys)
+ *   /api/status        → what's configured, as booleans (any signed-in user)
+ *   /api/config*       → config CRUD incl. secrets (admin)
+ *   /api/users*        → invite, promote, suspend; join policy (admin)
+ *   /api/mcp/*         → remote MCP servers (workspace: admin; personal: self)
  *   /api/oauth/google  → connect Google (per-user)
- *   /api/reload/slack  → reconnect Slack with the latest config
+ *   /api/oauth/slack   → connect Slack (per-user, signed connect-token link)
+ *   /api/reload/slack  → reconnect Slack with the latest config (admin)
  *   /api/chat          → message Tino from the browser
- *   /*                 → the built React SPA (Login / Setup / Chat)
+ *   /api/kb/*          → knowledge base status + browse
+ *   /*                 → the built React SPA
  */
 export interface StartServerOptions {
   config: ConfigStore;
@@ -34,9 +44,9 @@ export interface StartServerOptions {
   port?: number;
   reconnectSlack?: () => Promise<{ ok: boolean; error?: string }>;
   shutdown?: (signal: string) => Promise<void> | void;
-  identities?: IdentityStore;
-  users?: UserStore;
-  userCapabilities?: UserCapabilityStore;
+  identities: IdentityStore;
+  users: UserStore;
+  userCapabilities: UserCapabilityStore;
   /** DB handle for better-auth (pg Pool or bun:sqlite Database) — Persistence.authDatabase. */
   authDatabase: unknown;
   /** Reads better-auth's stored Google refresh token — Persistence.getGoogleRefreshToken. */
@@ -45,6 +55,11 @@ export interface StartServerOptions {
   assistant: Assistant;
   /** Signs/verifies the connect tokens carried by the bot-DM'd Slack OAuth link. */
   connectTokens?: ConnectTokens;
+  /** Remote MCP server configs + connections. */
+  mcpServers: McpServerStore;
+  mcpPool: McpClientPool;
+  /** What's configured (booleans only) — for members, who can't read config. */
+  setupStatus: () => Promise<SetupStatus>;
   /** KB console endpoints (status + browse). Absent → KB disabled. */
   kbRoutes?: KbRoutesDeps;
   /** Re-activate KB indexing after a user re-connects (fresh consent). */
@@ -70,6 +85,9 @@ export async function startServer(opts: StartServerOptions): Promise<StartedServ
     connectTokens,
     kbRoutes,
     kbReactivate,
+    mcpServers,
+    mcpPool,
+    setupStatus,
   } = opts;
   const port = opts.port ?? 3001;
   const startTime = Date.now();
@@ -154,7 +172,10 @@ export async function startServer(opts: StartServerOptions): Promise<StartedServ
   app.get("/api/me", (c) => c.json(c.get("user") ?? null));
 
   app.route("/api/health", createHealthRoutes({ startTime, isAuthConfigured: () => !!authRef.current }));
+  app.route("/api/status", createStatusRoutes({ status: setupStatus }));
   app.route("/api/config", createConfigRoutes({ config, logger }));
+  app.route("/api/users", createUserRoutes({ users, identities, userCapabilities, config, logger }));
+  app.route("/api/mcp", createMcpRoutes({ servers: mcpServers, pool: mcpPool, logger }));
   app.route("/api/chat", createChatRoutes({ assistant, logger }));
   app.route(
     "/api/reload",

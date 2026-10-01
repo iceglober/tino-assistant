@@ -37,7 +37,7 @@ const successHtml = `<!doctype html><html><head><meta charset="utf-8"><title>Sla
 
 export function createSlackOAuthRoutes(opts: {
   config: ConfigStore;
-  userCapabilities?: UserCapabilityStore;
+  userCapabilities: UserCapabilityStore;
   identities?: IdentityStore;
   connectTokens: ConnectTokens;
   logger: Logger;
@@ -105,8 +105,7 @@ export function createSlackOAuthRoutes(opts: {
         credentials: { userToken, slackUserId },
         settings: {},
       };
-      if (userCapabilities) await userCapabilities.set(userId, "slack", capConfig);
-      else await config.set(`user.${userId}.capability.slack`, capConfig);
+      await userCapabilities.set(userId, "slack", capConfig);
 
       // Link the Slack identity to this tino user (ignore if already linked).
       if (identities) {

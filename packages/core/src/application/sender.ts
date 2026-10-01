@@ -5,12 +5,11 @@
  */
 import type { ResolveResult } from "../domain/types.js";
 import type { SenderResolver } from "../ports/inbound.js";
-import type { ConfigStore, IdentityResolver, IdentityStore, Logger, UserStore } from "../ports/outbound.js";
+import type { ConfigStore, IdentityResolver, Logger, UserStore } from "../ports/outbound.js";
 
 export interface SenderDeps {
   resolver: IdentityResolver;
   users: UserStore;
-  identities: IdentityStore;
   config: ConfigStore;
   logger: Logger;
 }
@@ -25,7 +24,7 @@ function parseConfigJson(raw: string | null): string | undefined {
 }
 
 export function createSenderResolver(deps: SenderDeps): SenderResolver {
-  const { resolver, users, identities, config, logger } = deps;
+  const { resolver, users, config, logger } = deps;
 
   return {
     async resolveSlack(slackUserId: string): Promise<ResolveResult> {
@@ -57,42 +56,40 @@ export function createSenderResolver(deps: SenderDeps): SenderResolver {
 
       const mode = rawMode ? (JSON.parse(rawMode) as string) : effectiveDomain ? "org-domain" : "allowlist";
 
-      if (mode === "allowlist") {
-        return { ok: false, message: "i don't recognize you. ask your admin to add you to tino." };
-      }
-
       try {
-        const newUser = await resolver.provisionFromSlack(slackUserId, { mode: "org-domain", orgDomain: effectiveDomain });
-        logger.info({ tinoUserId: newUser.id, slackUserId }, "auto-provisioned user via org-domain");
-        return { ok: true, userId: newUser.id };
+        // Links an invited/existing account by Slack profile email in either
+        // mode; only org-domain mode may create a brand-new account.
+        const linked = await resolver.provisionFromSlack(
+          slackUserId,
+          mode === "allowlist" ? { mode: "allowlist" } : { mode: "org-domain", orgDomain: effectiveDomain },
+        );
+        if (linked.status === "suspended") {
+          return { ok: false, message: "your access to tino has been revoked. ask your admin if this is a mistake." };
+        }
+        if (linked.status === "invited") {
+          await users.update(linked.id, { status: "active" });
+          logger.info({ tinoUserId: linked.id, slackUserId }, "invited user activated on first DM");
+        }
+        logger.info({ tinoUserId: linked.id, slackUserId, mode }, "slack sender linked to tino user");
+        return { ok: true, userId: linked.id };
       } catch (err) {
         const msg = (err as Error).message;
         if (msg === "unknown_user" || msg === "domain_mismatch") {
-          // Bootstrap fallback: exactly one active user without a Slack identity → link them.
-          const allUsers = await users.list();
-          const unlinkedFromSlack = allUsers.filter((u) => u.status === "active" && !u.slackUserId);
-          logger.info(
-            { totalUsers: allUsers.length, unlinkedCount: unlinkedFromSlack.length, provisionError: msg },
-            "slack provision failed, checking bootstrap fallback",
-          );
-
-          if (unlinkedFromSlack.length === 1 && unlinkedFromSlack[0]) {
-            const sole = unlinkedFromSlack[0];
-            await identities.link({ provider: "slack", externalId: slackUserId, tinoUserId: sole.id, linkedAt: Date.now() });
-            await users.update(sole.id, { slackUserId });
-            logger.info({ tinoUserId: sole.id, slackUserId }, "linked slack identity to sole unlinked user (bootstrap)");
-            return { ok: true, userId: sole.id };
-          }
-
-          if (allUsers.length === 0) {
+          // Never guess who an unverified sender is: linking them to some
+          // existing account (say, the only one without a Slack link) would hand
+          // a stranger that person's mail and history.
+          if ((await users.list()).length === 0) {
             logger.warn({ slackUserId }, "DM received but no users exist — admin must sign in via console first");
             return { ok: false, message: "tino isn't set up yet. an admin needs to sign in at the console first." };
           }
-
-          return {
-            ok: false,
-            message: "i couldn't verify your identity. try signing in at the tino console to connect your Slack account.",
-          };
+          logger.info({ slackUserId, mode, reason: msg }, "slack sender not admitted");
+          return mode === "allowlist"
+            ? { ok: false, message: "i don't recognize you. ask your admin to invite you to tino." }
+            : {
+                ok: false,
+                message:
+                  "i couldn't match your Slack account to anyone allowed to use tino. ask your admin to invite your Slack email.",
+              };
         }
         throw err;
       }

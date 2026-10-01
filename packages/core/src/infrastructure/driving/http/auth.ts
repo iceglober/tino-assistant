@@ -9,7 +9,6 @@ import type { Logger } from "../../../ports/outbound.js";
 const GOOGLE_CAPABILITY_SCOPES = [
   "https://www.googleapis.com/auth/gmail.readonly",
   "https://www.googleapis.com/auth/calendar.readonly",
-  "https://www.googleapis.com/auth/drive.appdata",
 ];
 
 /**
@@ -216,13 +215,19 @@ export function buildAuthMiddleware(opts: {
         if (tinoUser.status === "suspended") {
           return c.json({ error: "forbidden", message: "your access has been revoked" }, 403);
         }
+        // An admin invited this address; signing in is what accepts the invite.
+        const current =
+          tinoUser.status === "invited"
+            ? await users.update(tinoUser.id, { status: "active", name: tinoUser.name ?? session.user.name ?? undefined })
+            : tinoUser;
+        if (tinoUser.status === "invited") logger.info({ tinoUserId: tinoUser.id }, "invited user activated on console sign-in");
         c.set("user", {
-          id: tinoUser.id,
-          email: tinoUser.email,
-          name: tinoUser.name ?? session.user.name,
-          role: tinoUser.role,
-          status: tinoUser.status,
-          slackUserId: tinoUser.slackUserId,
+          id: current.id,
+          email: current.email,
+          name: current.name ?? session.user.name,
+          role: current.role,
+          status: current.status,
+          slackUserId: current.slackUserId,
         });
         await syncGoogleCredentials(tinoUser.id, session.user.id);
         await next();
@@ -244,12 +249,16 @@ export function buildAuthMiddleware(opts: {
         orgDomain = allowedDomain;
       }
 
+      // A fresh install with no domain configured has no other way in: the
+      // first person to sign in becomes the admin. With a domain configured,
+      // the org-domain rule below decides (and the first match is the admin).
+      const existingUsers = await users.list();
       const shouldAutoProvision =
         localDev ||
+        (existingUsers.length === 0 && !orgDomain) ||
         (mode === "org-domain" && orgDomain && email.endsWith(`@${orgDomain}`));
 
       if (shouldAutoProvision) {
-        const existingUsers = await users.list();
         const hasAdmin = existingUsers.some((u) => u.role === "admin");
         const role = hasAdmin ? "member" : "admin";
         const provider = localDev ? "email" : "google";
@@ -299,3 +308,14 @@ export function buildAuthMiddleware(opts: {
     await next();
   };
 }
+
+/**
+ * Gate a route group to admins. Members get 403; no session gets 401. Used for
+ * everything that exposes or changes deployment-wide settings and secrets.
+ */
+export const requireAdmin: MiddlewareHandler<{ Variables: AuthVariables }> = async (c, next) => {
+  const user = c.get("user");
+  if (!user) return c.json({ error: "unauthorized" }, 401);
+  if (user.role !== "admin") return c.json({ error: "forbidden", message: "admins only" }, 403);
+  await next();
+};

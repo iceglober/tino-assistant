@@ -1,14 +1,14 @@
 import { Hono } from "hono";
 import type { Logger } from "../../../../ports/outbound.js";
-import type { AuthVariables } from "../auth.js";
+import { type AuthVariables, requireAdmin } from "../auth.js";
 
 /**
  * /api/reload — hot-reload endpoints so Setup edits take effect without a restart.
  *
- *   POST /slack → reconnectSlack callback; returns { ok, error? }
+ *   POST /slack → reconnectSlack callback; returns { ok, error? } (admin)
  *   POST /auth  → reloadAuth callback; returns { ok, error? }
  *                 Unauthenticated during first boot (no auth configured yet);
- *                 once auth is running it requires a signed-in user.
+ *                 once auth is running it requires an admin.
  *
  * User-visible failures (bad tokens, unreachable Slack) return HTTP 200 with
  * `{ ok: false, error }` so the console shows a toast; genuine server bugs 500.
@@ -24,8 +24,7 @@ export function createReloadRoutes(
   const app = new Hono<{ Variables: AuthVariables }>();
   const { reconnectSlack, reloadAuth, isAuthConfigured, logger } = opts;
 
-  app.post("/slack", async (c) => {
-    if (!c.get("user")) return c.json({ error: "unauthorized" }, 401);
+  app.post("/slack", requireAdmin, async (c) => {
     if (!reconnectSlack) return c.json({ ok: false, error: "slack reload not wired" }, 501);
     try {
       const result = await reconnectSlack();
@@ -40,9 +39,11 @@ export function createReloadRoutes(
 
   app.post("/auth", async (c) => {
     if (!reloadAuth) return c.json({ ok: false, error: "auth reload not wired" }, 501);
-    // First boot (no auth configured) is open; once auth runs, require a user.
-    if (isAuthConfigured?.() && !c.get("user")) {
-      return c.json({ error: "unauthorized" }, 401);
+    // First boot (no auth configured) is open; once auth runs, require an admin.
+    if (isAuthConfigured?.()) {
+      const user = c.get("user");
+      if (!user) return c.json({ error: "unauthorized" }, 401);
+      if (user.role !== "admin") return c.json({ error: "forbidden", message: "admins only" }, 403);
     }
     try {
       const result = await reloadAuth();

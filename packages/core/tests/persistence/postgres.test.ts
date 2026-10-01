@@ -13,7 +13,11 @@ import { LocalAdapter } from "../../src/infrastructure/driven/crypto/local-adapt
 import { getGoogleRefreshTokenPg } from "../../src/infrastructure/driven/persistence/postgres/auth-account.js";
 import { createPgPool } from "../../src/infrastructure/driven/persistence/postgres/client.js";
 import { createPgConfigStore } from "../../src/infrastructure/driven/persistence/postgres/config.js";
-import { createPgHistoryStore } from "../../src/infrastructure/driven/persistence/postgres/history.js";
+import {
+  createPgConversationLog,
+  importOldHistoryOnce,
+} from "../../src/infrastructure/driven/persistence/postgres/conversation-log.js";
+import { membersOfChannel, onlyUser, onlyUserInChannel } from "../../src/domain/who-can-see.js";
 import { ensureSchema } from "../../src/infrastructure/driven/persistence/postgres/schema.js";
 import { createPgUserCapabilityStore } from "../../src/infrastructure/driven/persistence/postgres/user-capabilities.js";
 import { createPgIdentityStore, createPgUserStore } from "../../src/infrastructure/driven/persistence/postgres/users.js";
@@ -30,7 +34,8 @@ describe.skipIf(!DB_URL)("postgres persistence adapters", () => {
   beforeAll(async () => {
     await ensureSchema(pool, noopLogger);
     // Dedicated local test DB — truncate for a deterministic run.
-    await pool.query("TRUNCATE config, user_capability, conversation, identity, tino_user CASCADE");
+    await pool.query("TRUNCATE config, user_capability, conversation_message, identity, tino_user CASCADE");
+    await pool.query("DROP TABLE IF EXISTS conversation, conversation_before_log");
   });
 
   afterAll(async () => {
@@ -67,20 +72,81 @@ describe.skipIf(!DB_URL)("postgres persistence adapters", () => {
     expect(await config.delete("test.key")).toBe(false);
   });
 
-  it("history: append, trim to cap, reset", async () => {
-    const history = createPgHistoryStore({ pool, cap: 4 });
-    const uid = `hist-${globalThis.crypto.randomUUID()}`;
-    expect(await history.get(uid)).toEqual([]);
+  it("conversation log: order, labels, threads, asker, trim, clear", async () => {
+    const log = createPgConversationLog({ pool, keepPerThread: 3 });
+    const thread = `direct:${globalThis.crypto.randomUUID()}`;
+    const other = `channel:C1:${Date.now()}`;
+    const asker = `u-${globalThis.crypto.randomUUID()}`;
+    const row = (threadKey: string, text: string, whoCanSee = onlyUser(asker)) => ({
+      threadKey,
+      turnId: "t",
+      askedBy: asker,
+      askedWhere: "slack_dm" as const,
+      whoCanSee,
+      role: "user" as const,
+      text,
+      message: { role: "user", content: text },
+      createdAt: Date.now(),
+    });
 
-    for (let i = 0; i < 6; i++) {
-      await history.append(uid, [{ role: "user", content: `m${i}` }]);
-    }
-    const msgs = (await history.get(uid)) as Array<{ content: string }>;
-    expect(msgs).toHaveLength(4); // trimmed to cap
-    expect(msgs[msgs.length - 1]?.content).toBe("m5");
+    for (let i = 0; i < 5; i++) await log.append([row(thread, `m${i}`)]);
+    await log.append([row(other, "in channel", onlyUserInChannel(asker, "C1"))]);
 
-    await history.reset(uid);
-    expect(await history.get(uid)).toEqual([]);
+    const rows = await log.recentInThread(thread, 10);
+    expect(rows.map((r) => r.text)).toEqual(["m2", "m3", "m4"]); // trimmed to 3, oldest first
+    expect(rows[0]?.whoCanSee).toEqual(onlyUser(asker));
+    expect(rows[0]?.message).toEqual({ role: "user", content: "m2" });
+    expect((await log.recentAskedBy(asker, 10)).map((r) => r.text)).toEqual(["m2", "m3", "m4", "in channel"]);
+    expect((await log.recentInThread(other, 10))[0]?.whoCanSee).toEqual(onlyUserInChannel(asker, "C1"));
+
+    await log.clearThread(thread);
+    expect(await log.recentInThread(thread, 10)).toEqual([]);
+    expect(await log.recentInThread(other, 10)).toHaveLength(1);
+  });
+
+  it("conversation log: stores text with NUL escapes (why message_json is TEXT)", async () => {
+    const log = createPgConversationLog({ pool });
+    const threadKey = `direct:${globalThis.crypto.randomUUID()}`;
+    await log.append([
+      {
+        threadKey,
+        turnId: "t",
+        askedBy: "u",
+        askedWhere: "slack_dm",
+        whoCanSee: onlyUser("u"),
+        role: "tool",
+        text: null,
+        message: { role: "tool", content: "a\u0000b" },
+        createdAt: Date.now(),
+      },
+    ]);
+    expect((await log.recentInThread(threadKey, 1))[0]?.message).toEqual({ role: "tool", content: "a\u0000b" });
+  });
+
+  it("imports the old conversation table once, then renames it", async () => {
+    await pool.query("CREATE TABLE conversation (user_id TEXT PRIMARY KEY, messages_json TEXT NOT NULL, updated_at BIGINT NOT NULL)");
+    const uid = globalThis.crypto.randomUUID();
+    await pool.query("INSERT INTO conversation VALUES ($1, $2, $3), ($4, $5, $6)", [
+      uid,
+      JSON.stringify([{ role: "user", content: "old" }, { role: "assistant", content: "reply" }]),
+      1_000_000,
+      "channel:CX:9.0",
+      JSON.stringify([{ role: "user", content: "thread" }]),
+      1_000_000,
+    ]);
+
+    await importOldHistoryOnce(pool, noopLogger);
+    await importOldHistoryOnce(pool, noopLogger); // no-op the second time
+
+    const log = createPgConversationLog({ pool });
+    const dm = await log.recentInThread(`direct:${uid}`, 10);
+    expect(dm.map((r) => r.role)).toEqual(["user", "assistant"]);
+    expect(dm[0]?.whoCanSee).toEqual(onlyUser(uid));
+    expect((await log.recentInThread("channel:CX:9.0", 10))[0]?.whoCanSee).toEqual(membersOfChannel("CX"));
+    const tables = await pool.query<{ t: string | null }>(
+      "SELECT to_regclass('public.conversation') AS t UNION ALL SELECT to_regclass('public.conversation_before_log')",
+    );
+    expect(tables.rows.map((r) => r.t)).toEqual([null, "conversation_before_log"]);
   });
 
   it("users: create/get/getByEmail (case-insensitive)/list/update", async () => {

@@ -15,8 +15,6 @@ RUN cd packages/core && \
 
 FROM oven/bun:1 AS runner
 WORKDIR /app
-# Node.js needed for npx to spawn MCP stdio servers
-RUN apt-get update && apt-get install -y --no-install-recommends nodejs npm && rm -rf /var/lib/apt/lists/*
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/packages/core/node_modules ./packages/core/node_modules
 COPY package.json ./

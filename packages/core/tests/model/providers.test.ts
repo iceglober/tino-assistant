@@ -10,7 +10,7 @@ describe("resolveModelConfig", () => {
   it("returns null when the selected provider is unconfigured", () => {
     expect(resolveModelConfig(getter({}))).toBeNull(); // defaults to azure, no keys
     expect(resolveModelConfig(getter({ "model.provider": "openai" }))).toBeNull();
-    expect(resolveModelConfig(getter({ "model.provider": "bedrock", "bedrock.region": "us-east-1" }))).toBeNull();
+    expect(resolveModelConfig(getter({ "model.provider": "bedrock" }))).toBeNull(); // unknown provider
   });
 
   it("azure requires key + deployment + (resourceName OR baseURL)", () => {
@@ -23,16 +23,13 @@ describe("resolveModelConfig", () => {
     ).toMatchObject({ provider: "azure" });
   });
 
-  it("resolves openai / anthropic / bedrock", () => {
+  it("resolves openai / anthropic", () => {
     expect(
       resolveModelConfig(getter({ "model.provider": "openai", "openai.apiKey": "k", "openai.model": "gpt-4o" })),
     ).toMatchObject({ provider: "openai", model: "gpt-4o" });
     expect(
       resolveModelConfig(getter({ "model.provider": "anthropic", "anthropic.apiKey": "k", "anthropic.model": "claude" })),
     ).toMatchObject({ provider: "anthropic", model: "claude" });
-    expect(
-      resolveModelConfig(getter({ "model.provider": "bedrock", "bedrock.region": "us-east-1", "bedrock.modelId": "m" })),
-    ).toMatchObject({ provider: "bedrock", region: "us-east-1", modelId: "m" });
   });
 });
 
@@ -42,7 +39,6 @@ describe("buildChatModel", () => {
       { provider: "azure", apiKey: "k", resourceName: "r", deployment: "d" },
       { provider: "openai", apiKey: "k", model: "gpt-4o" },
       { provider: "anthropic", apiKey: "k", model: "claude" },
-      { provider: "bedrock", region: "us-east-1", modelId: "m" },
     ];
     for (const s of settings) {
       expect(typeof buildChatModel(s).reply).toBe("function");
